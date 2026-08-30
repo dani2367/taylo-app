@@ -1,5 +1,4 @@
-import { DMSans_300Light, DMSans_500Medium, DMSans_600SemiBold } from '@expo-google-fonts/dm-sans';
-import { DMSerifDisplay_400Regular } from '@expo-google-fonts/dm-serif-display';
+import { colors, fontAssets } from '@/constants/theme';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -10,15 +9,8 @@ import 'react-native-reanimated';
 
 SplashScreen.preventAutoHideAsync();
 
-const ROSE = '#C9917A';
-
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts({
-    DMSerifDisplay_400Regular,
-    DMSans_300Light,
-    DMSans_500Medium,
-    DMSans_600SemiBold,
-  });
+  const [fontsLoaded] = useFonts(fontAssets);
 
   useEffect(() => {
     if (fontsLoaded) {
@@ -27,12 +19,12 @@ export default function RootLayout() {
   }, [fontsLoaded]);
 
   if (!fontsLoaded) {
-    return <View style={{ flex: 1, backgroundColor: ROSE }} />;
+    return <View style={{ flex: 1, backgroundColor: colors.rose }} />;
   }
 
   return (
     <>
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: ROSE } }}>
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.rose } }}>
         <Stack.Screen name="index" />
       </Stack>
       <StatusBar style="light" />

@@ -3,7 +3,31 @@
  * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
  */
 
+import { DMSans_300Light, DMSans_500Medium, DMSans_600SemiBold } from '@expo-google-fonts/dm-sans';
+import { DMSerifDisplay_400Regular } from '@expo-google-fonts/dm-serif-display';
 import { Platform } from 'react-native';
+
+export const colors = {
+  rose: '#C9917A',
+  roseDark: '#A86E58',
+  white: '#fff',
+  whiteOutline: 'rgba(255,255,255,0.55)',
+  transparent: 'transparent',
+};
+
+export const fonts = {
+  serif: 'DMSerifDisplay_400Regular',
+  sansLight: 'DMSans_300Light',
+  sansMedium: 'DMSans_500Medium',
+  sansSemiBold: 'DMSans_600SemiBold',
+};
+
+export const fontAssets = {
+  DMSerifDisplay_400Regular,
+  DMSans_300Light,
+  DMSans_500Medium,
+  DMSans_600SemiBold,
+};
 
 const tintColorLight = '#0a7ea4';
 const tintColorDark = '#fff';
