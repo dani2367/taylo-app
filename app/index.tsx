@@ -1,4 +1,5 @@
 import { colors, fonts } from '@/constants/theme';
+import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -13,7 +14,7 @@ export default function SplashScreen() {
       </View>
       <View style={[styles.bottom, { paddingBottom: Math.max(insets.bottom, 30) }]}>
         <Text style={styles.cta}>Let's get started</Text>
-        <Pressable style={styles.primaryBtn} onPress={() => {}}>
+        <Pressable style={styles.primaryBtn} onPress={() => router.push('/signup')}>
           <Text style={styles.primaryBtnText}>Sign up</Text>
         </Pressable>
         <Pressable style={styles.outlineBtn} onPress={() => {}}>

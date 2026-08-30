@@ -26,6 +26,7 @@ export default function RootLayout() {
     <>
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.rose } }}>
         <Stack.Screen name="index" />
+        <Stack.Screen name="signup" options={{ contentStyle: { backgroundColor: colors.cream } }} />
       </Stack>
       <StatusBar style="light" />
     </>
