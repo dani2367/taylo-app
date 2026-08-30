@@ -2,11 +2,14 @@ import { signupStyles as s } from '@/components/signup/styles';
 import { colors, fonts } from '@/constants/theme';
 import {
   cap,
+  completeSignup,
   emptyKid,
   expandSteps,
   extraChipLabel,
   initialSignupState,
   parseExtra,
+  SIGNUP_STEPS_START,
+  validEmail,
   type Kid,
   type SignupState,
   type SignupStep,
@@ -15,6 +18,7 @@ import {
 import { router } from 'expo-router';
 import { createElement, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   KeyboardAvoidingView,
   Platform,
@@ -43,7 +47,7 @@ const CONNS = [
 export default function SignupScreen() {
   const insets = useSafeAreaInsets();
   const [state, setState] = useState<SignupState>(initialSignupState);
-  const [steps, setSteps] = useState<SignupStep[]>(['name', 'type']);
+  const [steps, setSteps] = useState<SignupStep[]>(SIGNUP_STEPS_START);
   const [index, setIndex] = useState(0);
   const [shakeKey, setShakeKey] = useState<string | null>(null);
   const [continuePressed, setContinuePressed] = useState(false);
@@ -51,6 +55,8 @@ export default function SignupScreen() {
   const [extraText, setExtraText] = useState('');
   const [focused, setFocused] = useState<string | null>(null);
   const [partnerForcedOn, setPartnerForcedOn] = useState<boolean | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const step = steps[index];
   const showBack = index > 0;
@@ -58,7 +64,7 @@ export default function SignupScreen() {
   const showSkip = step === 'connect' || step === 'extra';
   const skipLabel = step === 'extra' ? 'Skip — finish setup' : 'Skip for now';
   const showContinue = step !== 'type';
-  const continueLabel = step === 'summary' ? 'Take me to Taylo →' : 'Continue';
+  const continueLabel = submitting ? 'Creating your account…' : step === 'summary' ? 'Take me to Taylo →' : 'Continue';
   const partnerToggleOn =
     partnerForcedOn !== null ? partnerForcedOn : state.userType === 'partner' || !!state.partner;
 
@@ -80,10 +86,29 @@ export default function SignupScreen() {
   }
 
   function goBack() {
+    if (submitting) return;
+    setSubmitError(null);
     if (index > 0) setIndex(index - 1);
   }
 
   function onContinue() {
+    if (step === 'account') {
+      const email = state.email.trim();
+      const password = state.password;
+      const emailOk = validEmail(email);
+      const passwordOk = !!password && password.length >= 8;
+      if (!emailOk) {
+        shake('email');
+        return;
+      }
+      if (!passwordOk) {
+        shake('password');
+        return;
+      }
+      setState((prev) => ({ ...prev, email }));
+      goNext();
+      return;
+    }
     if (step === 'name') {
       const fn = state.name.trim();
       if (!fn) {
@@ -119,7 +144,22 @@ export default function SignupScreen() {
       return;
     }
     if (step === 'summary') {
-      router.replace('/');
+      if (submitting) return;
+      setSubmitError(null);
+      setSubmitting(true);
+      void completeSignup(state)
+        .then((result) => {
+          setSubmitting(false);
+          if (!result.ok) {
+            setSubmitError(result.message);
+            return;
+          }
+          router.replace('/');
+        })
+        .catch(() => {
+          setSubmitting(false);
+          setSubmitError('Something went wrong. Check your connection and try again.');
+        });
       return;
     }
     goNext();
@@ -167,7 +207,7 @@ export default function SignupScreen() {
         <Pressable
           style={[s.back, !showBack && s.backHidden]}
           onPress={goBack}
-          disabled={!showBack}
+          disabled={!showBack || submitting}
           hitSlop={8}>
           <Text style={s.backText}>←</Text>
         </Pressable>
@@ -181,11 +221,61 @@ export default function SignupScreen() {
         contentContainerStyle={s.body}
         keyboardShouldPersistTaps="handled"
         key={step}>
-        {step === 'name' ? (
+        {step === 'account' ? (
           <>
             <Text style={s.eyebrow}>Welcome to Taylo</Text>
+            <Text style={s.title}>Create your account</Text>
+            <Text style={s.sub}>Start with an email and password.</Text>
+            <View style={s.field}>
+              <Text style={s.label}>Email</Text>
+              <Animated.View style={shakeKey === 'email' ? { transform: [{ translateX: shakeX }] } : undefined}>
+                <TextInput
+                  style={[s.input, focused === 'email' && s.inputFocused, shakeKey === 'email' && s.inputShake]}
+                  placeholder="e.g. dani@email.com"
+                  placeholderTextColor={colors.textHint}
+                  value={state.email}
+                  autoFocus
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="email-address"
+                  textContentType="emailAddress"
+                  autoComplete="email"
+                  onFocus={() => setFocused('email')}
+                  onBlur={() => setFocused(null)}
+                  onChangeText={(email) => setState((p) => ({ ...p, email }))}
+                />
+              </Animated.View>
+            </View>
+            <View style={s.field}>
+              <Text style={s.label}>Password</Text>
+              <Animated.View
+                style={shakeKey === 'password' ? { transform: [{ translateX: shakeX }] } : undefined}>
+                <TextInput
+                  style={[
+                    s.input,
+                    focused === 'password' && s.inputFocused,
+                    shakeKey === 'password' && s.inputShake,
+                  ]}
+                  placeholder="At least 8 characters"
+                  placeholderTextColor={colors.textHint}
+                  value={state.password}
+                  secureTextEntry
+                  textContentType="newPassword"
+                  autoComplete="password-new"
+                  onFocus={() => setFocused('password')}
+                  onBlur={() => setFocused(null)}
+                  onChangeText={(password) => setState((p) => ({ ...p, password }))}
+                />
+              </Animated.View>
+            </View>
+          </>
+        ) : null}
+
+        {step === 'name' ? (
+          <>
+            <Text style={s.eyebrow}>About you</Text>
             <Text style={s.title}>What should we call you?</Text>
-            <Text style={s.sub}>Let's start with your name.</Text>
+            <Text style={s.sub}>Your first and last name.</Text>
             <View style={s.field}>
               <Text style={s.label}>First name</Text>
               <Animated.View style={shakeKey === 'first' ? { transform: [{ translateX: shakeX }] } : undefined}>
@@ -421,6 +511,11 @@ export default function SignupScreen() {
             <Text style={[s.sub, s.subAfter]}>
               You can add school details, medical notes and more from the Family page any time.
             </Text>
+            {submitError ? (
+              <View style={s.errorBanner} accessibilityLiveRegion="polite">
+                <Text style={s.errorBannerText}>{submitError}</Text>
+              </View>
+            ) : null}
           </>
         ) : null}
       </ScrollView>
@@ -433,11 +528,19 @@ export default function SignupScreen() {
         ) : null}
         {showContinue ? (
           <Pressable
-            style={[s.continue, continuePressed && { transform: [{ scale: 0.98 }] }]}
+            style={[s.continue, (continuePressed || submitting) && { transform: [{ scale: 0.98 }] }, submitting && s.continueDisabled]}
+            disabled={submitting}
             onPressIn={() => setContinuePressed(true)}
             onPressOut={() => setContinuePressed(false)}
             onPress={onContinue}>
-            <Text style={s.continueText}>{continueLabel}</Text>
+            {submitting ? (
+              <View style={s.continueInner}>
+                <ActivityIndicator color={colors.white} size="small" />
+                <Text style={s.continueText}>{continueLabel}</Text>
+              </View>
+            ) : (
+              <Text style={s.continueText}>{continueLabel}</Text>
+            )}
           </Pressable>
         ) : null}
       </View>

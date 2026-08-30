@@ -1,6 +1,9 @@
+import { supabase } from '@/lib/supabase';
+
 export type UserType = 'solo' | 'partner' | 'family' | 'expecting';
 
 export type SignupStep =
+  | 'account'
   | 'name'
   | 'type'
   | 'kids'
@@ -8,6 +11,8 @@ export type SignupStep =
   | 'connect'
   | 'extra'
   | 'summary';
+
+export const SIGNUP_STEPS_START: SignupStep[] = ['account', 'name', 'type'];
 
 export type Kid = {
   name: string;
@@ -27,6 +32,8 @@ export type ExtraItem = {
 export type SignupState = {
   name: string;
   lastName: string;
+  email: string;
+  password: string;
   kids: Kid[];
   partner: string;
   partnerInvited: boolean;
@@ -40,6 +47,8 @@ export const emptyKid = (): Kid => ({ name: '', birthday: '', age: null, school:
 export const initialSignupState = (): SignupState => ({
   name: '',
   lastName: '',
+  email: '',
+  password: '',
   kids: [emptyKid()],
   partner: '',
   partnerInvited: false,
@@ -51,6 +60,10 @@ export const initialSignupState = (): SignupState => ({
 export function cap(s: string) {
   const t = (s || '').trim();
   return t ? t.charAt(0).toUpperCase() + t.slice(1).toLowerCase() : t;
+}
+
+export function validEmail(s: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((s || '').trim());
 }
 
 export function expandSteps(userType: UserType, currentIndex: number, steps: SignupStep[]): SignupStep[] {
@@ -91,6 +104,143 @@ export function parseExtra(txt: string): ExtraItem {
     isDay,
     sub,
   };
+}
+
+export type CompleteSignupResult = { ok: true } | { ok: false; message: string };
+
+const EMAIL_IN_USE = 'That email is already in use. Try signing in, or use a different email.';
+const CONFIRM_EMAIL =
+  'Account created, but you need to confirm your email before we can finish setup. Check your inbox, then try again.';
+
+function isEmailTakenMessage(message: string) {
+  const m = message.toLowerCase();
+  return (
+    m.includes('already registered') ||
+    m.includes('already been registered') ||
+    m.includes('user already exists') ||
+    m.includes('email address is already')
+  );
+}
+
+function friendlyAuthMessage(message: string) {
+  if (isEmailTakenMessage(message) || message.toLowerCase().includes('invalid login credentials')) {
+    return EMAIL_IN_USE;
+  }
+  if (message.toLowerCase().includes('email not confirmed')) {
+    return CONFIRM_EMAIL;
+  }
+  return message || 'Something went wrong. Please try again.';
+}
+
+async function signInExisting(
+  email: string,
+  password: string,
+): Promise<{ ok: true; userId: string } | { ok: false; message: string }> {
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error || !data.user) {
+    return { ok: false, message: friendlyAuthMessage(error?.message || EMAIL_IN_USE) };
+  }
+  return { ok: true, userId: data.user.id };
+}
+
+type FamilyMemberInsert = {
+  user_id: string;
+  role: 'child' | 'partner';
+  first_name: string;
+  last_name?: string | null;
+  birthday?: string | null;
+  school?: string | null;
+  invited?: boolean;
+};
+
+export async function completeSignup(state: SignupState): Promise<CompleteSignupResult> {
+  try {
+    const email = state.email.trim();
+    const password = state.password;
+    const first_name = state.name.trim();
+    const last_name = state.lastName.trim();
+
+  const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { first_name, last_name } },
+  });
+
+  const duplicateIdentities = (signUpData.user?.identities?.length ?? 1) === 0;
+  let userId: string | undefined;
+
+  if (signUpError) {
+    if (!isEmailTakenMessage(signUpError.message)) {
+      return { ok: false, message: friendlyAuthMessage(signUpError.message) };
+    }
+    const existing = await signInExisting(email, password);
+    if (!existing.ok) return existing;
+    userId = existing.userId;
+  } else if (duplicateIdentities) {
+    const existing = await signInExisting(email, password);
+    if (!existing.ok) return { ok: false, message: EMAIL_IN_USE };
+    userId = existing.userId;
+  } else if (!signUpData.user) {
+    return { ok: false, message: 'Could not create your account. Please try again.' };
+  } else if (!signUpData.session) {
+    return { ok: false, message: CONFIRM_EMAIL };
+  } else {
+    userId = signUpData.user.id;
+  }
+
+  if (!userId) {
+    return { ok: false, message: 'Could not create your account. Please try again.' };
+  }
+
+  const { error: profileError } = await supabase.from('profiles').upsert({
+    id: userId,
+    first_name,
+    last_name,
+    family_setup_type: state.userType,
+    onboarding_completed_at: new Date().toISOString(),
+  });
+
+  if (profileError) {
+    return { ok: false, message: profileError.message };
+  }
+
+  const members: FamilyMemberInsert[] = [];
+
+  for (const kid of state.kids) {
+    const name = kid.name.trim();
+    if (!name) continue;
+    members.push({
+      user_id: userId,
+      role: 'child',
+      first_name: name,
+      birthday: kid.birthday.trim() || null,
+      school: kid.school.trim() || null,
+    });
+  }
+
+  const partnerName = state.partner.trim();
+  if (partnerName) {
+    members.push({
+      user_id: userId,
+      role: 'partner',
+      first_name: partnerName,
+      invited: state.partnerInvited,
+    });
+  }
+
+  if (members.length) {
+    await supabase.from('family_members').delete().eq('user_id', userId);
+    const { error: membersError } = await supabase.from('family_members').insert(members);
+    if (membersError) {
+      return { ok: false, message: membersError.message };
+    }
+  }
+
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Something went wrong. Please try again.';
+    return { ok: false, message };
+  }
 }
 
 export function extraChipLabel(title: string) {

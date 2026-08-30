@@ -401,9 +401,32 @@ export const signupStyles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
   },
+  continueDisabled: {
+    opacity: 0.7,
+  },
+  continueInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   continueText: {
     color: colors.white,
     fontSize: 11.5,
     fontFamily: fonts.sansSemiBold,
+  },
+  errorBanner: {
+    marginTop: 12,
+    backgroundColor: colors.roseLight,
+    borderWidth: 1.5,
+    borderColor: colors.rose,
+    borderRadius: 11,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  errorBannerText: {
+    fontSize: 10,
+    fontFamily: fonts.sansMedium,
+    color: colors.roseDeep,
+    lineHeight: 10 * 1.5,
   },
 });
