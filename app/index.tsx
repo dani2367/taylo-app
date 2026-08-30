@@ -17,7 +17,7 @@ export default function SplashScreen() {
         <Pressable style={styles.primaryBtn} onPress={() => router.push('/signup')}>
           <Text style={styles.primaryBtnText}>Sign up</Text>
         </Pressable>
-        <Pressable style={styles.outlineBtn} onPress={() => {}}>
+        <Pressable style={styles.outlineBtn} onPress={() => router.push('/signin')}>
           <Text style={styles.outlineBtnText}>Sign in</Text>
         </Pressable>
       </View>

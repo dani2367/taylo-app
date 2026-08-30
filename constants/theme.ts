@@ -43,6 +43,17 @@ export const colors = {
   switchOn: '#25D366',
   choiceShadow: 'rgba(169,90,60,0.12)',
   knobShadow: 'rgba(0,0,0,0.2)',
+  tabShadow: 'rgba(60,30,15,0.09)',
+  headerPill: 'rgba(255,255,255,0.15)',
+  headerStat: 'rgba(255,255,255,0.95)',
+  drawerScrim: 'rgba(30,15,10,0.35)',
+  drawerShadow: 'rgba(30,15,10,0.2)',
+  blueDeep: '#0C447C',
+  blueMid: '#185FA5',
+  amberDeep: '#633806',
+  amberMid: '#854F0B',
+  blueProgBorder: 'rgba(74,104,128,0.3)',
+  amberProgBorder: 'rgba(154,122,58,0.3)',
 };
 
 export const fonts = {
