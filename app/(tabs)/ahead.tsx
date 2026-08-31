@@ -2,7 +2,6 @@ import { useChat } from '@/components/app/ChatProvider';
 import { appStyles as s } from '@/components/app/styles';
 import {
   aheadNoticedText,
-  demoAhead,
   demoChecklists,
   genericAheadChips,
   genericAheadOpener,
@@ -11,8 +10,9 @@ import {
   type Checklist,
 } from '@/lib/demo-data';
 import { colors, fonts } from '@/constants/theme';
+import { supabase } from '@/lib/supabase';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 
 const headColors = {
@@ -21,7 +21,47 @@ const headColors = {
   amber: { bg: colors.amberLight, title: colors.amberDeep, sub: colors.amberMid, progBg: colors.amberLight, progFg: colors.amber, progBorder: colors.amberProgBorder },
 };
 
+type AheadRow = {
+  id: string;
+  title: string | null;
+  sub: string | null;
+  subtitle: string | null;
+  day: string | number | null;
+  month: string | null;
+  date: string | null;
+  item_date: string | null;
+  opener: string | null;
+  chips: AheadItem['chips'] | null;
+  email_card: boolean | null;
+};
+
+const shortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function mapAhead(row: AheadRow): AheadItem {
+  const rawDate = row.date || row.item_date;
+  let day = row.day != null ? String(row.day) : '';
+  let month = row.month || '';
+  if ((!day || !month) && rawDate) {
+    const d = new Date(rawDate);
+    if (!Number.isNaN(d.getTime())) {
+      if (!day) day = String(d.getDate());
+      if (!month) month = shortMonths[d.getMonth()];
+    }
+  }
+  return {
+    id: row.id,
+    day: day || '—',
+    month,
+    title: row.title || 'Upcoming',
+    sub: row.sub || row.subtitle || '',
+    opener: row.opener || undefined,
+    chips: row.chips || undefined,
+    emailCard: !!row.email_card,
+  };
+}
+
 export default function AheadScreen() {
+  const [aheadItems, setAheadItems] = useState<AheadItem[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [aheadDone, setAheadDone] = useState<Record<string, boolean>>({});
   const [openLists, setOpenLists] = useState<Record<string, boolean>>({});
@@ -35,6 +75,20 @@ export default function AheadScreen() {
     return init;
   });
   const { openItem, openGeneral, send } = useChat();
+
+  useEffect(() => {
+    async function load() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data } = await supabase.from('ahead_items').select('*').eq('user_id', user.id);
+      setAheadItems((data as AheadRow[] | null)?.map(mapAhead) ?? []);
+    }
+
+    load();
+  }, []);
 
   function openAheadChat(item: AheadItem) {
     const { icon, text } = splitIconTitle(item.title);
@@ -86,7 +140,12 @@ export default function AheadScreen() {
       </View>
 
       <Text style={s.slabel}>Coming up</Text>
-      {demoAhead.map((item) => {
+      {aheadItems.length === 0 ? (
+        <View style={s.emptyState}>
+          <Text style={s.emptyStateText}>No upcoming items yet</Text>
+        </View>
+      ) : (
+        aheadItems.map((item) => {
         const isOpen = !!expanded[item.id];
         const isDone = !!aheadDone[item.id];
         const { text } = splitIconTitle(item.title);
@@ -136,7 +195,8 @@ export default function AheadScreen() {
             </View>
           </Pressable>
         );
-      })}
+      })
+      )}
 
       <Text style={s.slabel}>Your checklists ✅</Text>
       <Text style={s.clHint}>Taylo creates these when it spots something coming up. Tap to work through them.</Text>
