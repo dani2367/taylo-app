@@ -1,8 +1,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
-const TENANT_ID = '9db2fda9-4cfc-467e-9853-910fae5ccd4c';
 const CLIENT_ID = 'f976566d-39c1-48bc-b140-e7a5a727afd5';
-const TOKEN_ENDPOINT = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`;
+const TOKEN_ENDPOINT = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -57,12 +56,19 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'Missing code or redirect_uri' }, 400);
     }
 
+    if (!code_verifier) {
+      return json({ error: 'Missing code_verifier' }, 400);
+    }
+
+    // Do not send `scope` here. Microsoft treats token-request scopes as a
+    // re-authorization; extra OIDC scopes (openid/profile/email) that were not
+    // on the authorize request cause AADSTS70000 for personal accounts.
     const tokenParams = new URLSearchParams({
       client_id: CLIENT_ID,
       code,
       redirect_uri,
       grant_type: 'authorization_code',
-      ...(code_verifier ? { code_verifier } : {}),
+      code_verifier,
     });
 
     const tokenRes = await fetch(TOKEN_ENDPOINT, {
@@ -84,7 +90,14 @@ Deno.serve(async (req: Request) => {
         grant_type: 'authorization_code',
         client_id: CLIENT_ID,
       });
-      return json({ error: 'Token exchange failed' }, 502);
+      let microsoftError = tokenResBody;
+      try {
+        const parsed = JSON.parse(tokenResBody) as { error_description?: string; error?: string };
+        microsoftError = parsed.error_description ?? parsed.error ?? tokenResBody;
+      } catch {
+        // keep raw body
+      }
+      return json({ error: 'Token exchange failed', details: microsoftError }, 502);
     }
 
     const tokens = JSON.parse(tokenResBody) as {

@@ -6,18 +6,23 @@ import * as AuthSession from 'expo-auth-session';
 import { makeRedirectUri, useAuthRequest } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 
 WebBrowser.maybeCompleteAuthSession();
 
 const MICROSOFT_CLIENT_ID = 'f976566d-39c1-48bc-b140-e7a5a727afd5';
-const MICROSOFT_TENANT_ID = '9db2fda9-4cfc-467e-9853-910fae5ccd4c';
 const OUTLOOK_AUTH_URL = 'https://fbffbenebwgmmtmnumux.supabase.co/functions/v1/outlook-auth';
+const MICROSOFT_SCOPES = [
+  'openid',
+  'offline_access',
+  'https://graph.microsoft.com/Mail.Read',
+  'https://graph.microsoft.com/Calendars.Read',
+];
 
 const discovery = {
-  authorizationEndpoint: `https://login.microsoftonline.com/${MICROSOFT_TENANT_ID}/oauth2/v2.0/authorize`,
-  tokenEndpoint: `https://login.microsoftonline.com/${MICROSOFT_TENANT_ID}/oauth2/v2.0/token`,
+  authorizationEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+  tokenEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
 };
 
 function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
@@ -44,26 +49,32 @@ export default function ConnectionsScreen() {
   const [request, response, promptAsync] = useAuthRequest(
     {
       clientId: MICROSOFT_CLIENT_ID,
-      scopes: ['Mail.Read', 'Calendars.Read', 'offline_access'],
+      scopes: MICROSOFT_SCOPES,
       redirectUri,
       responseType: AuthSession.ResponseType.Code,
       codeChallengeMethod: AuthSession.CodeChallengeMethod.S256,
+      usePKCE: true,
+      prompt: AuthSession.Prompt.Consent,
     },
     discovery,
   );
 
-  const [codeVerifier, setCodeVerifier] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (request?.codeVerifier) {
-      setCodeVerifier(request.codeVerifier);
-    }
-  }, [request]);
+  const codeVerifierRef = useRef<string | null>(null);
+  const exchangedCodeRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (response?.type !== 'success') return;
 
     const { code } = response.params;
+    if (!code || exchangedCodeRef.current === code) return;
+
+    const codeVerifier = codeVerifierRef.current;
+    if (!codeVerifier) {
+      Alert.alert('Connection failed', 'Missing PKCE verifier. Please try connecting again.');
+      return;
+    }
+
+    exchangedCodeRef.current = code;
 
     (async () => {
       setOutlookLoading(true);
@@ -75,11 +86,9 @@ export default function ConnectionsScreen() {
         console.log('[outlook-auth] Edge Function request', {
           url: OUTLOOK_AUTH_URL,
           hasJwt: Boolean(jwt),
-          body: requestBody,
-          code,
           redirectUri,
           codeLength: typeof code === 'string' ? code.length : null,
-          redirectUriType: typeof redirectUri,
+          verifierLength: codeVerifier.length,
         });
 
         const res = await fetch(OUTLOOK_AUTH_URL, {
@@ -95,23 +104,29 @@ export default function ConnectionsScreen() {
         console.log('[outlook-auth] Edge Function response', {
           ok: res.ok,
           status: res.status,
-          statusText: res.statusText,
-          headers: Object.fromEntries(res.headers.entries()),
           body: responseText,
         });
 
         if (!res.ok) {
-          throw new Error(responseText);
+          let message = responseText;
+          try {
+            const parsed = JSON.parse(responseText) as { details?: string; error?: string };
+            message = parsed.details ?? parsed.error ?? responseText;
+          } catch {
+            // keep raw body
+          }
+          throw new Error(message);
         }
 
         setOutlook(true);
       } catch (e: unknown) {
+        exchangedCodeRef.current = null;
         Alert.alert('Connection failed', e instanceof Error ? e.message : 'Something went wrong.');
       } finally {
         setOutlookLoading(false);
       }
     })();
-  }, [response]);
+  }, [response, redirectUri]);
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={s.screen}>
@@ -153,7 +168,10 @@ export default function ConnectionsScreen() {
               <Pressable
                 style={[s.connAlsoBtn, outlook && s.connAlsoBtnOn]}
                 disabled={!request || outlookLoading || outlook}
-                onPress={() => promptAsync()}>
+                onPress={() => {
+                  codeVerifierRef.current = request?.codeVerifier ?? null;
+                  void promptAsync();
+                }}>
                 <Text style={[s.connAlsoBtnText, outlook && s.connAlsoBtnTextOn]}>
                   {outlookLoading ? 'Connecting…' : outlook ? '✓ Outlook' : '💌 Outlook'}
                 </Text>
