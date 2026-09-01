@@ -1,81 +1,133 @@
 import { useChat } from '@/components/app/ChatProvider';
 import { appStyles as s, iconBg } from '@/components/app/styles';
-import { type Nudge } from '@/lib/demo-data';
+import { colors } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
+import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+
+type NudgeStatus = 'open' | 'done' | 'delegated';
 
 type NudgeRow = {
   id: string;
   title: string | null;
   body: string | null;
-  src: string | null;
-  source: string | null;
-  icon: string | null;
-  cls: string | null;
+  category: string | null;
+  action_description: string | null;
+  due_date: string | null;
+  who_it_affects: string | null;
+  urgency_level: string | null;
   urgent: boolean | null;
-  badge: string | null;
-  opener: string | null;
-  chips: Nudge['chips'] | null;
-  actions: Nudge['actions'] | null;
+  status: NudgeStatus | null;
+  source_email_subject: string | null;
 };
 
-const clsFallback: Nudge['cls'] = 'rose';
+type NudgeCard = {
+  id: string;
+  title: string;
+  body: string;
+  category: string;
+  categoryLabel: string;
+  urgent: boolean;
+  icon: string;
+  cls: keyof typeof iconBg;
+  opener: string;
+  src: string;
+};
 
-function mapNudge(row: NudgeRow): Nudge {
-  const cls = (row.cls as Nudge['cls']) || clsFallback;
+const categoryMeta: Record<string, { icon: string; cls: keyof typeof iconBg; label: string }> = {
+  school: { icon: '📚', cls: 'blue', label: 'School' },
+  medical: { icon: '🏥', cls: 'teal', label: 'Medical' },
+  activity: { icon: '🎭', cls: 'purple', label: 'Activity' },
+  delivery: { icon: '📦', cls: 'amber', label: 'Delivery' },
+  returns: { icon: '↩️', cls: 'rose', label: 'Returns' },
+  financial: { icon: '💳', cls: 'green', label: 'Financial' },
+};
+
+function formatCategory(category: string | null) {
+  const key = (category || '').toLowerCase();
+  if (categoryMeta[key]) return categoryMeta[key];
+  if (!category) return { icon: '📌', cls: 'rose' as const, label: 'Nudge' };
+  return {
+    icon: '📌',
+    cls: 'rose' as const,
+    label: category.charAt(0).toUpperCase() + category.slice(1),
+  };
+}
+
+function mapNudge(row: NudgeRow): NudgeCard {
+  const meta = formatCategory(row.category);
+  const title = row.title || 'Nudge';
+  const body = row.body || '';
   return {
     id: row.id,
+    title,
+    body,
+    category: row.category || '',
+    categoryLabel: meta.label,
     urgent: !!row.urgent,
-    icon: row.icon || '📌',
-    cls: cls in iconBg ? cls : clsFallback,
-    badge: row.badge,
-    title: row.title || 'Nudge',
-    src: row.src || row.source || '',
-    body: row.body || '',
-    opener: row.opener || row.body || '',
-    chips: row.chips || [],
-    actions: row.actions || [{ t: '✓ Done', cls: 'bd' }],
+    icon: meta.icon,
+    cls: meta.cls,
+    opener: row.action_description || body,
+    src: row.source_email_subject || meta.label,
   };
 }
 
 export default function TodayScreen() {
-  const [done, setDone] = useState<Record<string, boolean>>({});
-  const [nudges, setNudges] = useState<Nudge[]>([]);
+  const [nudges, setNudges] = useState<NudgeCard[]>([]);
+  const [loading, setLoading] = useState(true);
   const { openItem } = useChat();
 
-  useEffect(() => {
-    async function load() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: nudgeRows } = await supabase.from('nudges').select('*').eq('user_id', user.id);
-      setNudges((nudgeRows as NudgeRow[] | null)?.map(mapNudge) ?? []);
+  const load = useCallback(async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      setNudges([]);
+      setLoading(false);
+      return;
     }
 
-    load();
+    const { data } = await supabase
+      .from('nudges')
+      .select(
+        'id, title, body, category, action_description, due_date, who_it_affects, urgency_level, urgent, status, source_email_subject',
+      )
+      .eq('user_id', user.id)
+      .eq('status', 'open')
+      .order('urgent', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    setNudges((data as NudgeRow[] | null)?.map(mapNudge) ?? []);
+    setLoading(false);
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load]),
+  );
 
   const urgentCount = nudges.filter((n) => n.urgent).length;
 
-  function onAction(nudge: Nudge, cls: string) {
-    if (cls === 'bdelegate') {
-      Alert.alert('Sent!', "They'll get a notification ✉️");
-      return;
+  async function setStatus(nudge: NudgeCard, status: Exclude<NudgeStatus, 'open'>) {
+    setNudges((prev) => prev.filter((n) => n.id !== nudge.id));
+    const { error } = await supabase.from('nudges').update({ status }).eq('id', nudge.id);
+    if (error) {
+      setNudges((prev) =>
+        [...prev, nudge].sort((a, b) => Number(b.urgent) - Number(a.urgent)),
+      );
     }
-    setDone((prev) => ({ ...prev, [nudge.id]: true }));
   }
 
-  function onChat(nudge: Nudge) {
+  function onChat(nudge: NudgeCard) {
     openItem(nudge.id, {
       icon: nudge.icon,
       title: nudge.title,
       sub: nudge.src,
       opener: nudge.opener,
-      chips: nudge.chips,
+      chips: [],
     });
     router.push('/chat');
   }
@@ -92,65 +144,40 @@ export default function TodayScreen() {
         </Text>
       </View>
       <Text style={s.slabel}>Needs your attention</Text>
-      {nudges.length === 0 ? (
+      {loading ? (
+        <View style={s.emptyState}>
+          <ActivityIndicator color={colors.rose} />
+        </View>
+      ) : nudges.length === 0 ? (
         <View style={s.emptyState}>
           <Text style={s.emptyStateText}>Nothing needs your attention right now ✨</Text>
         </View>
       ) : (
-        nudges.map((n) => {
-          const isDone = !!done[n.id];
-          return (
-            <View key={n.id} style={[s.nudge, n.urgent && s.nudgeUrgent, isDone && s.nudgeDone]}>
-              {n.badge ? (
-                <View style={s.ubadge}>
-                  <Text style={s.ubadgeText}>{n.badge}</Text>
-                </View>
-              ) : null}
-              {n.src ? <Text style={s.nsrc}>{n.src}</Text> : null}
-              <View style={s.nrow}>
-                <View style={[s.nicon, { backgroundColor: iconBg[n.cls] }]}>
-                  <Text style={s.niconText}>{n.icon}</Text>
-                </View>
-                <View style={s.ncopy}>
-                  <Text style={[s.ntitle, isDone && s.ntitleDone]}>{n.title}</Text>
-                  <Text style={s.nbody}>{n.body}</Text>
-                </View>
+        nudges.map((n) => (
+          <View key={n.id} style={[s.nudge, n.urgent && s.nudgeUrgent]}>
+            <Text style={s.nsrc}>{n.categoryLabel}</Text>
+            <View style={s.nrow}>
+              <View style={[s.nicon, { backgroundColor: iconBg[n.cls] }]}>
+                <Text style={s.niconText}>{n.icon}</Text>
               </View>
-              <View style={s.nactions}>
-                {isDone ? (
-                  <Text style={s.sorted}>✓ Sorted — nice one!</Text>
-                ) : (
-                  <>
-                    {n.actions.map((a) => (
-                      <Pressable
-                        key={a.t}
-                        style={[
-                          s.pill,
-                          a.cls === 'bd' && s.pillTeal,
-                          a.cls === 'bg' && s.pillGray,
-                          a.cls === 'bdelegate' && s.pillDelegate,
-                        ]}
-                        onPress={() => onAction(n, a.cls)}>
-                        <Text
-                          style={[
-                            s.pillText,
-                            a.cls === 'bd' && s.pillTextTeal,
-                            a.cls === 'bg' && s.pillTextMuted,
-                            a.cls === 'bdelegate' && s.pillTextBlue,
-                          ]}>
-                          {a.t}
-                        </Text>
-                      </Pressable>
-                    ))}
-                    <Pressable style={[s.pill, s.pillChat]} onPress={() => onChat(n)}>
-                      <Text style={[s.pillText, s.pillTextChat]}>💬 Chat</Text>
-                    </Pressable>
-                  </>
-                )}
+              <View style={s.ncopy}>
+                <Text style={s.ntitle}>{n.title}</Text>
+                <Text style={s.nbody}>{n.body}</Text>
               </View>
             </View>
-          );
-        })
+            <View style={s.nactions}>
+              <Pressable style={[s.pill, s.pillTeal]} onPress={() => setStatus(n, 'done')}>
+                <Text style={[s.pillText, s.pillTextTeal]}>✓ Done</Text>
+              </Pressable>
+              <Pressable style={[s.pill, s.pillDelegate]} onPress={() => setStatus(n, 'delegated')}>
+                <Text style={[s.pillText, s.pillTextBlue]}>Delegate</Text>
+              </Pressable>
+              <Pressable style={[s.pill, s.pillChat]} onPress={() => onChat(n)}>
+                <Text style={[s.pillText, s.pillTextChat]}>💬 Chat</Text>
+              </Pressable>
+            </View>
+          </View>
+        ))
       )}
     </ScrollView>
   );

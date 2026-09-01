@@ -22,7 +22,11 @@ export function AppHeader() {
 
       const [{ data: profile }, { count }] = await Promise.all([
         supabase.from('profiles').select('first_name').eq('id', user.id).maybeSingle(),
-        supabase.from('nudges').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase
+          .from('nudges')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('status', 'open'),
       ]);
 
       if (profile?.first_name) setFirstName(profile.first_name);
