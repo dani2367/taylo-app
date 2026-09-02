@@ -67,15 +67,40 @@ Deno.serve(async (req: Request) => {
       auth: { persistSession: false },
     });
 
-    const nowIso = new Date().toISOString();
-    const { data: connections, error: connectionsError } = await supabase
+    let initial_sync = false;
+    let targetUserId: string | undefined;
+    try {
+      const body = (await req.json()) as { initial_sync?: boolean; user_id?: string };
+      initial_sync = Boolean(body?.initial_sync);
+      targetUserId = typeof body?.user_id === 'string' ? body.user_id : undefined;
+    } catch {
+      // Scheduled invocations may have an empty body.
+    }
+
+    const windowDays = initial_sync ? 14 : 7;
+    const unreadOnly = !initial_sync;
+
+    let connectionsQuery = supabase
       .from('connections')
       .select('user_id, refresh_token')
       .eq('provider', 'microsoft')
-      .gt('expires_at', nowIso);
+      .not('refresh_token', 'is', null);
+
+    if (initial_sync) {
+      if (targetUserId) {
+        connectionsQuery = connectionsQuery.eq('user_id', targetUserId);
+      }
+    } else {
+      connectionsQuery = connectionsQuery.eq('initial_sync_done', true);
+    }
+
+    const { data: connections, error: connectionsError } = await connectionsQuery;
 
     if (connectionsError) {
       console.error('Failed to load connections:', connectionsError.message);
+      if (initial_sync && targetUserId) {
+        await setInitialSyncDone(supabase, targetUserId, false);
+      }
       return json({ error: 'Failed to load connections' }, 500);
     }
 
@@ -84,39 +109,53 @@ Deno.serve(async (req: Request) => {
     for (const connection of (connections ?? []) as Connection[]) {
       if (!connection.refresh_token || !connection.user_id) continue;
 
-      let emails: GraphEmail[] = [];
+      console.log('Syncing user:', connection.user_id);
+
       try {
         const accessToken = await getFreshAccessToken(
           supabase,
           connection.user_id,
           connection.refresh_token,
         );
-        emails = await fetchUnreadEmails(accessToken);
+        const emails = await fetchEmails(accessToken, { unreadOnly, windowDays });
         console.log('Emails fetched:', emails.length);
+
+        for (const email of emails) {
+          try {
+            const created = await processEmail(
+              supabase,
+              anthropicKey,
+              connection.user_id,
+              email,
+              windowDays,
+            );
+            stats.processed += 1;
+            if (created) stats.created += 1;
+            else stats.skipped += 1;
+          } catch (err) {
+            stats.errors += 1;
+            console.error('Failed to process email:', {
+              user_id: connection.user_id,
+              subject: email.subject,
+              error: err,
+            });
+          }
+        }
+
+        if (initial_sync) {
+          await setInitialSyncDone(supabase, connection.user_id, true);
+        }
       } catch (err) {
         stats.errors += 1;
         console.error('Failed to fetch emails for user:', connection.user_id, err);
-        continue;
-      }
-
-      for (const email of emails) {
-        try {
-          const created = await processEmail(supabase, anthropicKey, connection.user_id, email);
-          stats.processed += 1;
-          if (created) stats.created += 1;
-          else stats.skipped += 1;
-        } catch (err) {
-          stats.errors += 1;
-          console.error('Failed to process email:', {
-            user_id: connection.user_id,
-            subject: email.subject,
-            error: err,
-          });
+        if (initial_sync) {
+          console.error('Initial Outlook backfill failed for user:', connection.user_id, err);
+          await setInitialSyncDone(supabase, connection.user_id, false);
         }
       }
     }
 
-    return json({ success: true, ...stats });
+    return json({ success: true, initial_sync, ...stats });
   } catch (err) {
     console.error('Unhandled error:', err);
     return json({ error: 'Internal server error' }, 500);
@@ -128,8 +167,9 @@ async function processEmail(
   anthropicKey: string,
   userId: string,
   email: GraphEmail,
+  windowDays: number,
 ): Promise<boolean> {
-  if (shouldDropEmail(email)) return false;
+  if (shouldDropEmail(email, windowDays)) return false;
 
   const sender = email.sender?.emailAddress?.address ?? '';
   const subject = email.subject ?? '';
@@ -153,13 +193,13 @@ async function processEmail(
     return false;
   }
 
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const windowStart = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
   const { data: existing, error: dupError } = await supabase
     .from('nudges')
     .select('id')
     .eq('user_id', userId)
     .eq('source_email_subject', subject)
-    .gte('created_at', sevenDaysAgo)
+    .gte('created_at', windowStart)
     .limit(1);
 
   if (dupError) {
@@ -190,11 +230,11 @@ async function processEmail(
   return true;
 }
 
-function shouldDropEmail(email: GraphEmail): boolean {
+function shouldDropEmail(email: GraphEmail, windowDays: number): boolean {
   const sender = (email.sender?.emailAddress?.address ?? '').toLowerCase();
   const subject = (email.subject ?? '').toLowerCase();
   const received = email.receivedDateTime ? new Date(email.receivedDateTime) : null;
-  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const windowStart = Date.now() - windowDays * 24 * 60 * 60 * 1000;
 
   if (SENDER_BLOCKLIST.some((token) => sender.includes(token))) {
     console.log('Dropping email:', email.subject, 'reason: sender');
@@ -204,7 +244,7 @@ function shouldDropEmail(email: GraphEmail): boolean {
     console.log('Dropping email:', email.subject, 'reason: subject');
     return true;
   }
-  if (received && received.getTime() < sevenDaysAgo) {
+  if (received && received.getTime() < windowStart) {
     console.log('Dropping email:', email.subject, 'reason: age');
     return true;
   }
@@ -232,7 +272,6 @@ async function getFreshAccessToken(
 
   const body = await res.text();
   console.log('Microsoft token refresh status:', res.status);
-  console.log('Microsoft token refresh body:', body);
 
   if (!res.ok) {
     throw new Error(`Microsoft token refresh failed (${res.status}): ${body}`);
@@ -267,11 +306,35 @@ async function getFreshAccessToken(
   return tokens.access_token;
 }
 
-async function fetchUnreadEmails(accessToken: string): Promise<GraphEmail[]> {
-  console.log('Step 1: fetchUnreadEmails called, token length:', accessToken?.length);
+async function setInitialSyncDone(
+  supabase: SupabaseClient,
+  userId: string,
+  done: boolean,
+): Promise<void> {
+  const { error } = await supabase
+    .from('connections')
+    .update({ initial_sync_done: done, updated_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .eq('provider', 'microsoft');
 
+  if (error) {
+    console.error('Failed to update initial_sync_done:', error.message);
+  }
+}
+
+async function fetchEmails(
+  accessToken: string,
+  options: { unreadOnly: boolean; windowDays: number },
+): Promise<GraphEmail[]> {
+  console.log('Step 1: fetchEmails called, token length:', accessToken?.length);
+
+  const since = new Date(Date.now() - options.windowDays * 24 * 60 * 60 * 1000).toISOString();
+  const filter = options.unreadOnly
+    ? `isRead eq false and receivedDateTime ge ${since}`
+    : `receivedDateTime ge ${since}`;
+  const top = options.unreadOnly ? 5 : 50;
   const url =
-    'https://graph.microsoft.com/v1.0/me/messages?$top=5&$orderby=receivedDateTime desc&$select=sender,subject,bodyPreview,receivedDateTime,parentFolderId';
+    `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=${top}&$orderby=receivedDateTime desc&$select=sender,subject,bodyPreview,receivedDateTime,parentFolderId&$filter=${encodeURIComponent(filter)}`;
   console.log('Step 2: calling URL:', url);
   console.log('Auth header preview:', `Bearer ${accessToken}`.slice(0, 30), '...', `Bearer ${accessToken}`.slice(-10));
 

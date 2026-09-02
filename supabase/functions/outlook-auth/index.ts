@@ -128,6 +128,15 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'Failed to store connection' }, 500);
     }
 
+    fetch(`${supabaseUrl}/functions/v1/outlook-sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${serviceRoleKey}`,
+      },
+      body: JSON.stringify({ initial_sync: true, user_id: user.id }),
+    });
+
     return json({ success: true });
   } catch (err) {
     console.error('Unhandled error:', err);
