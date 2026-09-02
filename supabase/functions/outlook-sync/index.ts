@@ -48,10 +48,13 @@ type Connection = {
   refresh_token: string;
 };
 
+const EMAIL_BODY_MAX_CHARS = 3000;
+
 type GraphEmail = {
   sender?: { emailAddress?: { address?: string; name?: string } };
   subject?: string;
   bodyPreview?: string;
+  body?: { contentType?: string; content?: string };
   receivedDateTime?: string;
   parentFolderId?: string;
 };
@@ -211,6 +214,25 @@ async function processEmail(
   const sender = email.sender?.emailAddress?.address ?? '';
   const subject = email.subject ?? '';
   const bodyPreview = email.bodyPreview ?? '';
+
+  const windowStart = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
+  const { data: existing, error: dupError } = await supabase
+    .from('nudges')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('source_email_subject', subject)
+    .gte('created_at', windowStart)
+    .limit(1);
+
+  if (dupError) {
+    throw new Error(`Duplicate check failed: ${dupError.message}`);
+  }
+
+  if (existing && existing.length > 0) {
+    await ensureSourceEmail(supabase, userId, existing[0].id, email);
+    return false;
+  }
+
   const userMessage = `Sender: ${sender}\nSubject: ${subject}\nBody: ${bodyPreview}`;
 
   const category = (await callClaude(anthropicKey, CLASSIFY_PROMPT, userMessage, 32))
@@ -235,43 +257,85 @@ async function processEmail(
     return false;
   }
 
-  const windowStart = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
-  const { data: existing, error: dupError } = await supabase
+  const { data: inserted, error: insertError } = await supabase
     .from('nudges')
+    .insert({
+      user_id: userId,
+      title: extracted.nudge_title,
+      body: extracted.nudge_body,
+      detail: extracted.nudge_detail,
+      suggestion: extracted.suggestion,
+      category: extracted.category,
+      action_description: extracted.action_description,
+      due_date: extracted.date,
+      who_it_affects: extracted.who_it_affects,
+      urgency_level: extracted.urgency,
+      source_email_subject: subject,
+      source_email_sender: sender,
+      urgent: extracted.urgency === 'today',
+      status: 'open',
+    })
     .select('id')
-    .eq('user_id', userId)
-    .eq('source_email_subject', subject)
-    .gte('created_at', windowStart)
-    .limit(1);
+    .single();
 
-  if (dupError) {
-    throw new Error(`Duplicate check failed: ${dupError.message}`);
+  if (insertError || !inserted) {
+    throw new Error(`Failed to insert nudge: ${insertError?.message ?? 'no row'}`);
   }
 
-  if (existing && existing.length > 0) return false;
+  await ensureSourceEmail(supabase, userId, inserted.id, email);
+  return true;
+}
 
-  const { error: insertError } = await supabase.from('nudges').insert({
+async function ensureSourceEmail(
+  supabase: SupabaseClient,
+  userId: string,
+  nudgeId: string,
+  email: GraphEmail,
+): Promise<void> {
+  const { data: existing, error: lookupError } = await supabase
+    .from('source_emails')
+    .select('id')
+    .eq('nudge_id', nudgeId)
+    .limit(1);
+
+  if (lookupError) {
+    throw new Error(`Source email lookup failed: ${lookupError.message}`);
+  }
+  if (existing && existing.length > 0) return;
+
+  const { error: insertError } = await supabase.from('source_emails').insert({
     user_id: userId,
-    title: extracted.nudge_title,
-    body: extracted.nudge_body,
-    detail: extracted.nudge_detail,
-    suggestion: extracted.suggestion,
-    category: extracted.category,
-    action_description: extracted.action_description,
-    due_date: extracted.date,
-    who_it_affects: extracted.who_it_affects,
-    urgency_level: extracted.urgency,
-    source_email_subject: subject,
-    source_email_sender: sender,
-    urgent: extracted.urgency === 'today',
-    status: 'open',
+    nudge_id: nudgeId,
+    subject: email.subject ?? '',
+    sender: email.sender?.emailAddress?.address ?? '',
+    body_text: trimEmailBody(email),
+    received_at: email.receivedDateTime ?? null,
   });
 
   if (insertError) {
-    throw new Error(`Failed to insert nudge: ${insertError.message}`);
+    throw new Error(`Failed to insert source email: ${insertError.message}`);
   }
+}
 
-  return true;
+function trimEmailBody(email: GraphEmail): string {
+  const contentType = (email.body?.contentType ?? '').toLowerCase();
+  let raw = email.body?.content ?? email.bodyPreview ?? '';
+  if (contentType === 'html' || /<[a-z][\s\S]*>/i.test(raw)) {
+    raw = raw
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&#39;/g, "'")
+      .replace(/&quot;/gi, '"');
+  }
+  return raw.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/[ \t]{2,}/g, ' ').trim()
+    .slice(0, EMAIL_BODY_MAX_CHARS);
 }
 
 function shouldDropEmail(email: GraphEmail, windowDays: number): boolean {
@@ -378,13 +442,14 @@ async function fetchEmails(
     : `receivedDateTime ge ${since}`;
   const top = options.unreadOnly ? 5 : 50;
   const url =
-    `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=${top}&$orderby=receivedDateTime desc&$select=sender,subject,bodyPreview,receivedDateTime,parentFolderId&$filter=${encodeURIComponent(filter)}`;
+    `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=${top}&$orderby=receivedDateTime desc&$select=sender,subject,bodyPreview,body,receivedDateTime,parentFolderId&$filter=${encodeURIComponent(filter)}`;
   console.log('Step 2: calling URL:', url);
 
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: 'application/json',
+      Prefer: 'outlook.body-content-type="text"',
     },
   });
 

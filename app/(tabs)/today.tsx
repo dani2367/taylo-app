@@ -4,10 +4,22 @@ import { colors } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 
-type NudgeStatus = 'open' | 'done' | 'delegated';
+const MANUAL_HELP = 'Need a hand? Chat and Taylo can help you get this done.';
+
+type NudgeStatus = 'open' | 'done' | 'delegated' | 'dismissed';
 
 type NudgeRow = {
   id: string;
@@ -22,6 +34,7 @@ type NudgeRow = {
   urgent: boolean | null;
   status: NudgeStatus | null;
   source_email_subject: string | null;
+  source: 'email' | 'chat' | 'manual' | null;
   suggestion: string | null;
 };
 
@@ -38,6 +51,7 @@ type NudgeCard = {
   opener: string;
   src: string;
   suggestion: string | null;
+  addedByUser: boolean;
 };
 
 function formatSuggestion(raw: string | null | undefined): string | null {
@@ -52,6 +66,8 @@ const categoryMeta: Record<string, { icon: string; cls: keyof typeof iconBg; lab
   delivery: { icon: '📦', cls: 'amber', label: 'Delivery' },
   returns: { icon: '↩️', cls: 'rose', label: 'Returns' },
   financial: { icon: '💳', cls: 'green', label: 'Financial' },
+  errand: { icon: '🛒', cls: 'amber', label: 'Errand' },
+  home: { icon: '🏠', cls: 'rose', label: 'Home' },
 };
 
 function formatCategory(category: string | null) {
@@ -65,7 +81,30 @@ function formatCategory(category: string | null) {
   };
 }
 
+function inferCategory(title: string, note: string): string {
+  const t = `${title} ${note}`.toLowerCase();
+  const has = (re: RegExp) => re.test(t);
+  if (has(/\b(return|refund|exchange)\b/)) return 'returns';
+  if (has(/\b(school|teacher|homework|permission|nursery|reception|uniform|pe kit|packed lunch|parents.?evening|ofsted|year [0-9])\b/)) {
+    return 'school';
+  }
+  if (has(/\b(gp|nhs|doctor|dentist|hospital|prescription|vaccine|jab|check-?up|pharmacy|optician|midwife)\b/)) {
+    return 'medical';
+  }
+  if (has(/\b(bill|invoice|council tax|insurance|rent|mortgage|direct debit|pay the)\b/)) return 'financial';
+  if (has(/\b(club|football|swimming|ballet|brownies|scouts|party|playdate|match|training|piano|lesson)\b/)) {
+    return 'activity';
+  }
+  if (has(/\b(parcel|delivery|amazon|yodel|evri|royal mail|collect|pick ?up|post office)\b/)) return 'delivery';
+  if (has(/\b(buy|shop|tesco|sainsbury|waitrose|asda|aldi|lidl|grocer|present|gift|card|dry clean)\b/)) {
+    return 'errand';
+  }
+  if (has(/\b(laundry|bins|dishwasher|garden|plumber|boiler|clean|hoover)\b/)) return 'home';
+  return 'errand';
+}
+
 function mapNudge(row: NudgeRow): NudgeCard {
+  const addedByUser = row.source === 'manual' || row.source === 'chat';
   const meta = formatCategory(row.category);
   const title = row.title || 'Nudge';
   const body = row.body || '';
@@ -80,9 +119,10 @@ function mapNudge(row: NudgeRow): NudgeCard {
     urgent: !!row.urgent,
     icon: meta.icon,
     cls: meta.cls,
-    opener: row.action_description || body,
-    src: row.source_email_subject || meta.label,
-    suggestion: formatSuggestion(row.suggestion),
+    opener: row.action_description || body || title,
+    src: addedByUser ? meta.label : row.source_email_subject || meta.label,
+    suggestion: formatSuggestion(row.suggestion) || (addedByUser ? MANUAL_HELP : null),
+    addedByUser,
   };
 }
 
@@ -90,6 +130,11 @@ export default function TodayScreen() {
   const [nudges, setNudges] = useState<NudgeCard[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newNote, setNewNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
   const { openItem } = useChat();
 
   const load = useCallback(async () => {
@@ -105,7 +150,7 @@ export default function TodayScreen() {
     const { data } = await supabase
       .from('nudges')
       .select(
-        'id, title, body, detail, suggestion, category, action_description, due_date, who_it_affects, urgency_level, urgent, status, source_email_subject',
+        'id, title, body, detail, suggestion, category, action_description, due_date, who_it_affects, urgency_level, urgent, status, source_email_subject, source',
       )
       .eq('user_id', user.id)
       .eq('status', 'open')
@@ -134,6 +179,57 @@ export default function TodayScreen() {
     }
   }
 
+  async function addTodo() {
+    const title = newTitle.trim();
+    if (!title || saving) return;
+    const note = newNote.trim();
+    setSaving(true);
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      setSaving(false);
+      return;
+    }
+
+    const category = inferCategory(title, note);
+    const meta = formatCategory(category);
+
+    const { data, error } = await supabase
+      .from('nudges')
+      .insert({
+        user_id: user.id,
+        title,
+        body: note || null,
+        detail: note || null,
+        suggestion: MANUAL_HELP,
+        category,
+        icon: meta.icon,
+        colour_class: meta.cls,
+        source: 'manual',
+        source_label: 'Added by you',
+        status: 'open',
+        urgent: false,
+      })
+      .select(
+        'id, title, body, detail, suggestion, category, action_description, due_date, who_it_affects, urgency_level, urgent, status, source_email_subject, source',
+      )
+      .single();
+
+    setSaving(false);
+    if (error || !data) {
+      console.error('Failed to add to-do:', error?.message);
+      return;
+    }
+
+    const card = mapNudge(data as NudgeRow);
+    setNudges((prev) => [card, ...prev]);
+    setExpanded((p) => ({ ...p, [card.id]: true }));
+    setNewTitle('');
+    setNewNote('');
+    setAdding(false);
+  }
+
   async function onChat(nudge: NudgeCard) {
     await openItem(nudge.id, {
       icon: nudge.icon,
@@ -147,7 +243,16 @@ export default function TodayScreen() {
   }
 
   return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={s.screen}>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <ScrollView
+      ref={scrollRef}
+      style={{ flex: 1 }}
+      contentContainerStyle={[s.screen, adding && { paddingBottom: 220 }]}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
+      automaticallyAdjustKeyboardInsets>
       <View style={s.tbox}>
         <Text style={s.tboxTitle}>Since you last checked in</Text>
         <Text style={s.tboxBody}>
@@ -157,6 +262,55 @@ export default function TodayScreen() {
           didn't need any action.
         </Text>
       </View>
+      {adding ? (
+        <View style={s.addForm}>
+          <TextInput
+            style={s.addInput}
+            placeholder="What do you need to do?"
+            placeholderTextColor={colors.textHint}
+            value={newTitle}
+            onChangeText={setNewTitle}
+            autoFocus
+            returnKeyType="next"
+            onFocus={() => scrollRef.current?.scrollTo({ y: 80, animated: true })}
+          />
+          <TextInput
+            style={s.addInput}
+            placeholder="Optional note"
+            placeholderTextColor={colors.textHint}
+            value={newNote}
+            onChangeText={setNewNote}
+            onFocus={() => scrollRef.current?.scrollTo({ y: 80, animated: true })}
+          />
+          <View style={s.addFormActions}>
+            <Pressable
+              style={[s.pill, s.pillGray]}
+              onPress={() => {
+                setAdding(false);
+                setNewTitle('');
+                setNewNote('');
+              }}>
+              <Text style={[s.pillText, s.pillTextMuted]}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={[s.pill, s.pillTeal, (!newTitle.trim() || saving) && { opacity: 0.5 }]}
+              disabled={!newTitle.trim() || saving}
+              onPress={() => void addTodo()}>
+              <Text style={[s.pillText, s.pillTextTeal]}>{saving ? 'Adding…' : 'Add'}</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : (
+        <Pressable style={s.newClBtn} onPress={() => setAdding(true)}>
+          <View style={s.newClIcon}>
+            <Text style={s.newClIconText}>+</Text>
+          </View>
+          <View>
+            <Text style={s.newClText}>Add to Today</Text>
+            <Text style={s.newClSub}>Whatever you need to get done</Text>
+          </View>
+        </Pressable>
+      )}
       <Text style={s.slabel}>Needs your attention</Text>
       {loading ? (
         <View style={s.emptyState}>
@@ -170,8 +324,17 @@ export default function TodayScreen() {
         nudges.map((n) => {
           const isOpen = !!expanded[n.id];
           return (
-            <Pressable
+            <Swipeable
               key={n.id}
+              overshootRight={false}
+              renderRightActions={() => (
+                <Pressable
+                  style={s.nudgeSwipeDelete}
+                  onPress={() => void setStatus(n, 'dismissed')}>
+                  <Text style={s.nudgeSwipeDeleteText}>Delete</Text>
+                </Pressable>
+              )}>
+            <Pressable
               style={[s.nudge, n.urgent && s.nudgeUrgent]}
               onPress={() => setExpanded((p) => ({ ...p, [n.id]: !p[n.id] }))}>
               <Text style={s.nsrc}>{n.categoryLabel}</Text>
@@ -183,7 +346,7 @@ export default function TodayScreen() {
                   <View style={s.uheadRow}>
                     <View style={{ flex: 1 }}>
                       <Text style={s.ntitle}>{n.title}</Text>
-                      <Text style={s.nbody}>{n.body}</Text>
+                      {n.body ? <Text style={s.nbody}>{n.body}</Text> : null}
                     </View>
                     <Text style={[s.uchevron, isOpen && { transform: [{ rotate: '90deg' }] }]}>›</Text>
                   </View>
@@ -191,7 +354,7 @@ export default function TodayScreen() {
               </View>
               {isOpen ? (
                 <>
-                  {n.detail ? <Text style={s.udetail}>{n.detail}</Text> : null}
+                  {n.detail && n.detail !== n.body ? <Text style={s.udetail}>{n.detail}</Text> : null}
                   {n.suggestion ? <Text style={s.nsuggest}>{n.suggestion}</Text> : null}
                   <View style={s.nactions}>
                     <Pressable
@@ -222,9 +385,11 @@ export default function TodayScreen() {
                 </>
               ) : null}
             </Pressable>
+            </Swipeable>
           );
         })
       )}
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }

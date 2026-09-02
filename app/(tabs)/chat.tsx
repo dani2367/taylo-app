@@ -80,7 +80,7 @@ export default function ChatScreen() {
   }, [lift, tabBarSv]);
 
   const shiftStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: -lift.value }],
+    paddingBottom: lift.value,
   }));
 
   useEffect(() => {
@@ -126,14 +126,15 @@ export default function ChatScreen() {
       </View>
 
       <View style={s.chatClip}>
-        <Animated.View style={[s.chatShift, Platform.OS === 'ios' ? shiftStyle : null]}>
+        <Animated.View style={[s.chatShift, shiftStyle]}>
           <ScrollView
             ref={scrollRef}
             style={s.chatBody}
             contentContainerStyle={s.chatMsgs}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
-            nestedScrollEnabled>
+            nestedScrollEnabled
+            alwaysBounceVertical>
         {(current?.messages ?? []).map((m, i) => (
           <View key={m.id ?? `${i}-${m.text.slice(0, 12)}`} style={[s.bubble, m.from === 'user' ? s.bubbleUser : s.bubbleTaylo]}>
             {m.from === 'taylo' ? <Text style={s.bsender}>Taylo</Text> : null}
@@ -179,6 +180,7 @@ export default function ChatScreen() {
         ) : null}
       </ScrollView>
 
+        {(current?.chips ?? []).length > 0 ? (
       <View style={s.chatChips}>
         {(current?.chips ?? []).map((ch) => (
           <Pressable key={ch.label} onPress={() => send(ch.msg)}>
@@ -186,6 +188,7 @@ export default function ChatScreen() {
           </Pressable>
         ))}
       </View>
+        ) : null}
 
       <View style={s.chatBar}>
         <Pressable style={[s.chatRoundBtn, s.chatMic]} onPress={() => Alert.alert('🎙️ Voice input — available in the live app')}>

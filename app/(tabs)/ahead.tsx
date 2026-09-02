@@ -3,7 +3,6 @@ import { appStyles as s } from '@/components/app/styles';
 import {
   aheadNoticedText,
   demoChecklists,
-  genericAheadChips,
   genericAheadOpener,
   splitIconTitle,
   type AheadItem,
@@ -98,7 +97,7 @@ export default function AheadScreen() {
       title: text,
       sub: item.sub,
       opener: detail,
-      chips: item.chips || genericAheadChips,
+      chips: item.chips || [],
       emailCard: item.emailCard,
     });
     router.push('/chat');

@@ -73,7 +73,10 @@ export default function SignInScreen() {
   }
 
   return (
-    <KeyboardAvoidingView style={s.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView
+      style={s.root}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={insets.top}>
       <View style={[s.topbar, { paddingTop: insets.top + 14 }]}>
         <Pressable
           style={s.back}
@@ -91,8 +94,10 @@ export default function SignInScreen() {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={s.body}
-        keyboardShouldPersistTaps="handled">
+        contentContainerStyle={[s.body, { paddingBottom: 28 }]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        automaticallyAdjustKeyboardInsets>
         <Text style={s.eyebrow}>Welcome back</Text>
         <Text style={s.title}>Sign in to Taylo</Text>
         <Text style={s.sub}>Enter the email and password you used to create your account.</Text>
@@ -155,31 +160,31 @@ export default function SignInScreen() {
             <Text style={s.errorBannerText}>{error}</Text>
           </View>
         ) : null}
-      </ScrollView>
 
-      <View style={[s.footer, { paddingBottom: Math.max(insets.bottom, 22) }]}>
-        <Pressable
-          onPress={() => router.replace('/signup')}
-          disabled={submitting}
-          accessibilityRole="link">
-          <Text style={s.skip}>Need an account? Sign up</Text>
-        </Pressable>
-        <Pressable
-          style={[s.continue, (pressed || submitting) && { transform: [{ scale: 0.98 }] }, submitting && s.continueDisabled]}
-          disabled={submitting}
-          onPressIn={() => setPressed(true)}
-          onPressOut={() => setPressed(false)}
-          onPress={onSubmit}>
-          {submitting ? (
-            <View style={s.continueInner}>
-              <ActivityIndicator color={colors.white} size="small" />
-              <Text style={s.continueText}>Signing in…</Text>
-            </View>
-          ) : (
-            <Text style={s.continueText}>Sign in</Text>
-          )}
-        </Pressable>
-      </View>
+        <View style={[s.footer, { paddingBottom: Math.max(insets.bottom, 22), borderTopWidth: 0, paddingHorizontal: 0, paddingTop: 18 }]}>
+          <Pressable
+            onPress={() => router.replace('/signup')}
+            disabled={submitting}
+            accessibilityRole="link">
+            <Text style={s.skip}>Need an account? Sign up</Text>
+          </Pressable>
+          <Pressable
+            style={[s.continue, (pressed || submitting) && { transform: [{ scale: 0.98 }] }, submitting && s.continueDisabled]}
+            disabled={submitting}
+            onPressIn={() => setPressed(true)}
+            onPressOut={() => setPressed(false)}
+            onPress={onSubmit}>
+            {submitting ? (
+              <View style={s.continueInner}>
+                <ActivityIndicator color={colors.white} size="small" />
+                <Text style={s.continueText}>Signing in…</Text>
+              </View>
+            ) : (
+              <Text style={s.continueText}>Sign in</Text>
+            )}
+          </Pressable>
+        </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }

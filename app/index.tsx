@@ -1,4 +1,4 @@
-import { colors, fonts } from '@/constants/theme';
+import { colors, fonts, fontSizes } from '@/constants/theme';
 import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -48,11 +48,11 @@ const styles = StyleSheet.create({
   },
   tagline: {
     fontFamily: fonts.sansLight,
-    fontSize: 11.5,
-    lineHeight: 11.5 * 1.55,
+    fontSize: fontSizes.body,
+    lineHeight: fontSizes.body * 1.5,
     color: colors.white,
     opacity: 0.8,
-    maxWidth: 180,
+    maxWidth: 260,
     textAlign: 'center',
   },
   bottom: {
@@ -61,7 +61,7 @@ const styles = StyleSheet.create({
   },
   cta: {
     fontFamily: fonts.sansMedium,
-    fontSize: 13,
+    fontSize: fontSizes.title,
     color: colors.white,
     opacity: 0.95,
     textAlign: 'center',
@@ -70,25 +70,25 @@ const styles = StyleSheet.create({
   primaryBtn: {
     backgroundColor: colors.white,
     borderRadius: 20,
-    paddingVertical: 11,
+    paddingVertical: 14,
     alignItems: 'center',
   },
   primaryBtnText: {
     fontFamily: fonts.sansSemiBold,
-    fontSize: 12,
+    fontSize: fontSizes.header,
     color: colors.roseDark,
   },
   outlineBtn: {
     backgroundColor: colors.transparent,
     borderRadius: 20,
-    paddingVertical: 10,
+    paddingVertical: 13,
     alignItems: 'center',
     borderWidth: 1.5,
     borderColor: colors.whiteOutline,
   },
   outlineBtnText: {
     fontFamily: fonts.sansSemiBold,
-    fontSize: 12,
+    fontSize: fontSizes.header,
     color: colors.white,
   },
 });

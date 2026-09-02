@@ -1,4 +1,4 @@
-import { generalChatChips, genericAheadChips, genericAheadOpener, type Chip } from '@/lib/demo-data';
+import { genericAheadOpener, type Chip } from '@/lib/demo-data';
 import { supabase } from '@/lib/supabase';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
@@ -73,9 +73,18 @@ function greetings() {
   return ["Hi! What's on your mind?", 'Hey — how can I help today?'];
 }
 
-function parseChips(raw: Chip[] | null | undefined, fallback: Chip[]): Chip[] {
-  if (Array.isArray(raw) && raw.length > 0) return raw;
-  return fallback;
+const GENERIC_CHIP_LABELS = new Set([
+  'What else this week?',
+  'Sports day kit',
+  'Dinner ideas',
+  'Clubs brochure?',
+  "What's the plan?",
+  'Remind me nearer the time',
+]);
+
+function parseChips(raw: Chip[] | null | undefined): Chip[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  return raw.filter((c) => c?.label && c?.msg && !GENERIC_CHIP_LABELS.has(c.label));
 }
 
 function isPlaceholderTitle(title: string, sub: string) {
@@ -112,7 +121,7 @@ function mapConversation(row: ConversationRow, messages: ChatMsg[]): Conversatio
     title: row.title || 'Taylo',
     sub: row.subtitle || (kind === 'general' ? 'New chat' : ''),
     messages,
-    chips: parseChips(row.suggestion_chips, kind === 'general' ? generalChatChips : genericAheadChips),
+    chips: parseChips(row.suggestion_chips),
     kind,
     relatedItemId: row.related_item_id,
     updatedAt: new Date(row.updated_at).getTime(),
@@ -127,7 +136,7 @@ async function requireUserId(): Promise<string | null> {
 async function fetchTayloReply(
   conversationId: string,
   opts?: { opener?: boolean },
-): Promise<{ reply: string; title?: string; message_id?: string }> {
+): Promise<{ reply: string; title?: string; message_id?: string; chips?: Chip[] }> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token || !supabaseUrl || !supabaseAnonKey) {
     throw new Error('Not signed in');
@@ -150,12 +159,18 @@ async function fetchTayloReply(
     reply?: string;
     title?: string;
     message_id?: string;
+    chips?: Chip[];
     error?: string;
   };
   if (!res.ok || !payload.reply) {
     throw new Error(payload.error || 'Taylo could not reply');
   }
-  return { reply: payload.reply, title: payload.title, message_id: payload.message_id };
+  return {
+    reply: payload.reply,
+    title: payload.title,
+    message_id: payload.message_id,
+    chips: parseChips(payload.chips),
+  };
 }
 
 export function ChatProvider({ children }: { children: ReactNode }) {
@@ -242,7 +257,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         icon: 'T',
         title: 'Taylo',
         subtitle: 'New chat',
-        suggestion_chips: generalChatChips,
+        suggestion_chips: [],
         updated_at: now,
       })
       .select('id, kind, related_item_id, icon, title, subtitle, suggestion_chips, updated_at')
@@ -277,7 +292,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     if (!userId) return;
 
     const opener = opts.opener || genericAheadOpener(opts.title, opts.sub);
-    const chips = opts.chips?.length ? opts.chips : genericAheadChips;
+    const chips = opts.chips ?? [];
 
     function showThread(row: ConversationRow, messages: ChatMsg[]) {
       const mapped = mapConversation(row, messages);
@@ -290,7 +305,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setTyping(true);
         try {
           try {
-            await fetchTayloReply(conversationId, { opener: true });
+            const result = await fetchTayloReply(conversationId, { opener: true });
+            setConversations((prev) =>
+              prev.map((c) =>
+                c.id === conversationId && result.chips
+                  ? { ...c, chips: result.chips, updatedAt: Date.now() }
+                  : c,
+              ),
+            );
           } catch (err) {
             console.error(err);
           }

@@ -1,4 +1,4 @@
-import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { householdVoiceBlock, loadHousehold, whoForPrompt, type Household } from '../_shared/household.ts';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
@@ -18,8 +18,8 @@ How you sound
 
 What you know
 - If this thread is about a nudge, you get a snapshot: title, body, detail, category, what they might need to do, date, who it affects, and the original email subject/sender. Treat that as the brief.
-- You have not read the full email. Don't pretend you have. If they need a detail that isn't in the snapshot, say so and suggest what to check.
-- If this is a general chat (no nudge), only use this thread plus the household names you are given. Don't invent extra kids or appointments.
+- You may also get the source email body. Use it to answer follow-up questions. If a detail still isn't there, say so — don't invent it.
+- If this is a general chat (no nudge), only use this thread, household names, and any known family facts you are given. Don't invent extra kids or appointments.
 
 What you don't do
 - Don't give medical, legal, or financial advice. You can help them remember, reply, pack, or chase — not diagnose or decide for them.
@@ -30,7 +30,16 @@ How you help
 - Answer what they asked, then one useful next step if it fits.
 - If you're unsure, ask one clear question instead of guessing.`;
 
-const OPENER_USER_PROMPT = `The user just opened this chat from a Today nudge. Write the first message of the conversation using the nudge snapshot (title, body, detail). Start with a specific, useful observation or question — not a generic greeting. Address the parent as you. Use a child's name if the nudge is about that child. Do not wait for them to speak.`;
+const OPENER_USER_PROMPT = `The user just opened this chat from a Today nudge. Return ONLY a JSON object, nothing else:
+{
+  "reply": "your first message",
+  "chips": [{ "label": "short button", "msg": "the full message to send if they tap it" }]
+}
+
+reply: same voice as always — one short, plain sentence, like a text. Start with a specific, useful observation or question. Address the parent as you. Use a child's name if the nudge is about that child. If they added this themselves (no email), briefly offer help — don't interrogate them.
+
+chips: 0 to 3. Only include a chip if it would actually help with THIS nudge — e.g. draft a reply, what to pack, when the deadline is, gift ideas for a birthday. Label max ~5 words. msg is what they send, specific to this item.
+Do NOT include generic chips ("what's the plan", "remind me", "what else this week", "dinner ideas"). If nothing useful, use [].`;
 
 type ConversationRow = {
   id: string;
@@ -44,6 +53,12 @@ type ConversationRow = {
 type MessageRow = {
   sender: 'user' | 'taylo' | 'sys';
   body: string;
+};
+
+type FamilyFactRow = {
+  subject: string;
+  fact: string;
+  category: string | null;
 };
 
 type NudgeRow = {
@@ -127,9 +142,13 @@ Deno.serve(async (req: Request) => {
 
     const conv = conversation as ConversationRow;
 
-    const household = await loadHousehold(supabase, user.id);
+    const [household, familyFacts] = await Promise.all([
+      loadHousehold(supabase, user.id),
+      loadFamilyFacts(supabase, user.id),
+    ]);
 
     let nudge: NudgeRow | null = null;
+    let sourceEmailBody: string | null = null;
     if (conv.kind === 'item' && conv.related_item_id) {
       const { data: nudgeRow } = await supabase
         .from('nudges')
@@ -140,6 +159,19 @@ Deno.serve(async (req: Request) => {
         .eq('user_id', user.id)
         .maybeSingle();
       nudge = (nudgeRow as NudgeRow | null) ?? null;
+
+      if (nudge) {
+        const { data: sourceEmail } = await supabase
+          .from('source_emails')
+          .select('body_text')
+          .eq('nudge_id', conv.related_item_id)
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const bodyText = (sourceEmail as { body_text?: string | null } | null)?.body_text?.trim();
+        sourceEmailBody = bodyText || null;
+      }
     }
 
     const { data: history, error: historyError } = await supabase
@@ -156,7 +188,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const historyRows = (history ?? []) as MessageRow[];
-    const system = buildSystemPrompt(conv, nudge, household);
+    const system = buildSystemPrompt(conv, nudge, household, sourceEmailBody, familyFacts);
 
     let claudeMessages = toClaudeMessages(historyRows);
     if (opener) {
@@ -174,7 +206,9 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'No user message to reply to' }, 400);
     }
 
-    const reply = await callClaude(anthropicKey, system, claudeMessages);
+    const raw = await callClaude(anthropicKey, system, claudeMessages, opener ? 700 : 512);
+    const parsed = opener ? parseOpenerResult(raw) : { reply: raw, chips: [] as Chip[] };
+    const reply = parsed.reply;
 
     const { data: inserted, error: insertError } = await supabase
       .from('messages')
@@ -211,6 +245,7 @@ Deno.serve(async (req: Request) => {
       .update({
         updated_at: new Date().toISOString(),
         ...(nextTitle ? { title: nextTitle, subtitle: 'Taylo' } : {}),
+        ...(opener ? { suggestion_chips: parsed.chips } : {}),
       })
       .eq('id', conversationId)
       .eq('user_id', user.id);
@@ -220,12 +255,41 @@ Deno.serve(async (req: Request) => {
       reply: inserted.body,
       message_id: inserted.id,
       title: nextTitle ?? conv.title,
+      chips: opener ? parsed.chips : undefined,
     });
   } catch (err) {
     console.error('Unhandled error:', err);
     return json({ error: 'Internal server error' }, 500);
   }
 });
+
+type Chip = { label: string; msg: string };
+
+function parseOpenerResult(raw: string): { reply: string; chips: Chip[] } {
+  const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  try {
+    const parsed = JSON.parse(trimmed) as { reply?: unknown; chips?: unknown };
+    const reply = typeof parsed.reply === 'string' ? parsed.reply.trim() : '';
+    if (!reply) throw new Error('empty opener reply');
+    return { reply, chips: normalizeChips(parsed.chips) };
+  } catch {
+    return { reply: trimmed, chips: [] };
+  }
+}
+
+function normalizeChips(raw: unknown): Chip[] {
+  if (!Array.isArray(raw)) return [];
+  const chips: Chip[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const label = String((item as Chip).label ?? '').replace(/\s+/g, ' ').trim();
+    const msg = String((item as Chip).msg ?? '').replace(/\s+/g, ' ').trim();
+    if (!label || !msg) continue;
+    chips.push({ label: label.slice(0, 32), msg });
+    if (chips.length >= 3) break;
+  }
+  return chips;
+}
 
 function titleFromUserText(text: string): string {
   const cleaned = text.replace(/\s+/g, ' ').trim();
@@ -236,8 +300,44 @@ function titleFromUserText(text: string): string {
   return title.charAt(0).toUpperCase() + title.slice(1);
 }
 
-function buildSystemPrompt(conv: ConversationRow, nudge: NudgeRow | null, household: Household): string {
+async function loadFamilyFacts(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<FamilyFactRow[]> {
+  const { data, error } = await supabase
+    .from('family_facts')
+    .select('subject, fact, category')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+    .limit(50);
+
+  if (error) {
+    console.error('Failed to load family facts:', error.message);
+    return [];
+  }
+  return (data ?? []) as FamilyFactRow[];
+}
+
+function familyFactsBlock(facts: FamilyFactRow[]): string {
+  if (!facts.length) return '';
+  const lines = facts.map((row) => {
+    const who = row.subject.trim() || 'family';
+    const category = row.category ? ` [${row.category}]` : '';
+    return `- ${who}${category}: ${row.fact.trim()}`;
+  });
+  return `Known family context (treat as true unless they correct you; do not dump this list unless asked):\n${lines.join('\n')}`;
+}
+
+function buildSystemPrompt(
+  conv: ConversationRow,
+  nudge: NudgeRow | null,
+  household: Household,
+  sourceEmailBody: string | null,
+  familyFacts: FamilyFactRow[],
+): string {
   const parts = [TAYLO_SYSTEM_PROMPT, householdVoiceBlock(household)];
+  const facts = familyFactsBlock(familyFacts);
+  if (facts) parts.push(facts);
 
   if (nudge) {
     parts.push(
@@ -253,6 +353,9 @@ Urgency: ${nudge.urgency_level ?? 'not specified'}
 Email subject: ${nudge.source_email_subject ?? 'not specified'}
 Email from: ${nudge.source_email_sender ?? 'not specified'}`,
     );
+    if (sourceEmailBody) {
+      parts.push(`Source email body (use this for follow-up detail; do not recap it unless asked):\n${sourceEmailBody}`);
+    }
   } else if (conv.kind === 'item') {
     parts.push(
       `This thread is about: ${conv.title}${conv.subtitle ? ` (${conv.subtitle})` : ''}. You don't have a linked email snapshot — only this title.`,
@@ -285,6 +388,7 @@ async function callClaude(
   apiKey: string,
   system: string,
   messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  maxTokens = 512,
 ): Promise<string> {
   const res = await fetch(ANTHROPIC_URL, {
     method: 'POST',
@@ -295,7 +399,7 @@ async function callClaude(
     },
     body: JSON.stringify({
       model: CLAUDE_MODEL,
-      max_tokens: 512,
+      max_tokens: maxTokens,
       system,
       messages,
     }),

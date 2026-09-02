@@ -1,5 +1,5 @@
 import { signupStyles as s } from '@/components/signup/styles';
-import { colors, fonts } from '@/constants/theme';
+import { colors, fonts, fontSizes } from '@/constants/theme';
 import {
   cap,
   completeSignup,
@@ -202,7 +202,10 @@ export default function SignupScreen() {
   ];
 
   return (
-    <KeyboardAvoidingView style={s.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView
+      style={s.root}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={insets.top}>
       <View style={[s.topbar, { paddingTop: insets.top + 14 }]}>
         <Pressable
           style={[s.back, !showBack && s.backHidden]}
@@ -218,8 +221,10 @@ export default function SignupScreen() {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={s.body}
+        contentContainerStyle={[s.body, { paddingBottom: 28 }]}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        automaticallyAdjustKeyboardInsets
         key={step}>
         {step === 'account' ? (
           <>
@@ -518,32 +523,32 @@ export default function SignupScreen() {
             ) : null}
           </>
         ) : null}
-      </ScrollView>
 
-      <View style={[s.footer, { paddingBottom: Math.max(insets.bottom, 22) }]}>
-        {showSkip ? (
-          <Pressable onPress={goNext}>
-            <Text style={s.skip}>{skipLabel}</Text>
-          </Pressable>
-        ) : null}
-        {showContinue ? (
-          <Pressable
-            style={[s.continue, (continuePressed || submitting) && { transform: [{ scale: 0.98 }] }, submitting && s.continueDisabled]}
-            disabled={submitting}
-            onPressIn={() => setContinuePressed(true)}
-            onPressOut={() => setContinuePressed(false)}
-            onPress={onContinue}>
-            {submitting ? (
-              <View style={s.continueInner}>
-                <ActivityIndicator color={colors.white} size="small" />
+        <View style={[s.footer, { paddingBottom: Math.max(insets.bottom, 22), borderTopWidth: 0, paddingHorizontal: 0, paddingTop: 18 }]}>
+          {showSkip ? (
+            <Pressable onPress={goNext}>
+              <Text style={s.skip}>{skipLabel}</Text>
+            </Pressable>
+          ) : null}
+          {showContinue ? (
+            <Pressable
+              style={[s.continue, (continuePressed || submitting) && { transform: [{ scale: 0.98 }] }, submitting && s.continueDisabled]}
+              disabled={submitting}
+              onPressIn={() => setContinuePressed(true)}
+              onPressOut={() => setContinuePressed(false)}
+              onPress={onContinue}>
+              {submitting ? (
+                <View style={s.continueInner}>
+                  <ActivityIndicator color={colors.white} size="small" />
+                  <Text style={s.continueText}>{continueLabel}</Text>
+                </View>
+              ) : (
                 <Text style={s.continueText}>{continueLabel}</Text>
-              </View>
-            ) : (
-              <Text style={s.continueText}>{continueLabel}</Text>
-            )}
-          </Pressable>
-        ) : null}
-      </View>
+              )}
+            </Pressable>
+          ) : null}
+        </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -579,7 +584,7 @@ function DateField({
         paddingBottom: 9,
         paddingLeft: 11,
         paddingRight: 11,
-        fontSize: 10.5,
+        fontSize: fontSizes.body,
         fontFamily: fonts.sansRegular,
         color: colors.text,
         backgroundColor: colors.cream,
