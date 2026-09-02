@@ -5,6 +5,7 @@ import { TayloTabBar } from '@/components/app/TayloTabBar';
 import { colors } from '@/constants/theme';
 import { Tabs, usePathname } from 'expo-router';
 import { View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export const unstable_settings = {
@@ -17,6 +18,7 @@ export default function TabsLayout() {
   const isChat = pathname.includes('/chat');
 
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
     <ChatProvider>
       <View style={s.shell}>
         <View style={[s.headerWrap, { paddingTop: insets.top }]}>{isChat ? null : <AppHeader />}</View>
@@ -33,5 +35,6 @@ export default function TabsLayout() {
         </Tabs>
       </View>
     </ChatProvider>
+    </GestureHandlerRootView>
   );
 }

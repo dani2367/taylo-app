@@ -1,3 +1,4 @@
+import { useChat } from '@/components/app/ChatProvider';
 import { appStyles as s } from '@/components/app/styles';
 import { AheadIcon, ChatIcon, MoreIcon, TodayIcon } from '@/components/app/TabIcons';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
@@ -20,6 +21,7 @@ const LABELS: Record<string, string> = {
 
 export function TayloTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const { openGeneral } = useChat();
 
   return (
     <View style={[s.tabBar, { paddingBottom: Math.max(insets.bottom, 20) }]}>
@@ -32,6 +34,9 @@ export function TayloTabBar({ state, navigation }: BottomTabBarProps) {
             key={route.key}
             style={[s.tab, isFocused && s.tabActive]}
             onPress={() => {
+              if (route.name === 'chat') {
+                void openGeneral();
+              }
               const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
               if (!isFocused && !event.defaultPrevented) {
                 navigation.navigate(route.name);
@@ -42,7 +47,9 @@ export function TayloTabBar({ state, navigation }: BottomTabBarProps) {
             accessibilityRole="button"
             accessibilityState={{ selected: isFocused }}>
             <Icon active={isFocused} />
-            <Text style={[s.tabLabel, isFocused && s.tabLabelActive]}>{LABELS[route.name]}</Text>
+            <Text style={[s.tabLabel, isFocused && s.tabLabelActive]} numberOfLines={1}>
+              {LABELS[route.name]}
+            </Text>
           </Pressable>
         );
       })}

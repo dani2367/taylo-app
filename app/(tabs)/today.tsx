@@ -13,6 +13,7 @@ type NudgeRow = {
   id: string;
   title: string | null;
   body: string | null;
+  detail: string | null;
   category: string | null;
   action_description: string | null;
   due_date: string | null;
@@ -21,12 +22,14 @@ type NudgeRow = {
   urgent: boolean | null;
   status: NudgeStatus | null;
   source_email_subject: string | null;
+  suggestion: string | null;
 };
 
 type NudgeCard = {
   id: string;
   title: string;
   body: string;
+  detail: string;
   category: string;
   categoryLabel: string;
   urgent: boolean;
@@ -34,7 +37,13 @@ type NudgeCard = {
   cls: keyof typeof iconBg;
   opener: string;
   src: string;
+  suggestion: string | null;
 };
+
+function formatSuggestion(raw: string | null | undefined): string | null {
+  const trimmed = (raw || '').trim().replace(/^suggested:\s*/i, '');
+  return trimmed || null;
+}
 
 const categoryMeta: Record<string, { icon: string; cls: keyof typeof iconBg; label: string }> = {
   school: { icon: '📚', cls: 'blue', label: 'School' },
@@ -60,10 +69,12 @@ function mapNudge(row: NudgeRow): NudgeCard {
   const meta = formatCategory(row.category);
   const title = row.title || 'Nudge';
   const body = row.body || '';
+  const detail = row.detail || row.action_description || body;
   return {
     id: row.id,
     title,
     body,
+    detail,
     category: row.category || '',
     categoryLabel: meta.label,
     urgent: !!row.urgent,
@@ -71,11 +82,13 @@ function mapNudge(row: NudgeRow): NudgeCard {
     cls: meta.cls,
     opener: row.action_description || body,
     src: row.source_email_subject || meta.label,
+    suggestion: formatSuggestion(row.suggestion),
   };
 }
 
 export default function TodayScreen() {
   const [nudges, setNudges] = useState<NudgeCard[]>([]);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const { openItem } = useChat();
 
@@ -92,7 +105,7 @@ export default function TodayScreen() {
     const { data } = await supabase
       .from('nudges')
       .select(
-        'id, title, body, category, action_description, due_date, who_it_affects, urgency_level, urgent, status, source_email_subject',
+        'id, title, body, detail, suggestion, category, action_description, due_date, who_it_affects, urgency_level, urgent, status, source_email_subject',
       )
       .eq('user_id', user.id)
       .eq('status', 'open')
@@ -121,13 +134,14 @@ export default function TodayScreen() {
     }
   }
 
-  function onChat(nudge: NudgeCard) {
-    openItem(nudge.id, {
+  async function onChat(nudge: NudgeCard) {
+    await openItem(nudge.id, {
       icon: nudge.icon,
       title: nudge.title,
       sub: nudge.src,
       opener: nudge.opener,
       chips: [],
+      generateOpener: true,
     });
     router.push('/chat');
   }
@@ -153,31 +167,63 @@ export default function TodayScreen() {
           <Text style={s.emptyStateText}>Nothing needs your attention right now ✨</Text>
         </View>
       ) : (
-        nudges.map((n) => (
-          <View key={n.id} style={[s.nudge, n.urgent && s.nudgeUrgent]}>
-            <Text style={s.nsrc}>{n.categoryLabel}</Text>
-            <View style={s.nrow}>
-              <View style={[s.nicon, { backgroundColor: iconBg[n.cls] }]}>
-                <Text style={s.niconText}>{n.icon}</Text>
+        nudges.map((n) => {
+          const isOpen = !!expanded[n.id];
+          return (
+            <Pressable
+              key={n.id}
+              style={[s.nudge, n.urgent && s.nudgeUrgent]}
+              onPress={() => setExpanded((p) => ({ ...p, [n.id]: !p[n.id] }))}>
+              <Text style={s.nsrc}>{n.categoryLabel}</Text>
+              <View style={s.nrow}>
+                <View style={[s.nicon, { backgroundColor: iconBg[n.cls] }]}>
+                  <Text style={s.niconText}>{n.icon}</Text>
+                </View>
+                <View style={s.ncopy}>
+                  <View style={s.uheadRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.ntitle}>{n.title}</Text>
+                      <Text style={s.nbody}>{n.body}</Text>
+                    </View>
+                    <Text style={[s.uchevron, isOpen && { transform: [{ rotate: '90deg' }] }]}>›</Text>
+                  </View>
+                </View>
               </View>
-              <View style={s.ncopy}>
-                <Text style={s.ntitle}>{n.title}</Text>
-                <Text style={s.nbody}>{n.body}</Text>
-              </View>
-            </View>
-            <View style={s.nactions}>
-              <Pressable style={[s.pill, s.pillTeal]} onPress={() => setStatus(n, 'done')}>
-                <Text style={[s.pillText, s.pillTextTeal]}>✓ Done</Text>
-              </Pressable>
-              <Pressable style={[s.pill, s.pillDelegate]} onPress={() => setStatus(n, 'delegated')}>
-                <Text style={[s.pillText, s.pillTextBlue]}>Delegate</Text>
-              </Pressable>
-              <Pressable style={[s.pill, s.pillChat]} onPress={() => onChat(n)}>
-                <Text style={[s.pillText, s.pillTextChat]}>💬 Chat</Text>
-              </Pressable>
-            </View>
-          </View>
-        ))
+              {isOpen ? (
+                <>
+                  {n.detail ? <Text style={s.udetail}>{n.detail}</Text> : null}
+                  {n.suggestion ? <Text style={s.nsuggest}>{n.suggestion}</Text> : null}
+                  <View style={s.nactions}>
+                    <Pressable
+                      style={[s.pill, s.pillTeal]}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        void setStatus(n, 'done');
+                      }}>
+                      <Text style={[s.pillText, s.pillTextTeal]}>✓ Done</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[s.pill, s.pillDelegate]}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        void setStatus(n, 'delegated');
+                      }}>
+                      <Text style={[s.pillText, s.pillTextBlue]}>Delegate</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[s.pill, s.pillChat]}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        void onChat(n);
+                      }}>
+                      <Text style={[s.pillText, s.pillTextChat]}>💬 Chat</Text>
+                    </Pressable>
+                  </View>
+                </>
+              ) : null}
+            </Pressable>
+          );
+        })
       )}
     </ScrollView>
   );

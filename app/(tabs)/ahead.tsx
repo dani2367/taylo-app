@@ -9,7 +9,7 @@ import {
   type AheadItem,
   type Checklist,
 } from '@/lib/demo-data';
-import { colors, fonts } from '@/constants/theme';
+import { colors, fonts, fontSizes } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -90,10 +90,10 @@ export default function AheadScreen() {
     load();
   }, []);
 
-  function openAheadChat(item: AheadItem) {
+  async function openAheadChat(item: AheadItem) {
     const { icon, text } = splitIconTitle(item.title);
     const detail = item.opener || genericAheadOpener(text, item.sub);
-    openItem(item.id, {
+    await openItem(item.id, {
       icon,
       title: text,
       sub: item.sub,
@@ -104,7 +104,7 @@ export default function AheadScreen() {
     router.push('/chat');
   }
 
-  function openChecklistChat(list: Checklist) {
+  async function openChecklistChat(list: Checklist) {
     const { icon, text } = splitIconTitle(list.title);
     const remaining = list.items
       .map((item, i) => ({ item, i }))
@@ -113,7 +113,7 @@ export default function AheadScreen() {
     const openerList = remaining.length
       ? remaining.map((t) => `• ${t}`).join('\n')
       : "Looks like everything's ticked off already — nice work!";
-    openItem(list.id, {
+    await openItem(list.id, {
       icon,
       title: text,
       sub: 'Checklist',
@@ -231,7 +231,7 @@ export default function AheadScreen() {
                       borderColor: complete ? colors.teal : theme.progBorder,
                     },
                   ]}>
-                  <Text style={{ fontSize: 9, fontFamily: fonts.sansSemiBold, color: complete ? colors.teal : theme.progFg }}>
+                  <Text style={{ fontSize: fontSizes.label, fontFamily: fonts.sansSemiBold, color: complete ? colors.teal : theme.progFg }}>
                     {doneCount}/{list.items.length}
                   </Text>
                 </View>

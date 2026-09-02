@@ -45,7 +45,7 @@ export function MoreIcon({ active }: { active: boolean }) {
 
 export function MicIcon() {
   return (
-    <Svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth={2}>
+    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth={2}>
       <Path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
       <Path d="M19 10v2a7 7 0 0 1-14 0v-2" />
       <Line x1="12" y1="19" x2="12" y2="23" />
@@ -56,7 +56,7 @@ export function MicIcon() {
 
 export function SendIcon() {
   return (
-    <Svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke={colors.white} strokeWidth={2.5}>
+    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={colors.white} strokeWidth={2.5}>
       <Line x1="22" y1="2" x2="11" y2="13" />
       <Path d="M22 2 L15 22 L11 13 L2 9 Z" fill={colors.white} stroke={colors.white} />
     </Svg>

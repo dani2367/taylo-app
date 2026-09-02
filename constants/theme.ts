@@ -65,6 +65,19 @@ export const fonts = {
   sansBold: 'DMSans_700Bold',
 };
 
+/** iPhone-readable type scale (pt). Use these instead of prototype HTML px sizes. */
+export const fontSizes = {
+  micro: 11,
+  caption: 12,
+  label: 13,
+  body: 15,
+  card: 15,
+  title: 16,
+  chat: 16,
+  header: 17,
+  display: 22,
+} as const;
+
 export const fontAssets = {
   DMSerifDisplay_400Regular,
   DMSans_300Light,

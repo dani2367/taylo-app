@@ -1,0 +1,1545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Taylo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
+<style>
+:root{
+  --rose:#C9917A;--rose-dark:#A86E58;--rose-light:#F5EDE8;--rose-deep:#3D1F15;
+  --teal-light:#EAF0EC;--teal:#4A7560;--amber-light:#F5EFE4;--amber:#9A7A3A;
+  --blue-light:#EAEEf2;--blue:#4A6880;--purple-light:#F0EDF5;--purple:#7A6A90;
+  --green-light:#EAF3DE;--green:#3B6D11;--gray-light:#F5F1EE;--gray:#9A9490;
+  --text:#2A1F1A;--text-muted:#6b5d58;--text-hint:#a8998f;
+  --border:rgba(100,60,40,0.10);--white:#FFFAF8;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden;font-family:'DM Sans',sans-serif;background:#EDE3DC}
+body{display:flex;align-items:center;justify-content:center}
+.scene{display:flex;align-items:center;justify-content:center;height:100vh;width:100vw}
+.phone-frame{position:relative;flex-shrink:0;height:min(92vh,760px);aspect-ratio:220/455}
+.phone-frame>svg.frame{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:10}
+.phone-screen{position:absolute;left:4.2%;top:1.8%;width:91.6%;height:96.4%;border-radius:13%/6.5%;overflow:hidden;z-index:5;background:var(--rose);display:flex;flex-direction:column}
+
+/* ── SPLASH ── */
+.splash{display:flex;flex-direction:column;height:100%;background:var(--rose);color:#fff}
+.splash-top{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:36px 22px 12px;text-align:center}
+.splash-logo{font-family:'DM Serif Display',serif;font-size:48px;letter-spacing:-1px;margin-bottom:5px}
+.splash-tagline{font-size:11.5px;opacity:.8;line-height:1.55;font-weight:300;max-width:180px}
+.splash-bottom{padding:0 22px 30px;display:flex;flex-direction:column;gap:9px;flex-shrink:0}
+.splash-cta{text-align:center;font-size:13px;font-weight:500;color:#fff;opacity:.95;margin:0 0 4px}
+.splash-btn{background:#fff;color:var(--rose-dark);border:none;border-radius:20px;padding:11px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif}
+.splash-btn-outline{background:transparent;color:#fff;border:1.5px solid rgba(255,255,255,.55);border-radius:20px;padding:10px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif}
+
+/* ── SIGN UP FORM ── */
+.signup{display:none;flex-direction:column;height:100%;background:var(--white)}
+.signup.active{display:flex}
+.su-topbar{background:var(--rose);padding:42px 14px 14px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.su-back{background:rgba(255,255,255,.2);border:none;color:#fff;width:24px;height:24px;border-radius:50%;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-family:'DM Sans',sans-serif}
+.su-progress-track{flex:1;height:4px;background:rgba(255,255,255,.25);border-radius:2px;overflow:hidden}
+.su-progress-fill{height:100%;background:#fff;border-radius:2px;transition:width .35s ease;width:0%}
+.su-body{flex:1;overflow-y:auto;padding:18px 18px 10px;-webkit-overflow-scrolling:touch;min-height:0}
+.su-eyebrow{font-size:8.5px;font-weight:700;color:var(--rose-dark);text-transform:uppercase;letter-spacing:.09em;margin-bottom:6px}
+.su-title{font-family:'DM Serif Display',serif;font-size:17px;color:var(--text);line-height:1.32;margin-bottom:5px}
+.su-sub{font-size:10px;color:var(--text-muted);line-height:1.55;margin-bottom:16px}
+.su-field{margin-bottom:13px}
+.su-label{display:block;font-size:8.5px;font-weight:600;color:var(--text-hint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+.su-input{width:100%;border:1.5px solid var(--border);border-radius:11px;padding:11px 13px;font-size:11.5px;font-family:'DM Sans',sans-serif;color:var(--text);outline:none;background:var(--white);transition:border-color .15s}
+.su-input:focus{border-color:var(--rose)}
+.su-input::placeholder{color:var(--text-hint)}
+.su-input-sm{padding:9px 11px;font-size:10.5px}
+@keyframes suShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-4px)}40%{transform:translateX(4px)}60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}
+.su-shake{animation:suShake .35s;border-color:var(--rose) !important}
+
+.su-choice-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.su-choice{background:var(--rose-light);border:1.5px solid transparent;border-radius:13px;padding:14px 8px;text-align:center;cursor:pointer;transition:all .15s}
+.su-choice.sel{border-color:var(--rose);background:#fff;box-shadow:0 2px 10px rgba(169,90,60,.12)}
+.su-choice-icon{font-size:24px;display:block;margin-bottom:6px}
+.su-choice-label{font-size:10px;font-weight:600;color:var(--rose-dark)}
+.su-choice-sub{font-size:8.5px;color:var(--text-hint);margin-top:2px;line-height:1.3}
+
+.su-kid-row{display:flex;gap:6px;margin-bottom:8px;align-items:center}
+.su-kid-row .su-input{flex:1}
+.su-remove{width:26px;height:26px;flex-shrink:0;border:none;background:var(--gray-light);color:var(--text-muted);border-radius:50%;font-size:14px;cursor:pointer;line-height:1}
+.su-add-row{font-size:10px;font-weight:600;color:var(--rose-dark);cursor:pointer;padding:8px 2px;text-align:left}
+
+.su-toggle-row{display:flex;align-items:center;gap:10px;background:var(--gray-light);border-radius:11px;padding:11px 13px;margin-bottom:14px}
+.su-toggle-label{font-size:10.5px;font-weight:600;color:var(--text)}
+.su-toggle-sub{font-size:8.5px;color:var(--text-muted);margin-top:1px}
+.su-checkbox-row{display:flex;align-items:flex-start;gap:8px;font-size:9.5px;color:var(--text-muted);line-height:1.5;padding:2px 2px}
+.su-checkbox-row input{margin-top:2px;flex-shrink:0}
+
+.su-conn-list{display:flex;flex-direction:column;gap:7px}
+.su-conn-row{display:flex;align-items:center;gap:9px;background:var(--white);border:1px solid var(--border);border-radius:11px;padding:9px 11px}
+.su-conn-icon{font-size:17px;width:22px;text-align:center;flex-shrink:0}
+.su-conn-label{font-size:10.5px;font-weight:600;color:var(--text)}
+.su-conn-sub{font-size:8.5px;color:var(--text-muted);margin-top:1px}
+.su-conn-btn{margin-left:auto;font-size:8.5px;font-weight:600;padding:5px 10px;border-radius:8px;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;background:var(--rose-light);color:var(--rose-dark);flex-shrink:0}
+
+.su-textarea{width:100%;min-height:64px;border:1.5px solid var(--border);border-radius:11px;padding:11px 13px;font-size:10.5px;font-family:'DM Sans',sans-serif;color:var(--text);outline:none;resize:none}
+.su-textarea:focus{border-color:var(--rose)}
+.su-chip-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.su-chip{background:var(--rose-light);color:var(--rose-dark);font-size:9px;font-weight:500;padding:5px 10px;border-radius:13px;display:flex;align-items:center;gap:6px}
+.su-chip span{cursor:pointer;opacity:.6;font-size:11px}
+
+.su-summary-card{background:var(--gray-light);border-radius:12px;padding:4px 13px}
+.su-summary-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);font-size:10px;color:var(--text-muted);gap:10px}
+.su-summary-row:last-child{border-bottom:none}
+.su-summary-row strong{color:var(--text);font-weight:600;text-align:right}
+
+.su-footer{flex-shrink:0;padding:10px 18px 22px;border-top:1px solid var(--border);background:var(--white)}
+.su-skip{text-align:center;font-size:9.5px;color:var(--text-hint);cursor:pointer;padding:8px 0 2px;text-decoration:underline;text-decoration-color:var(--border)}
+.su-continue{width:100%;background:var(--rose);color:#fff;border:none;border-radius:20px;padding:12px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif}
+.su-continue:active{transform:scale(.98)}
+
+/* ── MAIN APP ── */
+.main-app{display:none;flex-direction:column;height:100%;background:var(--white)}
+.main-app.active{display:flex}
+
+/* ── CHAT (tab, persistent tab-bar) ── */
+#chat.screen{position:relative;height:100%}
+#chat.screen.active{display:flex;flex-direction:column}
+.chat-subhead{flex-shrink:0;display:flex;align-items:center;gap:8px;padding:9px 10px;border-bottom:1px solid var(--border);background:var(--white)}
+.chat-icon-btn{width:25px;height:25px;border-radius:50%;background:var(--gray-light);border:none;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px;font-family:'DM Sans',sans-serif}
+.chat-thread-avatar{width:23px;height:23px;border-radius:50%;background:var(--rose-light);color:var(--rose-dark);display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
+.chat-thread-text{min-width:0;flex:1}
+.chat-thread-title{font-size:10.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-thread-sub{font-size:8px;color:var(--text-hint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-msgs{flex:1;overflow-y:auto;padding:9px 9px 5px;display:flex;flex-direction:column;gap:6px;min-height:0;background:var(--gray-light)}
+.chat-chips{padding:4px 9px;display:flex;flex-wrap:wrap;gap:4px;flex-shrink:0;background:var(--gray-light)}
+.chat-chip{font-size:9px;padding:4px 8px;border-radius:12px;border:1px solid var(--rose);color:var(--rose-dark);cursor:pointer;background:var(--white);font-family:'DM Sans',sans-serif}
+.chat-bar{flex-shrink:0;padding:8px 9px;background:var(--white);border-top:1px solid var(--border);display:flex;gap:6px;align-items:flex-end}
+.chat-input{flex:1;background:var(--gray-light);border:none;border-radius:16px;padding:6px 11px;font-size:10.5px;font-family:'DM Sans',sans-serif;color:var(--text);resize:none;outline:none;max-height:55px;min-height:28px;line-height:1.4}
+.chat-input::placeholder{color:var(--text-hint)}
+.chat-send{width:28px;height:28px;border-radius:50%;background:var(--rose);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.chat-send svg{width:12px;height:12px;color:#fff}
+.chat-mic{width:28px;height:28px;border-radius:50%;background:var(--gray-light);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.chat-mic svg{width:12px;height:12px;color:var(--text-muted)}
+
+/* ── CHAT HISTORY DRAWER ── */
+.chat-drawer{position:absolute;inset:0;background:rgba(30,15,10,.35);z-index:15;display:none}
+.chat-drawer.open{display:block}
+.chat-drawer-panel{position:absolute;left:0;top:0;bottom:0;width:80%;background:var(--white);box-shadow:6px 0 24px rgba(30,15,10,.2);display:flex;flex-direction:column;transform:translateX(-100%);transition:transform .25s ease}
+.chat-drawer.open .chat-drawer-panel{transform:translateX(0)}
+.cd-header{padding:16px 12px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);flex-shrink:0}
+.cd-title{font-size:10.5px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.06em}
+.cd-close{background:var(--gray-light);border:none;width:22px;height:22px;border-radius:50%;color:var(--text-muted);font-size:11px;cursor:pointer;flex-shrink:0}
+.cd-new{margin:8px 10px;padding:9px 10px;background:var(--rose-light);border-radius:10px;display:flex;align-items:center;gap:8px;cursor:pointer;font-size:10px;font-weight:600;color:var(--rose-dark);flex-shrink:0}
+.cd-list{flex:1;overflow-y:auto;padding:2px 6px 10px}
+.cd-item{display:flex;align-items:center;gap:8px;padding:8px 8px;border-radius:9px;cursor:pointer}
+.cd-item.active{background:var(--rose-light)}
+.cd-item-icon{width:26px;height:26px;border-radius:50%;background:var(--gray-light);display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+.cd-item-text{min-width:0}
+.cd-item-title{font-size:9.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cd-item-preview{font-size:8.5px;color:var(--text-hint);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cd-empty{padding:24px 16px;text-align:center;font-size:9.5px;color:var(--text-hint);line-height:1.7}
+
+/* ── SHARED BUBBLES ── */
+.bubble{max-width:86%;padding:7px 10px;border-radius:13px;font-size:10.5px;line-height:1.55}
+.bubble.taylo{background:var(--rose-light);color:var(--rose-deep);align-self:flex-start;border-bottom-left-radius:3px}
+.bubble.user{background:var(--rose);color:#fff;align-self:flex-end;border-bottom-right-radius:3px;margin-left:auto}
+.bubble.sys{background:var(--gray-light);color:var(--text-hint);align-self:center;font-size:9px;padding:3px 9px;border-radius:9px;max-width:100%;text-align:center}
+.bsender{font-size:8px;font-weight:600;margin-bottom:2px;opacity:.6;text-transform:uppercase;letter-spacing:.04em}
+.typing{background:var(--rose-light);border-radius:13px;border-bottom-left-radius:3px;padding:9px 13px;align-self:flex-start;display:flex;gap:4px;align-items:center}
+.tdot{width:5px;height:5px;border-radius:50%;background:var(--rose);animation:tdot 1s infinite}
+.tdot:nth-child(2){animation-delay:.15s}.tdot:nth-child(3){animation-delay:.3s}
+@keyframes tdot{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-3px);opacity:1}}
+
+/* ── EMAIL CONFIRM CARD ── */
+.ecard{margin-top:6px;background:var(--white);border-radius:8px;padding:7px 9px;border:1px solid var(--border)}
+.ecard-top{display:flex;align-items:center;gap:5px;margin-bottom:4px}
+.ecard-title{font-size:9.5px;font-weight:600;color:var(--text)}
+.ecard-from{font-size:8.5px;color:var(--text-hint)}
+.ecard-detail{font-size:9.5px;color:var(--text-muted);line-height:1.5;margin-bottom:5px}
+.ecard-btns{display:flex;gap:4px}
+.ecard-yes{background:var(--teal);color:#fff;border:none;border-radius:11px;padding:4px 9px;font-size:9px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif}
+.ecard-no{background:var(--gray-light);color:var(--text-muted);border:none;border-radius:11px;padding:4px 9px;font-size:9px;cursor:pointer;font-family:'DM Sans',sans-serif}
+
+/* ── TABBED APP ── */
+.status-bar{background:var(--rose);padding:42px 16px 4px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+.stime{color:#fff;font-size:10.5px;font-weight:600}
+.sicons{color:#fff;display:flex;gap:4px;align-items:center}
+.app-header{background:var(--rose);padding:2px 14px 0;color:#fff;position:relative;overflow:hidden;flex-shrink:0}
+.greeting{font-size:10.5px;opacity:.8;margin-bottom:1px;font-weight:300}
+.appname{font-family:'DM Serif Display',serif;font-size:20px;letter-spacing:-.5px}
+.ml-bar{background:rgba(255,255,255,.15);margin:5px 0 8px;border-radius:7px;padding:6px 9px;display:flex;align-items:center;justify-content:center}
+.ml-stat{font-size:9px;color:rgba(255,255,255,.95);font-weight:500;white-space:nowrap}
+
+.tab-bar{display:flex;background:var(--white);border-top:1.5px solid var(--border);flex-shrink:0;box-shadow:0 -3px 16px rgba(60,30,15,0.09);padding-bottom:20px}
+.tab{flex:1;text-align:center;padding:11px 0 4px;font-size:8.5px;color:var(--text-hint);cursor:pointer;border-top:2.5px solid transparent;transition:all .2s;font-weight:600;user-select:none;letter-spacing:.01em}
+.tab svg{display:block;margin:0 auto 4px;width:17px;height:17px}
+.tab.active{color:var(--rose-dark);border-top-color:var(--rose-dark)}
+.content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;padding-bottom:8px;background:var(--gray-light)}
+.screen{display:none}.screen.active{display:block}
+.slabel{font-size:8px;font-weight:600;color:var(--text-hint);text-transform:uppercase;letter-spacing:.08em;padding:9px 10px 5px}
+
+/* ── SUB-NAV (inside More sub-screens) ── */
+.subnav{display:flex;align-items:center;gap:8px;padding:11px 10px 3px}
+.subnav-back{font-size:9.5px;color:var(--rose-dark);font-weight:600;cursor:pointer}
+.subnav-title{font-size:8px;color:var(--text-hint);text-transform:uppercase;letter-spacing:.07em;font-weight:600}
+
+/* ── MORE MENU ── */
+.mrow{display:flex;align-items:center;gap:9px;margin:0 7px 6px;padding:11px 11px;background:var(--white);border:1px solid var(--border);border-radius:12px;cursor:pointer}
+.mrow-icon{font-size:18px;width:24px;text-align:center;flex-shrink:0}
+.mrow-title{font-size:10.5px;font-weight:600;color:var(--text)}
+.mrow-sub{font-size:9px;color:var(--text-muted);margin-top:1px}
+.mrow-chevron{margin-left:auto;font-size:13px;color:var(--text-hint)}
+
+/* ── SCHOOL SOURCE TAG ── */
+.stag{display:inline-block;font-size:7.5px;font-weight:500;padding:1px 6px;border-radius:4px;background:var(--blue-light);color:var(--blue);margin-bottom:3px}
+.stag.amber{background:var(--amber-light);color:var(--amber)}
+.stag.teal{background:var(--teal-light);color:var(--teal)}
+
+/* ── NUDGE CARDS ── */
+.nudge{margin:0 7px 7px;background:var(--white);border:1px solid var(--border);border-radius:12px;padding:10px;transition:opacity .3s}
+.nudge.urgent{border-color:var(--rose);border-width:1.5px}
+.nudge.done{opacity:.4}
+.nrow{display:flex;gap:7px;align-items:flex-start}
+.nicon{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.ic-rose{background:var(--rose-light)}.ic-amber{background:var(--amber-light)}.ic-teal{background:var(--teal-light)}.ic-blue{background:var(--blue-light)}.ic-purple{background:var(--purple-light)}.ic-green{background:var(--green-light)}
+.ntitle{font-size:10.5px;font-weight:600;color:var(--text);margin-bottom:2px}
+.ntitle.done-t{text-decoration:line-through;color:var(--text-hint)}
+.nbody{font-size:9.5px;color:var(--text-muted);line-height:1.5}
+.nactions{display:flex;gap:4px;margin-top:7px;flex-wrap:wrap}
+.bp{background:var(--rose);color:#fff;border:none;border-radius:18px;padding:4px 9px;font-size:9px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif}
+.bg{background:var(--gray-light);color:var(--text-muted);border:none;border-radius:18px;padding:4px 8px;font-size:9px;cursor:pointer;font-family:'DM Sans',sans-serif}
+.bd{background:var(--teal-light);color:var(--teal);border:none;border-radius:18px;padding:4px 9px;font-size:9px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif}
+.bdelegate{background:var(--blue-light);color:var(--blue);border:none;border-radius:18px;padding:4px 8px;font-size:9px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:500}
+/* Outlined, not filled — signals "this one takes you to chat" vs the
+   filled pills which resolve instantly in place. */
+.bchat{background:var(--white);color:var(--rose-dark);border:1.3px solid var(--rose);border-radius:18px;padding:3.5px 9px;font-size:9px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;display:inline-flex;align-items:center;gap:3px}
+.ubadge{display:inline-block;background:var(--rose);color:#fff;font-size:7px;font-weight:700;padding:2px 5px;border-radius:4px;letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px}
+
+/* ── SUMMARY / NOTICED BOX ── */
+.tbox{margin:0 7px 8px;background:var(--white);border:1px solid var(--border);border-radius:11px;padding:9px 10px;font-size:9.5px;color:var(--text-muted);line-height:1.75}
+.tbox-title{font-size:8.5px;font-weight:600;color:var(--rose-dark);margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em}
+
+/* ── FAMILY ── */
+.fcard{margin:0 7px 8px;background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.fmember{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);cursor:pointer}
+.fmember:last-child{border-bottom:none}
+.favatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:600;flex-shrink:0}
+.fname{font-size:10.5px;font-weight:600;color:var(--text)}
+.fdetail{font-size:9px;color:var(--text-muted);margin-top:1px;line-height:1.4}
+.ftag{margin-left:auto;font-size:8px;font-weight:600;padding:2px 6px;border-radius:6px;white-space:nowrap;flex-shrink:0}
+.fmember-chevron{margin-left:auto;font-size:10px;color:var(--text-hint)}
+
+/* ── AHEAD (tap to expand — reveals detail + quick actions) ── */
+.uitem{display:flex;align-items:flex-start;gap:8px;margin:0 7px 6px;padding:8px 10px;background:var(--white);border:1px solid var(--border);border-radius:9px;cursor:pointer;transition:transform .15s,opacity .3s}
+.uitem:active{transform:scale(.98)}
+.uitem.done{opacity:.5}
+.uitem.done .utitle{text-decoration:line-through;color:var(--text-hint)}
+.udate{width:30px;text-align:center;flex-shrink:0}
+.uday{font-family:'DM Serif Display',serif;font-size:17px;color:var(--rose-dark);line-height:1}
+.umonth{font-size:7px;color:var(--text-hint);text-transform:uppercase;font-weight:600}
+.udiv{width:1px;background:var(--border);flex-shrink:0;align-self:stretch}
+.ubody{flex:1;min-width:0}
+.uhead-row{display:flex;align-items:flex-start;gap:6px}
+.utitle{font-size:10.5px;font-weight:600;color:var(--text);margin-bottom:1px}
+.usub{font-size:9px;color:var(--text-muted);line-height:1.4}
+.uday-label{font-family:'DM Serif Display',serif;font-size:11px;color:var(--rose-dark);line-height:1.2;text-align:center}
+.uchevron{margin-left:auto;font-size:11px;color:var(--text-hint);flex-shrink:0;transition:transform .2s;padding-top:1px}
+.uitem.expanded .uchevron{transform:rotate(90deg)}
+.udetail{display:none;margin-top:7px;padding-top:7px;border-top:1px solid var(--border);font-size:9.5px;color:var(--text-muted);line-height:1.55}
+.uitem.expanded .udetail{display:block}
+.uactions{display:none;gap:5px;margin-top:8px;flex-wrap:wrap}
+.uitem.expanded .uactions{display:flex}
+
+/* ── CHECKLISTS ── */
+.hcard{margin:0 7px 7px;background:var(--white);border:1px solid var(--border);border-radius:11px;overflow:hidden}
+.hhead{padding:8px 11px;display:flex;align-items:center;justify-content:space-between;cursor:pointer}
+.hhead-title{font-size:10.5px;font-weight:600}
+.hhead-sub{font-size:8.5px;margin-top:1px}
+.hitem{display:flex;align-items:center;gap:7px;padding:6px 11px;border-bottom:1px solid var(--border)}
+.hitem:last-child{border-bottom:none}
+.hcheck{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--border);flex-shrink:0;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.hcheck.on{background:var(--teal);border-color:var(--teal)}
+.hcheck.on::after{content:'';display:block;width:4px;height:7px;border:1.5px solid #fff;border-top:none;border-left:none;transform:rotate(45deg) translateY(-1px)}
+.htext{font-size:9.5px;color:var(--text)}
+.htext.done{color:var(--text-hint);text-decoration:line-through}
+.hwhen{margin-left:auto;font-size:8.5px;color:var(--text-hint);white-space:nowrap}
+.cl-prog{font-size:9px;font-weight:600;padding:2px 7px;border-radius:7px;background:var(--amber-light);color:var(--amber)}
+.cl-prog.complete{background:var(--teal-light);color:var(--teal)}
+.cl-actions{display:flex;align-items:center;gap:5px;margin-left:auto;flex-shrink:0}
+.cl-icon-btn{width:22px;height:22px;border-radius:6px;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0}
+.cl-icon-btn.edit{background:var(--gray-light);color:var(--text-muted)}
+.cl-icon-btn.chat{background:var(--rose-light);color:var(--rose-dark)}
+.new-cl-btn{margin:5px 7px 8px;padding:11px 12px;background:var(--white);border:1.5px dashed var(--rose);border-radius:11px;display:flex;align-items:center;gap:9px;cursor:pointer;transition:background .15s}
+.new-cl-btn:active{background:var(--rose-light)}
+.new-cl-icon{width:26px;height:26px;border-radius:50%;background:var(--rose);display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;font-weight:600;flex-shrink:0}
+.new-cl-text{font-size:10px;font-weight:500;color:var(--rose-dark)}
+.new-cl-sub{font-size:8.5px;color:var(--text-hint);margin-top:1px}
+
+/* ── CONNECTIONS ── */
+.pnote{margin:4px 7px;text-align:center;font-size:9px;color:var(--text-hint);line-height:1.6}
+.watoggle{margin:0 7px 5px;background:var(--white);border:1px solid var(--border);border-radius:11px;padding:9px 10px;display:flex;align-items:center;gap:9px}
+.wlabel{font-size:10.5px;font-weight:600;color:var(--text)}
+.wsub{font-size:9px;color:var(--text-muted);margin-top:1px}
+.tswitch{margin-left:auto;width:32px;height:18px;background:var(--gray-light);border-radius:9px;cursor:pointer;position:relative;transition:background .2s;flex-shrink:0}
+.tswitch.on{background:#25D366}
+.tknob{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.tswitch.on .tknob{left:16px}
+.bon{margin-left:auto;font-size:8px;font-weight:600;padding:2px 6px;border-radius:6px;background:var(--teal-light);color:var(--teal);white-space:nowrap;flex-shrink:0}
+.boff{margin-left:auto;font-size:8px;font-weight:600;padding:2px 6px;border-radius:6px;background:var(--gray-light);color:var(--gray);white-space:nowrap;flex-shrink:0}
+
+/* ── PROFILE SHEET ── */
+.profile-sheet{position:absolute;inset:0;background:var(--white);z-index:20;display:flex;flex-direction:column;transform:translateY(100%);transition:transform .3s ease;border-radius:18px 18px 0 0}
+.profile-sheet.open{transform:translateY(0)}
+.ps-header{background:var(--rose);padding:42px 14px 14px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.ps-back{background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:10px;padding:4px 10px;font-size:9px;cursor:pointer;font-family:DM Sans,sans-serif;font-weight:500}
+.ps-avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;flex-shrink:0}
+.ps-name{font-size:14px;font-weight:600;color:#fff;font-family:'DM Serif Display',serif}
+.ps-role{font-size:9px;color:rgba(255,255,255,.75);margin-top:1px}
+.ps-edit{margin-left:auto;background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:10px;padding:4px 10px;font-size:9px;cursor:pointer;font-family:DM Sans,sans-serif;}
+.ps-body{flex:1;overflow-y:auto;padding:8px 0 16px}
+.ps-section{margin:0 7px 8px;background:var(--white);border:1px solid var(--border);border-radius:11px;overflow:hidden}
+.ps-section-title{font-size:8px;font-weight:600;color:var(--text-hint);text-transform:uppercase;letter-spacing:.07em;padding:8px 11px 4px}
+.ps-field{display:flex;align-items:center;justify-content:space-between;padding:6px 11px;border-bottom:1px solid var(--border)}
+.ps-field:last-child{border-bottom:none}
+.ps-field-label{font-size:9.5px;color:var(--text-muted)}
+.ps-field-val{font-size:9.5px;font-weight:500;color:var(--text)}
+.ps-field-empty{font-size:9.5px;color:var(--text-hint);font-style:italic}
+.ps-add-btn{margin:4px 7px;padding:7px 11px;background:var(--gray-light);border-radius:9px;font-size:9.5px;color:var(--rose-dark);font-weight:500;cursor:pointer;text-align:center}
+</style>
+</head>
+<body>
+<div class="scene">
+<div class="phone-frame">
+<div class="phone-screen">
+
+<!-- SPLASH -->
+<div class="splash" id="splash">
+  <div class="splash-top">
+    <div class="splash-logo">Taylo</div>
+    <div class="splash-tagline">You hold enough. Let Taylo hold the rest.</div>
+  </div>
+  <div class="splash-bottom">
+    <div class="splash-cta">Let's get started</div>
+    <button class="splash-btn" onclick="startOnboarding()">Sign up</button>
+    <button class="splash-btn-outline" onclick="skipToApp()">Sign in</button>
+  </div>
+</div>
+
+<!-- SIGN UP FORM -->
+<div class="signup" id="signupScreen">
+  <div class="su-topbar">
+    <button class="su-back" id="suBack" onclick="suGoBack()" style="visibility:hidden">&#8592;</button>
+    <div class="su-progress-track"><div class="su-progress-fill" id="suProgFill"></div></div>
+  </div>
+  <div class="su-body" id="suBody"></div>
+  <div class="su-footer">
+    <div class="su-skip" id="suSkip" style="display:none"></div>
+    <button class="su-continue" id="suContinue">Continue</button>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div class="main-app" id="mainApp">
+
+  <!-- TABBED APP -->
+  <div id="tabs" style="display:none;flex-direction:column;flex:1;min-height:0;">
+    <div class="status-bar"><span class="stime">9:41</span><span class="sicons"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="7" width="16" height="10" rx="2"/><path d="M20 11v2a1 1 0 0 0 0-2z" opacity=".5"/></svg></span></div>
+    <div class="app-header">
+      <div class="greeting" id="greet">Good morning &#x1F44B;</div>
+      <div class="appname">Taylo</div>
+      <div class="ml-bar"><span class="ml-stat" id="mlStat">Taylo's got 4 things for you today &#10024;</span></div>
+    </div>
+    <div class="content">
+
+      <!-- TODAY -->
+      <div id="today" class="screen active">
+        <div class="tbox" id="todaySummary"></div>
+        <div class="slabel">Needs your attention</div>
+        <div id="nudgeList"></div>
+      </div>
+
+      <!-- AHEAD -->
+      <div id="ahead" class="screen">
+        <div class="tbox" id="aheadNoticed"></div>
+
+        <div class="slabel">Coming up</div>
+        <div id="aheadList"></div>
+
+        <div class="slabel">Your checklists &#9989;</div>
+        <div style="margin:0 7px 6px;font-size:8.5px;color:var(--text-hint);line-height:1.5;">Taylo creates these when it spots something coming up. Tap to work through them.</div>
+        <div id="checklistSection"></div>
+
+        <div class="new-cl-btn" onclick="generateChecklist()">
+          <div class="new-cl-icon">+</div>
+          <div>
+            <div class="new-cl-text">Generate a new checklist</div>
+            <div class="new-cl-sub">Holiday, back to school, party prep, new baby…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CHAT (tab, sits inside the persistent tab-bar shell) -->
+      <div id="chat" class="screen">
+        <div class="chat-subhead">
+          <button class="chat-icon-btn" onclick="openChatDrawer()" title="Previous conversations">&#9776;</button>
+          <div class="chat-thread-avatar" id="chatThreadAvatar">T</div>
+          <div class="chat-thread-text">
+            <div class="chat-thread-title" id="chatThreadTitle">Taylo</div>
+            <div class="chat-thread-sub" id="chatThreadSub">New chat</div>
+          </div>
+        </div>
+        <div class="chat-msgs" id="chatMsgs"></div>
+        <div class="chat-chips" id="chatChips"></div>
+        <div class="chat-bar">
+          <button class="chat-mic" onclick="alert('🎙️ Voice input — available in the live app')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></button>
+          <textarea class="chat-input" id="chatIn" placeholder="Ask Taylo anything..." rows="1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();chatSend()}"></textarea>
+          <button class="chat-send" onclick="chatSend()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+        </div>
+
+        <!-- HISTORY DRAWER -->
+        <div class="chat-drawer" id="chatDrawer" onclick="if(event.target===this) closeChatDrawer()">
+          <div class="chat-drawer-panel">
+            <div class="cd-header"><span class="cd-title">Conversations</span><button class="cd-close" onclick="closeChatDrawer()">&#10005;</button></div>
+            <div class="cd-new" onclick="openGeneralChat()"><span>&#43;</span> New chat</div>
+            <div class="cd-list" id="cdList"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MORE (menu) -->
+      <div id="more" class="screen">
+        <div class="slabel">More</div>
+        <div class="mrow" onclick="goMore('family')"><span class="mrow-icon">&#128106;</span><div><div class="mrow-title">Family</div><div class="mrow-sub">Members, kids' details &amp; profiles</div></div><span class="mrow-chevron">&#8250;</span></div>
+        <div class="mrow" onclick="goMore('connections')"><span class="mrow-icon">&#128279;</span><div><div class="mrow-title">Connections</div><div class="mrow-sub">Email &amp; calendar Taylo reads</div></div><span class="mrow-chevron">&#8250;</span></div>
+        <div class="mrow" onclick="goMore('settings')"><span class="mrow-icon">&#9881;&#65039;</span><div><div class="mrow-title">Settings</div><div class="mrow-sub">Notifications &amp; preferences</div></div><span class="mrow-chevron">&#8250;</span></div>
+      </div>
+
+      <!-- FAMILY (sub-screen) -->
+      <div id="family" class="screen">
+        <div class="subnav"><span class="subnav-back" onclick="backToMore()">&#8592; More</span><span class="subnav-title">Family</span></div>
+        <div class="slabel">Your family</div>
+        <div class="fcard" id="famCard"></div>
+      </div>
+
+      <!-- CONNECTIONS (sub-screen) -->
+      <div id="connections" class="screen">
+        <div class="subnav"><span class="subnav-back" onclick="backToMore()">&#8592; More</span><span class="subnav-title">Connections</span></div>
+        <div style="margin:2px 7px 8px;font-size:9px;color:var(--text-muted);line-height:1.6;">Connect the services you already use — Taylo reads them to spot what matters for your family.</div>
+
+        <!-- Email -->
+        <div class="hcard" id="conn-email-card">
+          <div class="hhead" style="background:var(--rose-light);cursor:pointer;" onclick="toggleCL('conn-email-body')">
+            <div><div class="hhead-title" style="color:var(--rose-deep);">&#128231; Email</div><div class="hhead-sub" style="color:var(--rose-dark);">Gmail connected · reading newsletters &amp; orders</div></div>
+            <div class="bon">Active</div>
+          </div>
+          <div id="conn-email-body" style="display:none;">
+            <div style="padding:8px 11px 4px;font-size:9px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;">What to capture</div>
+            <div id="email-toggles"></div>
+            <div style="padding:4px 11px 10px;border-top:1px solid var(--border);">
+              <div style="font-size:9px;color:var(--text-hint);margin-bottom:5px;">Also connect:</div>
+              <div style="display:flex;gap:5px;">
+                <button onclick="connectService(this,'Outlook')" style="background:var(--gray-light);color:var(--text-muted);border:none;border-radius:8px;padding:5px 10px;font-size:9px;cursor:pointer;font-family:DM Sans,sans-serif;">&#128140; Outlook</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Calendar -->
+        <div class="hcard" id="conn-cal-card">
+          <div class="hhead" style="background:var(--blue-light);cursor:pointer;" onclick="toggleCL('conn-cal-body')">
+            <div><div class="hhead-title" style="color:#0C447C;">&#128197; Calendar</div><div class="hhead-sub" style="color:#185FA5;">Google Calendar connected · syncing family events</div></div>
+            <div class="bon">Active</div>
+          </div>
+          <div id="conn-cal-body" style="display:none;">
+            <div id="cal-toggles"></div>
+            <div style="padding:4px 11px 10px;border-top:1px solid var(--border);margin-top:4px;">
+              <div style="font-size:9px;color:var(--text-hint);margin-bottom:5px;">Also connect:</div>
+              <div style="display:flex;gap:5px;">
+                <button onclick="connectService(this,'Apple Calendar')" style="background:var(--gray-light);color:var(--text-muted);border:none;border-radius:8px;padding:5px 10px;font-size:9px;cursor:pointer;font-family:DM Sans,sans-serif;">&#127817; Apple Calendar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pnote">Taylo only reads what it needs · never shares your data<br>disconnect anything at any time &#128274;</div>
+      </div>
+
+      <!-- SETTINGS (sub-screen) -->
+      <div id="settings" class="screen">
+        <div class="subnav"><span class="subnav-back" onclick="backToMore()">&#8592; More</span><span class="subnav-title">Settings</span></div>
+        <div class="slabel">Notifications</div>
+        <div class="watoggle"><div style="font-size:18px">&#128172;</div><div><div class="wlabel">In-app chat (default)</div><div class="wsub">Taylo talks to you inside the app</div></div><div class="tswitch on" onclick="this.classList.toggle('on')"><div class="tknob"></div></div></div>
+        <div class="watoggle"><div style="font-size:18px;color:#25D366">&#9679;</div><div><div class="wlabel">WhatsApp nudges</div><div class="wsub">Also get alerts via WhatsApp</div></div><div class="tswitch" onclick="this.classList.toggle('on')"><div class="tknob"></div></div></div>
+      </div>
+
+    </div><!-- end content -->
+
+    <div class="tab-bar">
+      <div class="tab active" onclick="showTab('today',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>Today</div>
+      <div class="tab" onclick="showTab('ahead',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Ahead</div>
+      <div class="tab" id="tabChat" onclick="openGeneralChat(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Chat</div>
+      <div class="tab" onclick="showTab('more',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/><circle cx="5" cy="12" r="1.5"/></svg>More</div>
+    </div>
+
+  </div><!-- end tabs -->
+
+  <!-- PROFILE SHEET OVERLAY -->
+  <div class="profile-sheet" id="profileSheet">
+    <div class="ps-header">
+      <button class="ps-back" onclick="closeProfile()">&#8592; Back</button>
+      <div class="ps-avatar" id="psAvatar"></div>
+      <div><div class="ps-name" id="psName"></div><div class="ps-role" id="psRole"></div></div>
+      <button class="ps-edit" onclick="alert('Edit mode — available in the live app')">Edit</button>
+    </div>
+    <div class="ps-body" id="psBody"></div>
+  </div>
+
+</div><!-- end main-app -->
+</div><!-- end phone-screen -->
+
+<!-- iPhone SVG frame -->
+<svg class="frame" viewBox="0 0 220 455" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="tb" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#0E0E10"/><stop offset="20%" stop-color="#1C1C1E"/><stop offset="80%" stop-color="#1C1C1E"/><stop offset="100%" stop-color="#0E0E10"/></linearGradient>
+    <linearGradient id="tf" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#2A2A2C"/><stop offset="25%" stop-color="#6C6C70"/><stop offset="50%" stop-color="#9A9A9E"/><stop offset="75%" stop-color="#6C6C70"/><stop offset="100%" stop-color="#2A2A2C"/></linearGradient>
+    <mask id="tm"><rect width="220" height="455" fill="white"/><rect x="9" y="9" width="202" height="437" rx="39" fill="black"/></mask>
+  </defs>
+  <rect x="2" y="2" width="216" height="451" rx="46" fill="url(#tb)" mask="url(#tm)"/>
+  <rect x="2" y="2" width="216" height="451" rx="46" fill="none" stroke="url(#tf)" stroke-width="3.5"/>
+  <rect x="9" y="9" width="202" height="437" rx="39" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
+  <rect x="70" y="16" width="80" height="28" rx="14" fill="#111"/>
+  <circle cx="138" cy="30" r="7" fill="#0D0D0D"/><circle cx="138" cy="30" r="3.5" fill="#181818"/><circle cx="136" cy="28" r="1.4" fill="rgba(255,255,255,0.10)"/>
+  <circle cx="106" cy="30" r="2.5" fill="#1A1A1A"/>
+  <rect x="-0.5" y="82" width="5" height="22" rx="2.5" fill="#252528"/>
+  <rect x="-0.5" y="116" width="5" height="42" rx="2.5" fill="#252528"/>
+  <rect x="-0.5" y="167" width="5" height="42" rx="2.5" fill="#252528"/>
+  <rect x="215.5" y="130" width="5" height="58" rx="2.5" fill="#252528"/>
+  <rect x="73" y="440" width="74" height="5" rx="2.5" fill="#666" opacity="0.35"/>
+</svg>
+</div><!-- end phone-frame -->
+</div><!-- end scene -->
+
+<script>
+// ── FAMILY STATE ──
+const F={name:'',lastName:'',kids:[],partner:'',partnerInvited:false,school:'',userType:'family',extras:[],connections:{}};
+
+// ── SIGN UP (step-by-step form) ──
+function cap(s){ s=(s||'').trim(); return s?s.charAt(0).toUpperCase()+s.slice(1).toLowerCase():s; }
+
+let suSteps=['name','type'], suIndex=0;
+
+function startOnboarding(){
+  document.getElementById('splash').style.display='none';
+  document.getElementById('signupScreen').classList.add('active');
+  F.name=''; F.lastName=''; F.kids=[{name:'',birthday:'',age:null,school:''}];
+  F.partner=''; F.partnerInvited=false; F.extras=[]; F.connections={}; F.userType='family';
+  suSteps=['name','type']; suIndex=0;
+  suRenderStep();
+}
+
+function suExpandSteps(){
+  const rest=[];
+  if(F.userType==='family') rest.push('kids');
+  if(F.userType!=='solo') rest.push('partner');
+  rest.push('connect','extra','summary');
+  suSteps = suSteps.slice(0, suIndex+1).concat(rest);
+}
+
+function suGoNext(){ suIndex++; suRenderStep(); }
+function suGoBack(){ if(suIndex>0){ suIndex--; suRenderStep(); } }
+
+function suShake(id){
+  const el=document.getElementById(id); if(!el) return;
+  el.classList.add('su-shake');
+  setTimeout(()=>el.classList.remove('su-shake'),400);
+  if(el.focus) el.focus();
+}
+
+function suRenderStep(){
+  const key=suSteps[suIndex];
+  document.getElementById('suBack').style.visibility = suIndex===0?'hidden':'visible';
+  const pct = Math.round((suIndex/Math.max(suSteps.length-1,1))*100);
+  document.getElementById('suProgFill').style.width = Math.min(pct,100)+'%';
+  document.getElementById('suContinue').style.display='';
+  document.getElementById('suSkip').style.display='none';
+  document.getElementById('suBody').scrollTop=0;
+  ({name:suStepName, type:suStepType, kids:suStepKids, partner:suStepPartner, connect:suStepConnect, extra:suStepExtra, summary:suStepSummary})[key]();
+}
+
+function suStepName(){
+  const body=document.getElementById('suBody');
+  body.innerHTML=`
+    <div class="su-eyebrow">Welcome to Taylo</div>
+    <h2 class="su-title">What should we call you?</h2>
+    <p class="su-sub">Let's start with your name.</p>
+    <div class="su-field"><label class="su-label">First name</label><input class="su-input" id="suFirst" type="text" placeholder="e.g. Dani" value="${F.name||''}"></div>
+    <div class="su-field"><label class="su-label">Last name</label><input class="su-input" id="suLast" type="text" placeholder="e.g. Cohen" value="${F.lastName||''}"></div>
+  `;
+  const cont=document.getElementById('suContinue');
+  cont.textContent='Continue';
+  cont.onclick=()=>{
+    const fn=document.getElementById('suFirst').value.trim();
+    if(!fn){ suShake('suFirst'); return; }
+    F.name=cap(fn); F.lastName=cap(document.getElementById('suLast').value.trim());
+    suGoNext();
+  };
+  setTimeout(()=>document.getElementById('suFirst').focus(),50);
+}
+
+function suStepType(){
+  const body=document.getElementById('suBody');
+  const opts=[{icon:'&#x1F64B;',label:'Just me',sub:'No partner or kids',val:'solo'},
+    {icon:'&#x1F46B;',label:'Me & a partner',sub:'No children yet',val:'partner'},
+    {icon:'&#x1F46A;',label:'Family with kids',sub:'One or more children',val:'family'},
+    {icon:'&#x1F930;',label:'Baby on the way',sub:'Expecting soon',val:'expecting'}];
+  body.innerHTML=`
+    <div class="su-eyebrow">About your household</div>
+    <h2 class="su-title">Which best describes your family set up, ${F.name||'there'}?</h2>
+    <p class="su-sub">This helps Taylo tailor what it looks out for.</p>
+    <div class="su-choice-grid">${opts.map(o=>`<div class="su-choice${F.userType===o.val?' sel':''}" data-val="${o.val}"><span class="su-choice-icon">${o.icon}</span><div class="su-choice-label">${o.label}</div><div class="su-choice-sub">${o.sub}</div></div>`).join('')}</div>
+  `;
+  document.getElementById('suContinue').style.display='none';
+  body.querySelectorAll('.su-choice').forEach(el=>{
+    el.onclick=()=>{
+      body.querySelectorAll('.su-choice').forEach(x=>x.classList.remove('sel'));
+      el.classList.add('sel');
+      F.userType=el.dataset.val;
+      suExpandSteps();
+      setTimeout(()=>suGoNext(),220);
+    };
+  });
+}
+
+function suStepKids(){
+  if(!F.kids.length) F.kids=[{name:'',birthday:'',age:null,school:''}];
+  const body=document.getElementById('suBody');
+  body.innerHTML=`
+    <div class="su-eyebrow">Your children</div>
+    <h2 class="su-title">Tell us about your children</h2>
+    <p class="su-sub">Names and birthdays — you can add school details later from the Family page.</p>
+    <div id="suKidsList"></div>
+    <div class="su-add-row" onclick="suAddKid()">+ Add another child</div>
+  `;
+  suRenderKidRows();
+  const cont=document.getElementById('suContinue');
+  cont.textContent='Continue';
+  cont.onclick=()=>{
+    suCollectKids();
+    if(!F.kids.length){ suShake('suKidsList'); return; }
+    suGoNext();
+  };
+}
+function suRenderKidRows(){
+  const list=document.getElementById('suKidsList');
+  list.innerHTML = F.kids.map((k,i)=>`
+    <div class="su-kid-row">
+      <input class="su-input su-input-sm" data-kid-name="${i}" type="text" placeholder="Child's name" value="${k.name||''}">
+      <input class="su-input su-input-sm" data-kid-bday="${i}" type="date" value="${k.birthday||''}">
+      ${F.kids.length>1?`<button class="su-remove" onclick="suRemoveKid(${i})">&times;</button>`:''}
+    </div>`).join('');
+}
+function suAddKid(){ suCollectKids(true); F.kids.push({name:'',birthday:'',age:null,school:''}); suRenderKidRows(); }
+function suRemoveKid(i){ suCollectKids(true); F.kids.splice(i,1); suRenderKidRows(); }
+function suCollectKids(keepBlanks){
+  document.querySelectorAll('[data-kid-name]').forEach(inp=>{ const i=+inp.dataset.kidName; if(F.kids[i]) F.kids[i].name=cap(inp.value.trim()); });
+  document.querySelectorAll('[data-kid-bday]').forEach(inp=>{ const i=+inp.dataset.kidBday; if(F.kids[i]) F.kids[i].birthday=inp.value; });
+  if(!keepBlanks) F.kids=F.kids.filter(k=>k.name);
+}
+
+function suStepPartner(){
+  const defaultOn = F.userType==='partner' || !!F.partner;
+  const body=document.getElementById('suBody');
+  body.innerHTML=`
+    <div class="su-eyebrow">Partner</div>
+    <h2 class="su-title">Is there a partner at home?</h2>
+    <p class="su-sub">Someone who shares the family load with you.</p>
+    <div class="su-toggle-row">
+      <div><div class="su-toggle-label">I have a partner</div><div class="su-toggle-sub">They can be invited to Taylo too</div></div>
+      <div class="tswitch ${defaultOn?'on':''}" id="suPartnerToggle" onclick="suTogglePartner()"><div class="tknob"></div></div>
+    </div>
+    <div id="suPartnerFields" style="display:${defaultOn?'block':'none'}">
+      <div class="su-field"><label class="su-label">Partner's first name</label><input class="su-input" id="suPartnerName" type="text" placeholder="e.g. James" value="${F.partner||''}"></div>
+      <div class="su-checkbox-row"><input type="checkbox" id="suInvite" ${F.partnerInvited?'checked':''}><label for="suInvite">Invite them to Taylo too — they'll get their own account and see shared family info</label></div>
+    </div>
+  `;
+  const cont=document.getElementById('suContinue');
+  cont.textContent='Continue';
+  cont.onclick=()=>{
+    const on=document.getElementById('suPartnerToggle').classList.contains('on');
+    if(on){
+      const nm=document.getElementById('suPartnerName').value.trim();
+      if(!nm){ suShake('suPartnerName'); return; }
+      F.partner=cap(nm);
+      F.partnerInvited=document.getElementById('suInvite').checked;
+    } else {
+      F.partner=''; F.partnerInvited=false;
+    }
+    suGoNext();
+  };
+}
+function suTogglePartner(){
+  const t=document.getElementById('suPartnerToggle'); t.classList.toggle('on');
+  document.getElementById('suPartnerFields').style.display = t.classList.contains('on')?'block':'none';
+}
+
+function suStepConnect(){
+  document.getElementById('suSkip').style.display='block';
+  document.getElementById('suSkip').textContent='Skip for now';
+  document.getElementById('suSkip').onclick=()=>suGoNext();
+  const body=document.getElementById('suBody');
+  const conns=[
+    {icon:'&#128231;',label:'Gmail',sub:'Newsletters, orders, appointments',key:'gmail'},
+    {icon:'&#128197;',label:'Google Calendar',sub:'Events & appointments',key:'gcal'},
+    {icon:'&#128140;',label:'Outlook',sub:'Alternative email',key:'outlook'},
+    {icon:'&#127817;',label:'Apple Calendar',sub:'iOS calendar',key:'appcal'},
+  ];
+  body.innerHTML=`
+    <div class="su-eyebrow">Connections</div>
+    <h2 class="su-title">Connect your calendar &amp; email</h2>
+    <p class="su-sub">Taylo reads these to spot what matters for your family.</p>
+    <div class="su-conn-list">${conns.map(c=>`
+      <div class="su-conn-row">
+        <span class="su-conn-icon">${c.icon}</span>
+        <div><div class="su-conn-label">${c.label}</div><div class="su-conn-sub">${c.sub}</div></div>
+        <button class="su-conn-btn" id="suconn-${c.key}" data-connected="${F.connections[c.key]?'true':'false'}" onclick="obToggleConnect('${c.key}',this)" style="${F.connections[c.key]?'background:var(--teal-light);color:var(--teal);':''}">${F.connections[c.key]?'✓ Connected':'Connect'}</button>
+      </div>`).join('')}
+    </div>
+  `;
+  const cont=document.getElementById('suContinue');
+  cont.textContent='Continue';
+  cont.onclick=()=>suGoNext();
+}
+function obToggleConnect(key, btn){
+  const isConnected = btn.dataset.connected==='true';
+  if(isConnected){
+    btn.textContent='Connect'; btn.style.background='var(--rose-light)'; btn.style.color='var(--rose-dark)';
+    btn.dataset.connected='false'; delete F.connections[key];
+  } else {
+    btn.textContent='✓ Connected'; btn.style.background='var(--teal-light)'; btn.style.color='var(--teal)';
+    btn.dataset.connected='true'; F.connections[key]=true;
+  }
+}
+
+function suStepExtra(){
+  document.getElementById('suSkip').style.display='block';
+  document.getElementById('suSkip').textContent='Skip — finish setup';
+  document.getElementById('suSkip').onclick=()=>suGoNext();
+  const body=document.getElementById('suBody');
+  body.innerHTML=`
+    <div class="su-eyebrow">Almost done</div>
+    <h2 class="su-title">Anything else on your mind?</h2>
+    <p class="su-sub">An upcoming appointment, a reminder — anything at all.</p>
+    <textarea class="su-textarea" id="suExtraInput" placeholder="e.g. MOT is due in March"></textarea>
+    <div class="su-add-row" onclick="suAddExtra()">+ Add</div>
+    <div class="su-chip-list" id="suExtraChips"></div>
+  `;
+  suRenderExtraChips();
+  const cont=document.getElementById('suContinue');
+  cont.textContent='Continue';
+  cont.onclick=()=>suGoNext();
+}
+function suAddExtra(){
+  const inp=document.getElementById('suExtraInput');
+  const val=inp.value.trim(); if(!val) return;
+  parseExtra(val); inp.value=''; suRenderExtraChips();
+}
+function suRenderExtraChips(){
+  const el=document.getElementById('suExtraChips'); if(!el) return;
+  el.innerHTML=F.extras.map((e,i)=>`<div class="su-chip">${e.title.replace(/&#x[^;]+;|&#\d+;/g,'')}<span onclick="suRemoveExtra(${i})">&times;</span></div>`).join('');
+}
+function suRemoveExtra(i){ F.extras.splice(i,1); suRenderExtraChips(); }
+
+function suStepSummary(){
+  const body=document.getElementById('suBody');
+  const kidsList=F.kids.map(k=>k.name).filter(Boolean).join(', ');
+  const connCount=Object.keys(F.connections).length;
+  body.innerHTML=`
+    <div class="su-eyebrow">All set</div>
+    <h2 class="su-title">Nice to meet you, ${F.name}! &#x1F389;</h2>
+    <p class="su-sub">Here's what Taylo's got so far:</p>
+    <div class="su-summary-card">
+      <div class="su-summary-row"><span>Name</span><strong>${F.name} ${F.lastName||''}</strong></div>
+      ${kidsList?`<div class="su-summary-row"><span>Children</span><strong>${kidsList}</strong></div>`:''}
+      ${F.partner?`<div class="su-summary-row"><span>Partner</span><strong>${F.partner}${F.partnerInvited?' (invited)':''}</strong></div>`:''}
+      <div class="su-summary-row"><span>Connections</span><strong>${connCount>0?connCount+' connected':'None yet'}</strong></div>
+      ${F.extras.length?`<div class="su-summary-row"><span>Notes</span><strong>${F.extras.length} added</strong></div>`:''}
+    </div>
+    <p class="su-sub" style="margin-top:10px;">You can add school details, medical notes and more from the Family page any time.</p>
+  `;
+  const cont=document.getElementById('suContinue');
+  cont.textContent='Take me to Taylo →';
+  cont.onclick=()=>launchApp();
+}
+
+function formatBday(iso){
+  if(!iso) return '';
+  const d=new Date(iso+'T00:00:00'); if(isNaN(d)) return iso;
+  const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+}
+function ageFromBday(iso){
+  if(!iso) return null;
+  const d=new Date(iso+'T00:00:00'); if(isNaN(d)) return null;
+  const now=new Date(); let age=now.getFullYear()-d.getFullYear();
+  const m=now.getMonth()-d.getMonth();
+  if(m<0 || (m===0 && now.getDate()<d.getDate())) age--;
+  return age>=0?age:null;
+}
+
+function parseExtra(txt){
+  const t=txt.toLowerCase(); let item=null; const ds=extractDateString(txt);
+  if(t.includes('mot')) item={title:'&#x1F527; MOT',day:ds?.day||'Soon',month:ds?.month||'',isDay:ds?.isDay||false,sub:'Added during setup'};
+  else if(t.includes('birthday')){const nm=txt.match(/(\w+)'s birthday/i)?.[1]||'Birthday';item={title:`&#x1F382; ${nm}'s birthday`,day:ds?.day||'',month:ds?.month||'',isDay:ds?.isDay||false,sub:'Added during setup'};}
+  else if(t.includes('party')){const nm=txt.match(/(\w+)'s party/i)?.[1]||'Party';item={title:`&#x1F389; ${nm}'s party`,day:ds?.day||'',month:ds?.month||'',isDay:ds?.isDay||false,sub:'Added during setup'};}
+  else if(t.includes('holiday')||t.includes('going to')||t.match(/fly|travel|lanzarote/)){const d=txt.match(/(?:to|going to)\s+([A-Z][a-z]+)/i)?.[1]||'Holiday';item={title:`&#x2708;&#xFE0F; ${d}`,day:ds?.day||'',month:ds?.month||'',isDay:ds?.isDay||false,sub:'Added during setup'};}
+  else item={title:`&#x1F4CC; ${txt.split(' ').slice(0,5).join(' ')}`,day:ds?.day||'',month:ds?.month||'',isDay:ds?.isDay||false,sub:'Added during setup'};
+  if(item) F.extras.push(item);
+}
+
+function resolveRelativeDate(txt){
+  const t = txt.toLowerCase();
+  const now = new Date();
+  const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+  const shortMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  const nextDay = t.match(/next\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i);
+  const thisDay = t.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);
+  const dayMatch = nextDay || thisDay;
+  if(dayMatch){
+    const target = dayNames.indexOf(dayMatch[1].toLowerCase());
+    const d = new Date(now);
+    let diff = target - d.getDay();
+    if(diff<=0 || nextDay) diff += 7;
+    d.setDate(d.getDate()+diff);
+    return {day:String(d.getDate()),month:shortMonths[d.getMonth()],isDay:false,resolved:true};
+  }
+
+  const months=['january','february','march','april','may','june','july','august','september','october','november','december'];
+  for(let i=0;i<months.length;i++){
+    if(t.includes(months[i])){
+      const dm=txt.match(/\b(\d{1,2})(?:st|nd|rd|th)?\b/);
+      return {day:dm?dm[1]:'',month:shortMonths[i],isDay:false,resolved:false};
+    }
+  }
+
+  if(t.includes('tomorrow')){
+    const d=new Date(now); d.setDate(d.getDate()+1);
+    return {day:String(d.getDate()),month:shortMonths[d.getMonth()],isDay:false,resolved:true};
+  }
+
+  return null;
+}
+
+function extractDateString(txt){ return resolveRelativeDate(txt); }
+
+// ── LAUNCH ──
+function launchApp(){
+  document.getElementById('signupScreen').classList.remove('active');
+  document.getElementById('mainApp').classList.add('active');
+  conversations=[]; currentConvId=null;
+  applyFamily(); initConnectScreen();
+  document.getElementById('tabs').style.display='flex';
+}
+
+function skipToApp(){
+  F.name='Sarah'; F.lastName='Cohen';
+  F.kids=[{name:'Theo',age:5,birthday:'',school:'Akiva School'},{name:'Lily',age:2,birthday:'',school:'Nursery'}];
+  F.partner='James'; F.partnerInvited=true; F.school='Akiva School';
+  document.getElementById('splash').style.display='none';
+  document.getElementById('mainApp').classList.add('active');
+  conversations=[]; currentConvId=null;
+  applyFamily(); initConnectScreen();
+  document.getElementById('tabs').style.display='flex';
+}
+
+function kidDetail(k){
+  const parts=[];
+  if(k.birthday){
+    const age=ageFromBday(k.birthday);
+    if(age!=null) parts.push(`Age ${age}`);
+    parts.push(`Born ${formatBday(k.birthday)}`);
+  } else if(k.age!=null && k.age!==''){
+    parts.push(`Age ${k.age}`);
+  }
+  parts.push(k.school?k.school:'School not added yet');
+  return parts.join(' · ');
+}
+
+// ── APPLY FAMILY DATA ──
+function applyFamily(){
+  const n=F.name||'there';
+  const k0=F.kids[0]||{name:'your eldest',age:5,birthday:''};
+  const k1=F.kids[1]||{name:'your youngest',age:2,birthday:''};
+  const p=F.partner||'';
+  const s=F.school||'their school';
+
+  const hr=new Date().getHours();
+  const timeGreet = hr<12?'morning':hr<17?'afternoon':'evening';
+  const timeEmoji = hr<12?'&#x1F44B;':hr<17?'&#x1F31E;':'&#x1F319;';
+  document.getElementById('greet').innerHTML=`Good ${timeGreet}, ${n} ${timeEmoji}`;
+
+  // Nudges — the things needing attention (or FYI) today. Each is a tappable
+  // item that opens its own dedicated conversation (see openItemChat).
+  const nudges=[
+    {id:'mia-bday',urgent:true,icon:'&#127874;',cls:'ic-rose',badge:'3 days',title:"Mia's birthday is Saturday",src:'&#128197; From your calendar',
+     body:"Buying a gift? Here are some ideas under £20 with next-day delivery &#127873;",
+     opener:"Mia's birthday party is this Saturday — have you got a gift sorted yet? If not, I can suggest a few ideas under £20 with next-day delivery &#127873;",
+     chips:[{label:'Gift ideas',msg:'Give me gift ideas for Mia'},{label:'Card message ideas',msg:'Suggest a birthday card message'}],
+     actions:[{t:p?`&#8594; ${p}`:'&#8594; Partner',cls:'bdelegate',fn:'delegate()'},{t:'&#10003; Done',cls:'bd',fn:'markDone("mia-bday")'}]},
+    {id:'ns-panto',urgent:true,icon:'&#127914;',cls:'ic-amber',badge:'Act soon',title:"December panto — Early Bird tickets",src:'&#128231; Akiva newsletter · 5 Jun',
+     body:"School flagged an Early Bird deal at JW3. These go fast — worth grabbing before the deadline.",
+     opener:"The Akiva newsletter flagged an Early Bird deal on December panto tickets at JW3 — these tend to sell out. Want the link, or shall I just remind you closer to the deadline?",
+     chips:[{label:'Send me the link',msg:'Send me the panto ticket link'},{label:'Remind me nearer the time',msg:'Remind me about the panto tickets closer to the deadline'}],
+     actions:[{t:'Not for us',cls:'bg',fn:'markDone("ns-panto")'},{t:'&#10003; Done',cls:'bd',fn:'markDone("ns-panto")'}]},
+    {id:'ns-photo',urgent:true,icon:'&#128247;',cls:'ic-rose',badge:null,title:"Photo permissions — have you updated?",src:'&#128231; Akiva newsletter · 5 Jun',
+     body:"School asked parents to update this week. Takes 2 minutes — worth ticking off.",
+     opener:"Akiva asked all parents to update photo permissions this week — it takes about 2 minutes. Want me to remind you at a specific time, or talk through what it's asking?",
+     chips:[{label:'Remind me tonight',msg:'Remind me about photo permissions tonight'},{label:"What's it asking exactly?",msg:'What does the photo permissions form ask?'}],
+     actions:[{t:'&#10003; Done it',cls:'bd',fn:'markDone("ns-photo")'}]},
+    {id:'ns-essentials',urgent:false,icon:'&#129516;',cls:'ic-purple',badge:null,title:"Essentials may be running low",src:'&#x1F6D2; From Tesco emails',
+     body:"Nappies, 3+ toothpaste and Calpol based on your usual patterns. Thursday Tesco coming up.",
+     opener:"Based on your usual Tesco order pattern, nappies, 3+ toothpaste and Calpol are probably getting low, and your usual Thursday shop is coming up. Want me to start a list?",
+     chips:[{label:'Start a shopping list',msg:'Start a Tesco shopping list for essentials'},{label:"What's my usual order?",msg:'What do I usually order from Tesco?'}],
+     actions:[{t:'&#10003; Done',cls:'bd',fn:'markDone("ns-essentials")'}]},
+  ];
+  F.extras.filter(e=>e.isDay).forEach((e)=>{
+    const {icon,text}=splitIconTitle(e.title);
+    nudges.push({id:e.id,urgent:true,icon,cls:'ic-green',badge:'You mentioned',title:text,src:'&#x1F4AC; From your setup',
+      body:`${e.day}${e.month?' '+e.month:''} — added to your Ahead tab.`,
+      opener:`You mentioned this during setup — "${text}"${e.day?`, coming up ${e.day}${e.month?' '+e.month:''}`:''}. Want to add any more detail, or set a reminder?`,
+      chips:[{label:'Add more detail',msg:`More detail on: ${text}`},{label:'Set a reminder',msg:`Remind me about: ${text}`}],
+      actions:[{t:'&#10003; Done',cls:'bd',fn:`markDone("${e.id}")`}]});
+  });
+  renderNudges(nudges, p);
+
+  const urgentCount = nudges.filter(x=>x.urgent).length;
+  const mlStat=document.getElementById('mlStat');
+  if(mlStat) mlStat.innerHTML = `Taylo's got ${nudges.length} thing${nudges.length===1?'':'s'} for you today &#10024;`;
+  const todaySummary=document.getElementById('todaySummary');
+  if(todaySummary) todaySummary.innerHTML = `<div class="tbox-title">Since you last checked in</div>Taylo processed <strong>12 messages</strong> today — <strong>${urgentCount}</strong> thing${urgentCount===1?'':'s'} needing your attention, <strong>5</strong> added to Ahead, and <strong>4</strong> that didn't need any action.`;
+
+  // Ahead — "Taylo noticed" recap
+  const aheadNoticed=document.getElementById('aheadNoticed');
+  if(aheadNoticed) aheadNoticed.innerHTML = `<div class="tbox-title">Taylo noticed&hellip;</div>5 new things this week from the ${s} newsletter and your calendar — Sports Day, the Year 6 Residential, the Barnet Music Festival, ${k1.name}'s GP check-up, and the clubs brochure Taylo's watching for (expected by 12 June). All added to Ahead below.`;
+
+  // Ahead items — each is tappable and opens its own dedicated conversation.
+  // Note 'mia-bday' matches the id of the Today nudge above, so tapping
+  // either one resumes the same thread.
+  const ahead=buildBaseAhead(k0,k1,p);
+  F.extras.forEach(e=>ahead.push({id:e.id,day:e.day||'',month:e.month||'',title:e.title,sub:e.sub,isDay:e.isDay||false}));
+  ahead.sort((a,b)=>{const ma={Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};const am=ma[a.month]||99,bm=ma[b.month]||99;if(am!==bm)return am-bm;return(parseInt(a.day)||99)-(parseInt(b.day)||99);});
+  renderAhead(ahead);
+
+  // Family card — tappable members
+  const memberColors=[
+    {bg:'var(--rose-light)',fg:'var(--rose-dark)'},
+    {bg:'var(--blue-light)',fg:'var(--blue)'},
+    {bg:'var(--amber-light)',fg:'var(--amber)'},
+    {bg:'var(--teal-light)',fg:'var(--teal)'},
+  ];
+  let memberIdx=0;
+  const famCard=document.getElementById('famCard'); famCard.innerHTML='';
+
+  const selfColor=memberColors[memberIdx++];
+  const fullName=F.lastName?`${n} ${F.lastName}`:n;
+  famCard.innerHTML+=`<div class="fmember" onclick="openProfile('self')"><div class="favatar" style="background:${selfColor.bg};color:${selfColor.fg};">${n[0]}</div><div><div class="fname">${fullName} (you)</div><div class="fdetail">Gmail · Google Calendar · ${s||'school connected'}</div></div><div class="ftag" style="background:${selfColor.bg};color:${selfColor.fg};">You</div><div class="fmember-chevron">›</div></div>`;
+
+  F.kids.forEach((k,i)=>{
+    const c=memberColors[memberIdx++]||memberColors[1];
+    famCard.innerHTML+=`<div class="fmember" onclick="openProfile('kid',${i})"><div class="favatar" style="background:${c.bg};color:${c.fg};">${k.name[0]}</div><div><div class="fname">${k.name}</div><div class="fdetail">${kidDetail(k)}</div></div><div class="ftag" style="background:${c.bg};color:${c.fg};">Child</div><div class="fmember-chevron">›</div></div>`;
+  });
+
+  if(p){
+    const c=memberColors[memberIdx++]||memberColors[3];
+    famCard.innerHTML+=`<div class="fmember" onclick="openProfile('partner')"><div class="favatar" style="background:${c.bg};color:${c.fg};">${p[0]}</div><div><div class="fname">${p}</div><div class="fdetail">Partner${F.partnerInvited?' · invited to Taylo':' · receives delegated nudges'}</div></div><div class="ftag" style="background:${c.bg};color:${c.fg};">Partner</div><div class="fmember-chevron">›</div></div>`;
+  } else {
+    famCard.innerHTML+=`<div style="padding:8px 10px;font-size:9px;color:var(--text-hint);font-style:italic;cursor:pointer;" onclick="openGeneralChat()">+ Add a partner — tell Taylo any time &#x1F90D;</div>`;
+  }
+
+  renderChecklists();
+}
+
+function renderNudges(nudges,p){
+  const nl=document.getElementById('nudgeList'); nl.innerHTML='';
+  nudges.forEach(n=>{
+    const div=document.createElement('div');
+    div.className='nudge'+(n.urgent?' urgent':''); div.id=n.id;
+    let h='';
+    if(n.badge) h+=`<div class="ubadge">${n.badge}</div>`;
+    if(n.src) h+=`<div style="font-size:8px;color:var(--text-hint);margin-bottom:4px;">${n.src}</div>`;
+    h+=`<div class="nrow"><div class="nicon ${n.cls}">${n.icon}</div><div><div class="ntitle">${n.title}</div><div class="nbody">${n.body}</div></div></div>`;
+    div.innerHTML=h;
+    // Built as real DOM nodes (rather than an inline onclick="..." string) so
+    // fn calls like markDone("ns-photo") don't break on embedded quotes.
+    // The card itself is no longer tappable — actions resolve instantly in
+    // place, and "Chat" is the one deliberate way into the dedicated thread.
+    const actionsEl=document.createElement('div'); actionsEl.className='nactions';
+    (n.actions||[]).forEach(a=>{
+      const btn=document.createElement('button');
+      btn.className=a.cls||'bp'; btn.innerHTML=a.t;
+      btn.onclick=(e)=>{ e.stopPropagation(); new Function(a.fn)(); };
+      actionsEl.appendChild(btn);
+    });
+    const chatBtn=document.createElement('button');
+    chatBtn.className='bchat'; chatBtn.innerHTML='&#128172; Chat';
+    chatBtn.onclick=(e)=>{ e.stopPropagation(); openItemChat(n.id,{icon:n.icon,title:n.title,sub:n.src||'',opener:n.opener,chips:n.chips,emailCard:n.emailCard}); };
+    actionsEl.appendChild(chatBtn);
+    div.appendChild(actionsEl);
+    nl.appendChild(div);
+  });
+}
+
+// Splits a leading icon off a combined "&#127874; Mia's birthday party"
+// style string. Handles both un-rendered HTML entities (as authored in JS)
+// and already-decoded emoji characters (as read back from the DOM).
+function splitIconTitle(raw){
+  raw=(raw||'').trim();
+  let m=raw.match(/^((?:&#x?[0-9a-fA-F]+;)+)\s*(.*)$/i);
+  if(m) return {icon:m[1].trim(),text:m[2].trim()};
+  m=raw.match(/^([\u{1F000}-\u{1FFFF}\u{2190}-\u{2BFF}\u{2600}-\u{27BF}️‍]+)\s*(.*)$/u);
+  if(m && m[2]) return {icon:m[1].trim(),text:m[2].trim()};
+  return {icon:'&#128204;',text:raw};
+}
+function genericAheadOpener(text,sub){
+  return `${text}${sub?` — ${sub}.`:'.'} Want help with anything here, or just keeping it on your radar for now?`;
+}
+function genericAheadChips(){
+  return [{label:"What's the plan?",msg:"What's the plan for this?"},{label:'Remind me nearer the time',msg:'Remind me about this closer to the date'}];
+}
+
+// Shared base list used by both applyFamily() and addToAhead() so the two
+// stay in sync — same ids, same openers, wherever the item is rendered from.
+function buildBaseAhead(k0,k1,p){
+  return [
+    {id:'mia-bday',day:'7',month:'Jun',title:"&#127874; Mia's birthday party",sub:"Buying a gift? Taylo has some ideas",
+     opener:"Mia's birthday party is this Saturday — have you got a gift sorted yet? If not, I can suggest a few ideas under £20 with next-day delivery &#127873;",
+     chips:[{label:'Gift ideas',msg:'Give me gift ideas for Mia'},{label:'Card message ideas',msg:'Suggest a birthday card message'}]},
+    {id:'phonics',day:'8',month:'Jun',title:"&#128218; Y1 Phonics Screening Week",sub:"Akiva newsletter · awareness only"},
+    {id:'shacharit',day:'9',month:'Jun',title:"&#127757; Year 5 Shacharit — parents invited",sub:"9am start · Akiva newsletter"},
+    {id:'music-fest',day:'10',month:'Jun',title:"&#127925; Barnet Music Festival",sub:"Choir & Band · Arts Depot · Akiva newsletter"},
+    {id:'sports-day',day:'10',month:'Jun',title:"&#9728;&#65039; Sports day",sub:`${k0.name} — pack: trainers, sun hat, water bottle`,
+     opener:`Sports day for ${k0.name} is coming up. Kit checklist: trainers (not school shoes), a sun hat, a labelled water bottle, an extra snack, and suncream before school. Want me to set a Sunday evening reminder to pack the bag?`,
+     chips:[{label:'Set a reminder',msg:'Set a reminder to pack sports day kit'}]},
+    {id:'fday',day:'14',month:'Jun',title:"&#128106; Father's Day",sub:p?`${p} — Taylo can help sort something special`:'Taylo can help sort something special',
+     opener:`Father's Day is coming up${p?` — want some ideas for ${p}`:''}? I can pull together a few gift or activity ideas if that'd help.`,
+     chips:[{label:'Gift ideas',msg:"Gift ideas for Father's Day"},{label:'Activity ideas',msg:"Activity ideas for Father's Day"}]},
+    {id:'y6-res',day:'15',month:'Jun',title:"&#127958;&#65039; Year 6 Residential Trip",sub:"Mon–Fri · Akiva newsletter"},
+    {id:'gp-checkup',day:'19',month:'Jun',title:`&#127973; ${k1.name}'s GP check-up`,sub:"Confirmed via NHS email &#10004;&#65039; · 10:30am",
+     opener:`Just flagging — ${k1.name}'s 2-year check-up is confirmed for Thu 19 June, 10:30am at Wimbledon HC. I picked this up from an NHS email.`,
+     emailCard:true,
+     chips:[{label:'Add a reminder',msg:'Remind me the day before the GP appointment'},{label:'What should I bring?',msg:'What should I bring to a 2-year check-up?'}]},
+    {id:'holidays',day:'25',month:'Jul',title:"&#127958;&#65039; School holidays begin",sub:"6 weeks · Taylo will help you plan"},
+  ];
+}
+
+// Ahead items are collapsed by default (it's a long scannable list) — tap to
+// expand in place, revealing a touch more detail (the same words Taylo would
+// open the chat with) plus quick actions. Chat is one of those actions, not
+// the default outcome of tapping the row.
+function renderAhead(items){
+  const al=document.getElementById('aheadList'); al.innerHTML='';
+  items.forEach(item=>{
+    const div=document.createElement('div'); div.className='uitem'; div.id='ahead-'+item.id;
+    const dateHtml = item.isDay
+      ? `<div class="udate"><div class="uday-label">${item.day}</div></div>`
+      : `<div class="udate"><div class="uday">${item.day}</div><div class="umonth">${item.month}</div></div>`;
+    const {icon,text}=splitIconTitle(item.title);
+    const detailText = item.opener||genericAheadOpener(text,item.sub);
+    div.innerHTML = `${dateHtml}<div class="udiv"></div><div class="ubody">
+      <div class="uhead-row"><div><div class="utitle">${item.title}</div><div class="usub">${item.sub||''}</div></div><div class="uchevron">&#8250;</div></div>
+      <div class="udetail">${detailText}</div>
+      <div class="uactions"></div>
+    </div>`;
+    div.addEventListener('click',()=>div.classList.toggle('expanded'));
+
+    const actionsEl=div.querySelector('.uactions');
+    const doneBtn=document.createElement('button');
+    doneBtn.className='bd'; doneBtn.innerHTML='&#10003; Mark done';
+    doneBtn.onclick=(e)=>{ e.stopPropagation(); markAheadDone(item.id); };
+    const chatBtn=document.createElement('button');
+    chatBtn.className='bchat'; chatBtn.innerHTML='&#128172; Chat';
+    chatBtn.onclick=(e)=>{ e.stopPropagation(); openItemChat(item.id,{
+      icon, title:text, sub:item.sub||'',
+      opener:detailText, chips:item.chips||genericAheadChips(),
+      emailCard:item.emailCard||false
+    }); };
+    const editBtn=document.createElement('button');
+    editBtn.className='bg'; editBtn.innerHTML='&#9999;&#65039; Edit';
+    editBtn.onclick=(e)=>{ e.stopPropagation(); alert('Edit — available in the live app'); };
+    actionsEl.append(doneBtn,chatBtn,editBtn);
+
+    al.appendChild(div);
+  });
+}
+
+function markAheadDone(id){
+  const el=document.getElementById('ahead-'+id); if(!el) return;
+  el.classList.add('done');
+  const a=el.querySelector('.uactions');
+  if(a) a.innerHTML='<span style="font-size:9px;color:var(--teal);font-weight:500;">&#10003; Sorted — nice one!</span>';
+}
+
+// ── CHAT: multi-conversation engine ──
+// Every conversation is either a 'general' thread (started fresh from the
+// Chat tab / "+" button) or an 'item' thread (id = the nudge/ahead/checklist
+// id it belongs to, so re-tapping the same item always resumes it).
+let conversations=[];
+let currentConvId=null;
+let extraSeq=0;
+
+function findConv(id){ return conversations.find(c=>c.id===id); }
+function touchConv(conv){ conv.updatedAt=Date.now(); }
+
+function newConversation(id,icon,title,sub,chips,kind){
+  const conv={id,icon:icon||'T',title:title||'Taylo',sub:sub||'',messages:[],chips:chips||[],kind:kind||'item',updatedAt:Date.now()};
+  conversations.push(conv);
+  return conv;
+}
+
+// Chat tab / "+" button — always starts a brand-new, empty thread.
+function openGeneralChat(tabEl){
+  const conv=newConversation('general-'+Date.now(),'T','Taylo','New chat',[
+    {label:'What else this week?',msg:'What else this week?'},
+    {label:'Sports day kit',msg:'Sports day kit list'},
+    {label:'Dinner ideas',msg:'Dinner ideas this week'},
+    {label:'Clubs brochure?',msg:'Did the clubs brochure arrive?'},
+  ],'general');
+  const greetings=["Hi! What's on your mind?","Hey — how can I help today?"];
+  conv.messages.push({from:'taylo',text:greetings[Math.floor(Math.random()*greetings.length)]});
+  currentConvId=conv.id;
+  closeChatDrawer();
+  showTab('chat', tabEl||document.getElementById('tabChat'));
+  renderConversation();
+}
+
+// Tapping a nudge / ahead item / checklist — resumes that item's thread if
+// it already exists, otherwise creates it with an auto-generated opener.
+function openItemChat(id,opts){
+  let conv=findConv(id);
+  if(!conv){
+    conv=newConversation(id,opts.icon,opts.title,opts.sub,opts.chips,'item');
+    conv.messages.push({from:'taylo',text:opts.opener,emailCard:opts.emailCard||false});
+  }
+  currentConvId=id;
+  touchConv(conv);
+  closeChatDrawer();
+  showTab('chat', document.getElementById('tabChat'));
+  renderConversation();
+}
+
+function renderConversation(){
+  const conv=findConv(currentConvId); if(!conv) return;
+  document.getElementById('chatThreadAvatar').innerHTML=conv.icon;
+  document.getElementById('chatThreadTitle').textContent=conv.title;
+  document.getElementById('chatThreadSub').innerHTML=conv.sub||(conv.kind==='general'?'New chat':'');
+  const w=document.getElementById('chatMsgs'); w.innerHTML='';
+  conv.messages.forEach(m=>renderMsgEl(m));
+  renderChips(conv);
+  scrollChat();
+}
+
+function renderMsgEl(m){
+  const w=document.getElementById('chatMsgs');
+  const d=document.createElement('div'); d.className='bubble '+m.from;
+  if(m.from==='taylo') d.innerHTML='<div class="bsender">Taylo</div>'+m.text.replace(/\n/g,'<br>');
+  else if(m.from==='sys') d.textContent=m.text;
+  else d.innerHTML=m.text;
+  if(m.emailCard && m.from==='taylo'){
+    const k1=F.kids[1]||F.kids[0]||{name:'your youngest'};
+    const ec=document.createElement('div'); ec.className='ecard'; ec.id='ecCard';
+    ec.innerHTML=`<div class="ecard-top"><span>&#127973;</span><div><div class="ecard-title">GP appointment detected</div><div class="ecard-from">From: nhs.net · just now</div></div></div><div class="ecard-detail">${k1.name} — 2-year check-up<br>Thu 19 June · 10:30am · Wimbledon HC</div><div class="ecard-btns"><button class="ecard-yes" onclick="confirmEC()">&#10003; Add to calendar</button><button class="ecard-no" onclick="dismissEC()">Not relevant</button></div>`;
+    d.appendChild(ec);
+  }
+  w.appendChild(d);
+  return d;
+}
+
+function renderChips(conv){
+  const c=document.getElementById('chatChips'); c.innerHTML='';
+  (conv.chips||[]).forEach(ch=>{
+    const d=document.createElement('div'); d.className='chat-chip'; d.textContent=ch.label;
+    d.onclick=()=>addUserMsg(ch.msg);
+    c.appendChild(d);
+  });
+}
+
+function confirmEC(){
+  const ec=document.getElementById('ecCard');
+  const k1=F.kids[1]||F.kids[0]||{name:'your youngest'};
+  if(ec) ec.innerHTML=`<div style="font-size:9px;color:var(--teal);font-weight:500;">&#10005; Added to calendar · reminder set for 18 June</div>`;
+  setTimeout(()=>{addMsg('taylo',`Done! ${k1.name}'s check-up is in the calendar. I'll remind you the day before &#x1F499;`);},300);
+}
+function dismissEC(){
+  const ec=document.getElementById('ecCard');
+  if(ec) ec.innerHTML=`<div style="font-size:9px;color:var(--text-hint);">Got it — I'll skip these unless you ask &#x1F44D;</div>`;
+}
+
+// Generic keyword fallback replies, usable from any thread.
+const chatR={
+  'what else':()=>`Here's your week &#x1F4CB;\n\n&#127914; Panto Early Bird tickets — act soon\n&#128247; Photo permissions — reminder set for tonight\n&#128099; Clubs brochure watch set for 12 June\n&#x1F6D2; Nappies/toothpaste/Calpol may be running low\n${F.extras.length>0?'\nAlso:\n'+F.extras.map(e=>`&#128204; ${e.title}`).join('\n'):''}`,
+  'clubs brochure':()=>`I've got a watch set for that &#128203; The 29 May newsletter said it would arrive 'within 2 weeks' — so by around 12 June. I'll nudge you if it hasn't landed by then. The new clubs include Robotics for KS1, STEM for KS2, and Photography for both. Exciting!`,
+  'photo permission':()=>`Reminder set for 8pm tonight &#10003;&#65039; "Update Akiva photo permissions." Anything else?`,
+  'sport':()=>`Sports day kit for ${F.kids[0]?.name||'your child'}:\n\n&#128159; Trainers (not school shoes)\n&#129668; Sun hat\n&#x1F4A7; Water bottle (labelled!)\n&#127822; Extra snack\n&#x1F9F4; Suncream before school\n\nShall I set a Sunday evening reminder?`,
+  'dinner':()=>`Here are 3 quick dinners:\n\n&#127837; Monday: pasta with hidden veg\n&#127041; Wednesday: salmon teriyaki\n&#x1F354; Friday: homemade burgers\n\nWant me to put together a shopping list?`,
+  'father':()=>`Some ideas for ${F.partner||'your partner'}:\n\n&#9971; Golf lesson experience — ~£35\n&#127866; Craft beer tasting box — ~£25\n&#x1F3DB;&#xFE0F; Family day out voucher\n\nWant help finding somewhere?`,
+  'gift':()=>`Here are a few ideas under £20 with next-day delivery:\n\n&#127912; Crayola Art Set — £14.99\n&#129361; Cupcake Baking Kit — ~£14\n&#10024; Magic Colour-Change Pens — ~£15\n\nWant me to pick one and remind you to order it?`,
+};
+
+// addMsg appends into whichever conversation is currently open.
+function addMsg(from,text,opts={}){
+  const conv=findConv(currentConvId); if(!conv) return;
+  const m={from,text,emailCard:opts.emailCard||false};
+  conv.messages.push(m);
+  touchConv(conv);
+  renderMsgEl(m);
+  scrollChat();
+}
+
+function addUserMsg(txt,dateInfo=null){
+  addMsg('user',txt);
+  const typing=document.createElement('div'); typing.className='typing';
+  typing.innerHTML='<div class="tdot"></div><div class="tdot"></div><div class="tdot"></div>';
+  document.getElementById('chatMsgs').appendChild(typing); scrollChat();
+  setTimeout(()=>{
+    typing.remove();
+    const lower=txt.toLowerCase();
+    let reply=`On it! Let me look into that for you &#x1F440;`;
+    if(dateInfo&&(dateInfo.day||dateInfo.month)){
+      const title=addToAhead(txt,dateInfo);
+      const when=dateInfo.isDay?dateInfo.day:(dateInfo.day&&dateInfo.month?`${dateInfo.day} ${dateInfo.month}`:dateInfo.day||dateInfo.month);
+      reply=`Got it — I've added "${title.replace(/&#x[^;]+;|&#\d+;/g,'').trim()}" to your Ahead tab for ${when} &#128197; I'll remind you when it's coming up.`;
+    } else {
+      for(const[k,fn] of Object.entries(chatR)){if(lower.includes(k)){reply=fn();break;}}
+    }
+    addMsg('taylo',reply);
+  },1100);
+}
+
+function addToAhead(txt,ds){
+  const extra={type:'event',title:'',day:ds.day||'',month:ds.month||'',isDay:ds.isDay||false,sub:'Added from chat'};
+  const t=txt.toLowerCase();
+  if(t.includes('mot')) extra.title='&#x1F527; MOT';
+  else if(t.includes('birthday')){const nm=txt.match(/(\w+)'s birthday/i)?.[1]||'Birthday';extra.title=`&#x1F382; ${nm}'s birthday`;}
+  else if(t.includes('dentist')||t.includes('doctor')) extra.title=`&#127973; ${txt.split(' ').slice(0,4).join(' ')}`;
+  else extra.title=`&#128204; ${txt.split(' ').slice(0,5).join(' ')}`;
+  extra.id='extra-'+(extraSeq++);
+  F.extras.push(extra);
+  const k0=F.kids[0]||{name:'',age:5,birthday:''};const k1=F.kids[1]||{name:'',age:2,birthday:''};const p=F.partner||'';
+  const ahead=buildBaseAhead(k0,k1,p);
+  F.extras.forEach(e=>ahead.push({id:e.id,day:e.day||'',month:e.month||'',title:e.title,sub:e.sub,isDay:e.isDay||false}));
+  renderAhead(ahead);
+  return extra.title;
+}
+
+function chatSend(){
+  const inp=document.getElementById('chatIn');
+  const val=inp.value.trim(); if(!val)return;
+  inp.value='';
+  const ds=extractDateString(val);
+  const hasDate=ds&&(ds.day||ds.month);
+  addUserMsg(val,hasDate?ds:null);
+}
+
+function scrollChat(){const w=document.getElementById('chatMsgs');setTimeout(()=>w.scrollTop=w.scrollHeight,50);}
+
+// ── CHAT HISTORY DRAWER ──
+function openChatDrawer(){ renderChatDrawerList(); document.getElementById('chatDrawer').classList.add('open'); }
+function closeChatDrawer(){ const d=document.getElementById('chatDrawer'); if(d) d.classList.remove('open'); }
+
+function stripForPreview(s){
+  return (s||'').replace(/<[^>]+>/g,' ').replace(/&#x[0-9a-fA-F]+;|&#\d+;/g,'').replace(/\s+/g,' ').trim();
+}
+
+function renderChatDrawerList(){
+  const list=document.getElementById('cdList'); if(!list) return;
+  // Only conversations the user has actually replied in count as "recent
+  // chats" — just opening one (and seeing Taylo's opener) doesn't save it.
+  const visible=conversations.filter(c=>c.messages.some(m=>m.from==='user')).sort((a,b)=>b.updatedAt-a.updatedAt);
+  if(!visible.length){
+    list.innerHTML='<div class="cd-empty">No conversations yet — reply in a chat to save it here, or start a new one.</div>';
+    return;
+  }
+  list.innerHTML='';
+  visible.forEach(c=>{
+    const last=c.messages[c.messages.length-1];
+    const preview=last?(last.from==='user'?'You: ':'')+stripForPreview(last.text).slice(0,44):'';
+    const row=document.createElement('div'); row.className='cd-item'+(c.id===currentConvId?' active':'');
+    row.innerHTML=`<div class="cd-item-icon">${c.icon}</div><div class="cd-item-text"><div class="cd-item-title">${c.title}</div><div class="cd-item-preview">${preview}</div></div>`;
+    row.onclick=()=>{ currentConvId=c.id; touchConv(c); renderConversation(); closeChatDrawer(); };
+    list.appendChild(row);
+  });
+}
+
+// ── NAV ──
+function showTab(id,tab){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  if(tab) tab.classList.add('active');
+  document.getElementById('tabs').querySelector('.content').scrollTop=0;
+  // Chat gets the full height above the tab bar — no greeting/brand header,
+  // just the slim phone status bar, so the thread has maximum room.
+  const header=document.querySelector('.app-header');
+  if(header) header.style.display = id==='chat' ? 'none' : '';
+}
+function goMore(id){ showTab(id, document.querySelector('.tab:last-child')); }
+function backToMore(){ showTab('more', document.querySelector('.tab:last-child')); }
+
+// ── PROFILE SHEET ──
+function openProfile(type, kidIdx){
+  const sheet=document.getElementById('profileSheet');
+  const avatar=document.getElementById('psAvatar');
+  const nameEl=document.getElementById('psName');
+  const roleEl=document.getElementById('psRole');
+  const body=document.getElementById('psBody');
+  const n=F.name||''; const p=F.partner||'';
+
+  let html='';
+
+  if(type==='self'){
+    avatar.textContent=n[0]||'?'; avatar.style.background='var(--rose-light)'; avatar.style.color='var(--rose-dark)';
+    nameEl.textContent=F.lastName?`${n} ${F.lastName}`:n; roleEl.textContent='Your profile';
+    html=`
+      <div class="ps-section"><div class="ps-section-title">About you</div>
+        <div class="ps-field"><span class="ps-field-label">Name</span><span class="ps-field-val">${F.lastName?`${n} ${F.lastName}`:n}</span></div>
+        <div class="ps-field"><span class="ps-field-label">Email</span><span class="ps-field-val">Connected via Gmail</span></div>
+        <div class="ps-field"><span class="ps-field-label">Notifications</span><span class="ps-field-val">In-app + reminders</span></div>
+      </div>
+      <div class="ps-section"><div class="ps-section-title">Connected accounts</div>
+        <div class="ps-field"><span class="ps-field-label">Gmail</span><span class="ps-field-val" style="color:var(--teal);">✓ Connected</span></div>
+        <div class="ps-field"><span class="ps-field-label">Google Calendar</span><span class="ps-field-val" style="color:var(--teal);">✓ Connected</span></div>
+      </div>
+      <div class="ps-add-btn" onclick="showTab('connections',document.querySelector('.tab:last-child'));closeProfile()">Manage connections →</div>`;
+  } else if(type==='kid'){
+    const k=F.kids[kidIdx]||F.kids[0];
+    const colors=[{bg:'var(--blue-light)',fg:'var(--blue)'},{bg:'var(--amber-light)',fg:'var(--amber)'}];
+    const c=colors[kidIdx]||colors[0];
+    avatar.textContent=k.name[0]; avatar.style.background=c.bg; avatar.style.color=c.fg;
+    const kAge = k.birthday ? ageFromBday(k.birthday) : k.age;
+    nameEl.textContent=k.name; roleEl.textContent = kAge!=null?`Age ${kAge}`:(k.birthday?`Born ${formatBday(k.birthday)}`:'Child');
+    const friends=kidIdx===0
+      ?[{name:'Mia Patel',detail:'Classmate · Mum: Claire (07700 900123)',bday:'7 June — Saturday!'},{name:'Oscar Williams',detail:'Best friend · Mum: Jess (07700 900456)',bday:'14 Sept'}]
+      :[];
+    const friendsHtml=friends.length>0
+      ?friends.map(f=>`<div class="ps-field" style="flex-direction:column;align-items:flex-start;gap:2px;"><span class="ps-field-val">${f.name}</span><span class="ps-field-label">${f.detail}</span><span style="font-size:8.5px;background:var(--rose-light);color:var(--rose-dark);padding:1px 6px;border-radius:5px;margin-top:2px;">🎂 ${f.bday}</span></div>`).join('')
+      :'<div class="ps-field"><span class="ps-field-empty">No friends added yet</span></div>';
+    html=`
+      <div class="ps-section"><div class="ps-section-title">Details</div>
+        <div class="ps-field"><span class="ps-field-label">Age</span>${kAge!=null?`<span class="ps-field-val">${kAge}</span>`:'<span class="ps-field-empty">Not added yet</span>'}</div>
+        <div class="ps-field"><span class="ps-field-label">Birthday</span>${k.birthday?`<span class="ps-field-val">${formatBday(k.birthday)}</span>`:'<span class="ps-field-empty">Not added yet</span>'}</div>
+        <div class="ps-field"><span class="ps-field-label">School / nursery</span>${k.school?`<span class="ps-field-val">${k.school}</span>`:'<span class="ps-field-empty">Not added yet</span>'}</div>
+        <div class="ps-field"><span class="ps-field-label">Year group</span><span class="ps-field-empty">Not added yet</span></div>
+      </div>
+      <div class="ps-section"><div class="ps-section-title">Medical</div>
+        <div class="ps-field"><span class="ps-field-label">Allergies</span><span class="ps-field-empty">Not added yet</span></div>
+        <div class="ps-field"><span class="ps-field-label">Conditions</span><span class="ps-field-empty">Not added yet</span></div>
+        <div class="ps-field"><span class="ps-field-label">GP surgery</span><span class="ps-field-empty">Not added yet</span></div>
+      </div>
+      <div class="ps-section"><div class="ps-section-title">Friends &#128149;</div>${friendsHtml}</div>
+      <div class="ps-add-btn" onclick="alert('Add a friend — available in the live app')">+ Add a friend</div>`;
+  } else if(type==='partner'){
+    avatar.textContent=p[0]||'?'; avatar.style.background='var(--teal-light)'; avatar.style.color='var(--teal)';
+    nameEl.textContent=p; roleEl.textContent='Partner';
+    html=`
+      <div class="ps-section"><div class="ps-section-title">Details</div>
+        <div class="ps-field"><span class="ps-field-label">Name</span><span class="ps-field-val">${p}</span></div>
+        <div class="ps-field"><span class="ps-field-label">Invited to Taylo</span><span class="ps-field-val" style="color:${F.partnerInvited?'var(--teal)':'var(--text-hint)'};">${F.partnerInvited?'✓ Invited':'Not yet'}</span></div>
+      </div>
+      <div class="ps-section"><div class="ps-section-title">Taylo settings</div>
+        <div class="ps-field"><span class="ps-field-label">Delegated nudges</span><span class="ps-field-val" style="color:var(--teal);">✓ Enabled</span></div>
+        <div class="ps-field"><span class="ps-field-label">Notification channel</span><span class="ps-field-empty">Not set</span></div>
+      </div>`;
+  }
+
+  body.innerHTML=html;
+  sheet.classList.add('open');
+}
+
+function closeProfile(){
+  document.getElementById('profileSheet').classList.remove('open');
+}
+
+// ── CONNECTIONS SCREEN INIT ──
+function initConnectScreen(){
+  const emailToggles=[
+    {key:'newsletters',label:'School newsletters',sub:'Extracts dates, deadlines, events',on:true},
+    {key:'orders',label:'Shopping orders',sub:'Tesco, Amazon, delivery confirmations',on:true},
+    {key:'nhs',label:'NHS & appointments',sub:'GP, dentist, hospital letters',on:true},
+    {key:'finance',label:'Finance & bills',sub:'Bank alerts, utility reminders',on:false},
+  ];
+  const calToggles=[
+    {key:'family',label:'Family events',sub:'Birthdays, parties, activities',on:true},
+    {key:'appointments',label:'Appointments',sub:'Medical, school, other bookings',on:true},
+    {key:'reminders',label:'Taylo reminders',sub:'Write-back reminders from Taylo',on:true},
+  ];
+  renderToggles('email-toggles',emailToggles);
+  renderToggles('cal-toggles',calToggles);
+}
+
+function renderToggles(containerId, items){
+  const el=document.getElementById(containerId); if(!el) return;
+  el.innerHTML=items.map(t=>`
+    <div class="hitem" style="padding:7px 11px;">
+      <div style="flex:1;"><div style="font-size:9.5px;font-weight:500;color:var(--text);">${t.label}</div><div style="font-size:8.5px;color:var(--text-hint);margin-top:1px;">${t.sub}</div></div>
+      <div class="tswitch ${t.on?'on':''}" onclick="this.classList.toggle('on')" style="flex-shrink:0;"><div class="tknob"></div></div>
+    </div>`).join('');
+}
+
+function connectService(btn, name){
+  const connected=btn.dataset.connected==='true';
+  if(connected){ btn.textContent=`${name.split(' ')[0]==='Apple'?'🍎':'📧'} ${name}`; btn.style.background='var(--gray-light)'; btn.style.color='var(--text-muted)'; btn.dataset.connected='false'; }
+  else { btn.textContent=`✓ ${name}`; btn.style.background='var(--teal-light)'; btn.style.color='var(--teal)'; btn.dataset.connected='true'; }
+}
+
+function markDone(id){
+  const el=document.getElementById(id); if(!el)return;
+  el.classList.add('done');
+  const t=el.querySelector('.ntitle'); if(t) t.classList.add('done-t');
+  const a=el.querySelector('.nactions');
+  if(a) a.innerHTML='<span style="font-size:9px;color:var(--teal);font-weight:500;">&#10003; Sorted — nice one!</span>';
+}
+function delegate(){alert(`Sent to ${F.partner||'your partner'}! They'll get a notification &#x2709;&#xFE0F;`);}
+function remindTonight(){alert('&#10003; Reminder set for 8pm tonight — "Update Akiva photo permissions"');}
+function openTesco(){window.open('https://www.tesco.com/groceries','_blank');}
+
+function renderChecklists(){
+  const k0 = F.kids[0]||{name:'your child',age:5};
+  const s = F.school||'school';
+  const sec = document.getElementById('checklistSection');
+  if(!sec) return;
+
+  const lists = [
+    {
+      id:'partyCL', itemsId:'partyItems', progId:'partyProg',
+      headBg:'var(--rose-light)', headColor:'var(--rose-deep)', subColor:'var(--rose-dark)',
+      progStyle:'background:var(--rose-light);color:var(--rose-dark);border:1px solid var(--rose)',
+      title:`&#127874; ${k0.name}'s birthday party`,
+      sub:'From your calendar · plan ahead',
+      items:[
+        {text:'Choose a theme or venue',when:'first'},
+        {text:'Write the guest list',when:'this week'},
+        {text:`Book venue or confirm at home`,when:'this week'},
+        {text:'Send invitations',when:'3 weeks before'},
+        {text:'Order cake or plan baking',when:'1 week before'},
+        {text:'Sort party bags and decorations',when:'a few days before'},
+      ]
+    },
+    {
+      id:'schoolCL', itemsId:'schoolItems', progId:'schoolProg',
+      headBg:'var(--blue-light)', headColor:'#0C447C', subColor:'#185FA5',
+      progStyle:'background:var(--blue-light);color:var(--blue);border:1px solid rgba(74,104,128,.3)',
+      title:`&#128231; From ${s} newsletters`,
+      sub:'Taylo extracted these for you',
+      items:[
+        {text:'Update photo permissions',when:'this week'},
+        {text:'Buy Early Bird panto tickets — JW3',when:'act soon'},
+        {text:'Uniform check — skirt length, no jewellery',when:'Monday'},
+        {text:'Check old craft supplies at home (asbestos)',when:'this week'},
+      ]
+    },
+    {
+      id:'holidayCL', itemsId:'holidayItems', progId:'holidayProg',
+      headBg:'var(--amber-light)', headColor:'#633806', subColor:'#854F0B',
+      progStyle:'background:var(--amber-light);color:var(--amber);border:1px solid rgba(154,122,58,.3)',
+      title:'&#9728;&#65039; Summer holidays — 7 weeks',
+      sub:"Taylo's pre-holiday checklist",
+      items:[
+        {text:'Childcare / holiday club booked',when:'urgent'},
+        {text:"Check passports haven't expired",when:'this week'},
+        {text:"Kids' suncream ordered",when:'done ✓', done:true},
+        {text:'Sort summer clothes — check sizes',when:'2 weeks'},
+        {text:'Book an activity for week 1',when:'3 weeks'},
+      ]
+    }
+  ];
+
+  sec.innerHTML = lists.map(l=>{
+    const total = l.items.length;
+    const donePre = l.items.filter(i=>i.done).length;
+    const itemsHtml = l.items.map(item=>`
+      <div class="hitem">
+        <div class="hcheck${item.done?' on':''}" onclick="tickCL(this,'${l.progId}',${total})"></div>
+        <span class="htext${item.done?' done':''}">${item.text}</span>
+        <span class="hwhen">${item.when}</span>
+      </div>`).join('');
+    return `
+      <div class="hcard" id="${l.id}">
+        <div class="hhead" style="background:${l.headBg};" onclick="toggleCL('${l.itemsId}')">
+          <div>
+            <div class="hhead-title" style="color:${l.headColor};">${l.title}</div>
+            <div class="hhead-sub" style="color:${l.subColor};">${l.sub}</div>
+          </div>
+          <div class="cl-actions">
+            <button class="cl-icon-btn edit" onclick="event.stopPropagation();editChecklist('${l.id}')" title="Edit">✏️</button>
+            <button class="cl-icon-btn chat" onclick="event.stopPropagation();openChecklistChat('${l.id}')" title="Ask Taylo">💬</button>
+            <div class="cl-prog" id="${l.progId}" style="${l.progStyle}">${donePre}/${total}</div>
+          </div>
+        </div>
+        <div id="${l.itemsId}" style="display:none">${itemsHtml}</div>
+      </div>`;
+  }).join('');
+}
+
+function editChecklist(id){
+  const card = document.getElementById(id);
+  if(!card) return;
+  const isEditing = card.dataset.editing === 'true';
+  if(isEditing){
+    card.querySelectorAll('.htext-input').forEach(inp=>{
+      const span = document.createElement('span');
+      span.className='htext'; span.textContent=inp.value;
+      inp.replaceWith(span);
+    });
+    card.dataset.editing='false';
+    const editBtn=card.querySelector('.cl-icon-btn.edit'); if(editBtn) editBtn.textContent='✏️';
+    const itemsEl=card.querySelector('[id$="Items"]'); if(itemsEl) itemsEl.style.display='block';
+  } else {
+    card.dataset.editing='true';
+    const itemsEl=card.querySelector('[id$="Items"]'); if(itemsEl) itemsEl.style.display='block';
+    card.querySelectorAll('.htext:not(.done)').forEach(span=>{
+      const inp=document.createElement('input');
+      inp.type='text'; inp.className='htext-input';
+      inp.value=span.textContent;
+      inp.style.cssText='flex:1;border:none;border-bottom:1px solid var(--rose);background:transparent;font-size:9.5px;font-family:DM Sans,sans-serif;color:var(--text);outline:none;padding:1px 0;';
+      span.replaceWith(inp);
+    });
+    const editBtn=card.querySelector('.cl-icon-btn.edit'); if(editBtn) editBtn.textContent='✅';
+  }
+}
+
+// Opens (or resumes) a dedicated conversation for one checklist, reading
+// its current ticked/unticked state straight from the DOM so the opener
+// always reflects what's actually left to do.
+function openChecklistChat(clId){
+  const card=document.getElementById(clId);
+  const titleEl=card?card.querySelector('.hhead-title'):null;
+  const {icon,text}=splitIconTitle(titleEl?titleEl.innerHTML:'&#9989; Checklist');
+  const remaining=card?Array.from(card.querySelectorAll('.hitem')).filter(i=>!i.querySelector('.hcheck.on')).map(i=>i.querySelector('.htext')?.textContent).filter(Boolean):[];
+  const openerList=remaining.length?remaining.map(t=>`• ${t}`).join('\n'):"Looks like everything's ticked off already — nice work!";
+  const opener=`Let's work through your ${text} checklist together. Here's what's left:\n\n${openerList}`;
+  openItemChat(clId,{
+    icon, title:text, sub:'Checklist', opener,
+    chips:[{label:"What's most urgent?",msg:'What should I do first on this checklist?'},{label:'Add another item',msg:'Add an item to this checklist'}]
+  });
+}
+
+function generateChecklist(){
+  openGeneralChat();
+  setTimeout(()=>{
+    addUserMsg("Can you generate a checklist for me?");
+  },400);
+}
+
+function toggleCL(id){
+  const el=document.getElementById(id);
+  if(el) el.style.display=el.style.display==='none'?'block':'none';
+}
+
+function tickCL(checkEl,progId,total){
+  checkEl.classList.toggle('on');
+  const card=checkEl.closest('.hcard'); if(!card)return;
+  const done=card.querySelectorAll('.hcheck.on').length;
+  const prog=document.getElementById(progId);
+  if(prog){prog.textContent=`${done}/${total}`;prog.className=done===total?'cl-prog complete':'cl-prog';}
+  const txt=checkEl.parentElement.querySelector('.htext'); if(txt) txt.classList.toggle('done');
+}
+</script>
+</body>
+</html>

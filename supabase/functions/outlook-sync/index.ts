@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
+import { householdVoiceBlock, loadHousehold, type Household } from '../_shared/household.ts';
 
 const MICROSOFT_TOKEN_URL =
   'https://login.microsoftonline.com/common/oauth2/v2.0/token';
@@ -9,8 +10,38 @@ const SENDER_BLOCKLIST = ['noreply', 'no-reply', 'donotreply', 'marketing', 'new
 const SUBJECT_BLOCKLIST = ['unsubscribe', '% off', 'sale', 'offer', 'deal', 'discount'];
 const CLASSIFY_PROMPT =
   'You are Taylo, a family assistant. Classify this email into exactly one of these categories and reply with only the category name, nothing else: school, medical, activity, delivery, returns, financial, ignore.\n\nCategory definitions:\n- school: anything from a school, nursery, or childcare provider\n- medical: appointments, prescriptions, NHS, GP, hospital, dental\n- activity: sports clubs, after-school activities, classes, community groups\n- delivery: order confirmations, parcel tracking, courier notifications\n- returns: return confirmations, refund notifications, exchange requests, return labels\n- financial: bills, renewals, subscriptions, invoices\n- ignore: marketing, promotions, social media, anything not relevant to family life';
-const EXTRACT_PROMPT =
-  'You are Taylo, a family assistant. Extract the key information from this email and return ONLY a JSON object in this exact format, nothing else:\n{\n  "category": "school|medical|activity|delivery|returns|financial",\n  "action_required": true or false,\n  "action_description": "what the parent needs to do in plain English, or null",\n  "date": "YYYY-MM-DD or null",\n  "who_it_affects": "which family member or whole family",\n  "urgency": "today|this_week|upcoming|none",\n  "nudge_title": "under 8 words, warm and specific, or null if no action needed",\n  "nudge_body": "one sentence, warm tone, written as if from a trusted friend, or null if no action needed"\n}\n\nCategory guidance:\n- delivery: only action_required true if someone needs to be home, or delivery failed\n- returns: action_required true if a return label needs printing, item needs dropping off, or deadline is approaching\n- school: action_required true if permission, payment, or RSVP is needed\n- medical: action_required true if appointment confirmation needed or preparation required\nIf no action is required, set action_required to false and nudge_title and nudge_body to null.';
+const EXTRACT_PROMPT = `You are Taylo, a family assistant. Extract the key information from this email and return ONLY a JSON object in this exact format, nothing else:
+{
+  "category": "school|medical|activity|delivery|returns|financial",
+  "action_required": true or false,
+  "action_description": "what the parent needs to do in plain English, or null",
+  "date": "YYYY-MM-DD or null",
+  "who_it_affects": "which family member or whole family",
+  "urgency": "today|this_week|upcoming|none",
+  "nudge_title": "the action for the parent, under 8 words — e.g. Book your dental checkup — or null if no action needed",
+  "nudge_body": "one short subtitle under the title, maximum ~12 words, a single extra fact — not a paragraph — or null if no action needed",
+  "nudge_detail": "2-3 conversational sentences for the expanded card, like a friend filling in the context — or null if no action needed",
+  "suggestion": "the action itself, no label — e.g. Reply confirming you'll attend — or null if no action needed"
+}
+
+Voice and length (this is a Today card, not an email summary):
+- Address the parent as "you". Never write the parent's name in the third person.
+- If the email is about a child, use the child's name (e.g. Arlo) in body, detail, who_it_affects, and in the title when it helps ("Sign Arlo's trip form").
+- nudge_title: the action, short, like a list item.
+- nudge_body: one clipped line of extra info (date, place, whose it is). No subordinate clauses. No "would be great to…".
+- nudge_detail: natural spoken English when the card expands — a bit more context, not a recap of the title.
+- suggestion: just the next step. Do not start with "Suggested".
+
+Category guidance:
+- delivery: only action_required true if someone needs to be home, or delivery failed
+- returns: action_required true if a return label needs printing, item needs dropping off, or deadline is approaching
+- school: action_required true if permission, payment, or RSVP is needed
+- medical: action_required true if appointment confirmation needed or preparation required
+If no action is required, set action_required to false and nudge_title, nudge_body, nudge_detail, and suggestion to null.`;
+
+function extractPrompt(household: Household): string {
+  return `${EXTRACT_PROMPT}\n\nWho you are talking to:\n${householdVoiceBlock(household)}`;
+}
 
 type Connection = {
   user_id: string;
@@ -34,6 +65,8 @@ type ExtractedNudge = {
   urgency: string;
   nudge_title: string | null;
   nudge_body: string | null;
+  nudge_detail: string | null;
+  suggestion: string | null;
 };
 
 Deno.serve(async (req: Request) => {
@@ -120,6 +153,8 @@ Deno.serve(async (req: Request) => {
         const emails = await fetchEmails(accessToken, { unreadOnly, windowDays });
         console.log('Emails fetched:', emails.length);
 
+        const household = await loadHousehold(supabase, connection.user_id);
+
         for (const email of emails) {
           try {
             const created = await processEmail(
@@ -128,6 +163,7 @@ Deno.serve(async (req: Request) => {
               connection.user_id,
               email,
               windowDays,
+              household,
             );
             stats.processed += 1;
             if (created) stats.created += 1;
@@ -168,6 +204,7 @@ async function processEmail(
   userId: string,
   email: GraphEmail,
   windowDays: number,
+  household: Household,
 ): Promise<boolean> {
   if (shouldDropEmail(email, windowDays)) return false;
 
@@ -184,7 +221,12 @@ async function processEmail(
 
   if (category === 'ignore') return false;
 
-  const extractedRaw = await callClaude(anthropicKey, EXTRACT_PROMPT, userMessage, 512);
+  const extractedRaw = await callClaude(
+    anthropicKey,
+    extractPrompt(household),
+    userMessage,
+    1024,
+  );
   const extracted = parseExtracted(extractedRaw);
 
   console.log('Extraction:', subject, '-> action_required:', extracted.action_required);
@@ -212,6 +254,8 @@ async function processEmail(
     user_id: userId,
     title: extracted.nudge_title,
     body: extracted.nudge_body,
+    detail: extracted.nudge_detail,
+    suggestion: extracted.suggestion,
     category: extracted.category,
     action_description: extracted.action_description,
     due_date: extracted.date,
@@ -274,7 +318,7 @@ async function getFreshAccessToken(
   console.log('Microsoft token refresh status:', res.status);
 
   if (!res.ok) {
-    throw new Error(`Microsoft token refresh failed (${res.status}): ${body}`);
+    throw new Error(`Microsoft token refresh failed (${res.status})`);
   }
 
   const tokens = JSON.parse(body) as {
@@ -336,7 +380,6 @@ async function fetchEmails(
   const url =
     `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=${top}&$orderby=receivedDateTime desc&$select=sender,subject,bodyPreview,receivedDateTime,parentFolderId&$filter=${encodeURIComponent(filter)}`;
   console.log('Step 2: calling URL:', url);
-  console.log('Auth header preview:', `Bearer ${accessToken}`.slice(0, 30), '...', `Bearer ${accessToken}`.slice(-10));
 
   const res = await fetch(url, {
     headers: {
@@ -401,6 +444,8 @@ function parseExtracted(raw: string): ExtractedNudge {
     urgency: parsed.urgency,
     nudge_title: parsed.nudge_title ?? null,
     nudge_body: parsed.nudge_body ?? null,
+    nudge_detail: parsed.nudge_detail ?? null,
+    suggestion: parsed.suggestion ?? null,
   };
 }
 

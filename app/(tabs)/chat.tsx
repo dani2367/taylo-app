@@ -1,28 +1,90 @@
 import { useChat } from '@/components/app/ChatProvider';
 import { appStyles as s } from '@/components/app/styles';
 import { MicIcon, SendIcon } from '@/components/app/TabIcons';
-import { demoFamily } from '@/lib/demo-data';
 import { colors } from '@/constants/theme';
+import { demoFamily } from '@/lib/demo-data';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
-  KeyboardAvoidingView,
+  Dimensions,
+  Keyboard,
   Platform,
   Pressable,
   ScrollView,
   Text,
   TextInput,
   View,
+  type KeyboardEvent,
 } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+
+function keyboardEasing(easing?: KeyboardEvent['easing']) {
+  switch (easing) {
+    case 'easeIn':
+      return Easing.in(Easing.quad);
+    case 'easeOut':
+      return Easing.out(Easing.quad);
+    case 'easeInEaseOut':
+      return Easing.inOut(Easing.quad);
+    case 'linear':
+      return Easing.linear;
+    default:
+      return Easing.bezier(0.17, 0.59, 0.4, 0.77);
+  }
+}
+
+function liftFromKeyboard(e: KeyboardEvent, tabBar: number) {
+  const windowH = Dimensions.get('window').height;
+  const visible = Math.max(0, windowH - e.endCoordinates.screenY);
+  return Math.max(0, visible - tabBar);
+}
 
 export default function ChatScreen() {
-  const { current, conversations, typing, openGeneral, selectConversation, send, setEmailState } = useChat();
+  const { current, conversations, typing, openGeneral, selectConversation, deleteConversation, send, setEmailState } = useChat();
   const [drawer, setDrawer] = useState(false);
   const [input, setInput] = useState('');
   const scrollRef = useRef<ScrollView>(null);
+  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarSv = useSharedValue(tabBarHeight);
+  const lift = useSharedValue(0);
+
+  tabBarSv.value = tabBarHeight;
 
   useEffect(() => {
-    const t = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
+    const animateTo = (next: number, e?: KeyboardEvent) => {
+      const duration = e?.duration ?? 0;
+      if (duration > 0) {
+        lift.value = withTiming(next, { duration, easing: keyboardEasing(e?.easing) });
+      } else {
+        lift.value = withTiming(next, { duration: 250, easing: keyboardEasing('keyboard') });
+      }
+    };
+
+    const onFrame = (e: KeyboardEvent) => {
+      animateTo(liftFromKeyboard(e, tabBarSv.value), e);
+    };
+    const onHide = (e: KeyboardEvent) => {
+      animateTo(0, e);
+    };
+
+    const subs = [
+      Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillChangeFrame' : 'keyboardDidChangeFrame', onFrame),
+      Keyboard.addListener('keyboardWillHide', onHide),
+      Keyboard.addListener('keyboardDidHide', () => {
+        lift.value = withTiming(0, { duration: 250, easing: keyboardEasing('keyboard') });
+      }),
+    ];
+    return () => subs.forEach((sub) => sub.remove());
+  }, [lift, tabBarSv]);
+
+  const shiftStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -lift.value }],
+  }));
+
+  useEffect(() => {
+    const t = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
     return () => clearTimeout(t);
   }, [current?.messages.length, typing]);
 
@@ -40,9 +102,14 @@ export default function ChatScreen() {
   const lily = demoFamily.kids[1].name;
 
   return (
-    <KeyboardAvoidingView style={s.chatRoot} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <View style={s.chatRoot}>
       <View style={s.chatSubhead}>
-        <Pressable style={s.chatIconBtn} onPress={() => setDrawer(true)} accessibilityLabel="Previous conversations">
+        <Pressable
+          style={s.chatIconBtn}
+          onPress={() => setDrawer(true)}
+          hitSlop={4}
+          accessibilityRole="button"
+          accessibilityLabel="Previous conversations">
           <Text style={s.chatIconBtnText}>☰</Text>
         </Pressable>
         <View style={s.chatThreadAvatar}>
@@ -58,9 +125,17 @@ export default function ChatScreen() {
         </View>
       </View>
 
-      <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={s.chatMsgs} keyboardShouldPersistTaps="handled">
+      <View style={s.chatClip}>
+        <Animated.View style={[s.chatShift, Platform.OS === 'ios' ? shiftStyle : null]}>
+          <ScrollView
+            ref={scrollRef}
+            style={s.chatBody}
+            contentContainerStyle={s.chatMsgs}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            nestedScrollEnabled>
         {(current?.messages ?? []).map((m, i) => (
-          <View key={`${i}-${m.text.slice(0, 12)}`} style={[s.bubble, m.from === 'user' ? s.bubbleUser : s.bubbleTaylo]}>
+          <View key={m.id ?? `${i}-${m.text.slice(0, 12)}`} style={[s.bubble, m.from === 'user' ? s.bubbleUser : s.bubbleTaylo]}>
             {m.from === 'taylo' ? <Text style={s.bsender}>Taylo</Text> : null}
             <Text style={[s.bubbleText, m.from === 'user' ? s.bubbleTextUser : s.bubbleTextTaylo]}>{m.text}</Text>
             {m.emailCard && m.from === 'taylo' ? (
@@ -129,6 +204,8 @@ export default function ChatScreen() {
           <SendIcon />
         </Pressable>
       </View>
+        </Animated.View>
+      </View>
 
       {drawer ? (
         <View style={s.drawer}>
@@ -160,25 +237,37 @@ export default function ChatScreen() {
                     : '';
                   const active = c.id === current?.id;
                   return (
-                    <Pressable
+                    <Swipeable
                       key={c.id}
-                      style={[s.cdItem, active && s.cdItemActive]}
-                      onPress={() => {
-                        selectConversation(c.id);
-                        setDrawer(false);
-                      }}>
-                      <View style={s.cdItemIcon}>
-                        <Text style={{ fontSize: 12 }}>{c.icon}</Text>
-                      </View>
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={s.cdItemTitle} numberOfLines={1}>
-                          {c.title}
-                        </Text>
-                        <Text style={s.cdItemPreview} numberOfLines={1}>
-                          {preview}
-                        </Text>
-                      </View>
-                    </Pressable>
+                      overshootRight={false}
+                      renderRightActions={() => (
+                        <Pressable
+                          style={s.cdSwipeDelete}
+                          onPress={() => {
+                            void deleteConversation(c.id);
+                          }}>
+                          <Text style={s.cdSwipeDeleteText}>Delete</Text>
+                        </Pressable>
+                      )}>
+                      <Pressable
+                        style={[s.cdItem, active && s.cdItemActive]}
+                        onPress={() => {
+                          selectConversation(c.id);
+                          setDrawer(false);
+                        }}>
+                        <View style={s.cdItemIcon}>
+                          <Text style={{ fontSize: 12 }}>{c.icon}</Text>
+                        </View>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text style={s.cdItemTitle} numberOfLines={1}>
+                            {c.title}
+                          </Text>
+                          <Text style={s.cdItemPreview} numberOfLines={1}>
+                            {preview}
+                          </Text>
+                        </View>
+                      </Pressable>
+                    </Swipeable>
                   );
                 })
               )}
@@ -187,6 +276,6 @@ export default function ChatScreen() {
           <Pressable style={{ flex: 1 }} onPress={() => setDrawer(false)} />
         </View>
       ) : null}
-    </KeyboardAvoidingView>
+    </View>
   );
 }
