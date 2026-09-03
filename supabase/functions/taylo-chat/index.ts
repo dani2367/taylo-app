@@ -61,13 +61,13 @@ type FamilyFactRow = {
   category: string | null;
 };
 
-type NudgeRow = {
+type ItemRow = {
   title: string | null;
   body: string | null;
   detail: string | null;
   category: string | null;
   action_description: string | null;
-  due_date: string | null;
+  event_date: string | null;
   who_it_affects: string | null;
   urgency_level: string | null;
   source_email_subject: string | null;
@@ -147,24 +147,24 @@ Deno.serve(async (req: Request) => {
       loadFamilyFacts(supabase, user.id),
     ]);
 
-    let nudge: NudgeRow | null = null;
+    let nudge: ItemRow | null = null;
     let sourceEmailBody: string | null = null;
     if (conv.kind === 'item' && conv.related_item_id) {
       const { data: nudgeRow } = await supabase
-        .from('nudges')
+        .from('items')
         .select(
-          'title, body, detail, category, action_description, due_date, who_it_affects, urgency_level, source_email_subject, source_email_sender',
+          'title, body, detail, category, action_description, event_date, who_it_affects, urgency_level, source_email_subject, source_email_sender',
         )
         .eq('id', conv.related_item_id)
         .eq('user_id', user.id)
         .maybeSingle();
-      nudge = (nudgeRow as NudgeRow | null) ?? null;
+      nudge = (nudgeRow as ItemRow | null) ?? null;
 
       if (nudge) {
         const { data: sourceEmail } = await supabase
           .from('source_emails')
           .select('body_text')
-          .eq('nudge_id', conv.related_item_id)
+          .eq('item_id', conv.related_item_id)
           .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .limit(1)
@@ -330,7 +330,7 @@ function familyFactsBlock(facts: FamilyFactRow[]): string {
 
 function buildSystemPrompt(
   conv: ConversationRow,
-  nudge: NudgeRow | null,
+  nudge: ItemRow | null,
   household: Household,
   sourceEmailBody: string | null,
   familyFacts: FamilyFactRow[],
@@ -347,7 +347,7 @@ What you told them: ${nudge.body ?? ''}
 Detail: ${nudge.detail ?? ''}
 Category: ${nudge.category ?? 'unknown'}
 Action: ${nudge.action_description ?? 'not specified'}
-Date: ${nudge.due_date ?? 'not specified'}
+Date: ${nudge.event_date ?? 'not specified'}
 Who it affects: ${whoForPrompt(nudge.who_it_affects, household)}
 Urgency: ${nudge.urgency_level ?? 'not specified'}
 Email subject: ${nudge.source_email_subject ?? 'not specified'}

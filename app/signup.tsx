@@ -154,7 +154,7 @@ export default function SignupScreen() {
             setSubmitError(result.message);
             return;
           }
-          router.replace('/today');
+          router.replace('/home');
         })
         .catch(() => {
           setSubmitting(false);

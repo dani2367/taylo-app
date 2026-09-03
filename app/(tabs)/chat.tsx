@@ -42,10 +42,11 @@ function liftFromKeyboard(e: KeyboardEvent, tabBar: number) {
 }
 
 export default function ChatScreen() {
-  const { current, conversations, typing, openGeneral, selectConversation, deleteConversation, send, setEmailState } = useChat();
+  const { current, conversations, typing, openGeneral, selectConversation, deleteConversation, chooseIntent, send, setEmailState } = useChat();
   const [drawer, setDrawer] = useState(false);
   const [input, setInput] = useState('');
   const scrollRef = useRef<ScrollView>(null);
+  const inputRef = useRef<TextInput>(null);
   const tabBarHeight = useBottomTabBarHeight();
   const tabBarSv = useSharedValue(tabBarHeight);
   const lift = useSharedValue(0);
@@ -92,6 +93,11 @@ export default function ChatScreen() {
     .filter((c) => c.messages.some((m) => m.from === 'user'))
     .sort((a, b) => b.updatedAt - a.updatedAt);
 
+  function dismissKeyboard() {
+    inputRef.current?.blur();
+    Keyboard.dismiss();
+  }
+
   function onSend() {
     const val = input.trim();
     if (!val) return;
@@ -100,13 +106,20 @@ export default function ChatScreen() {
   }
 
   const lily = demoFamily.kids[1].name;
+  const showIntentPicker =
+    current?.kind === 'general' &&
+    !current.intent &&
+    !(current.messages ?? []).some((m) => m.from === 'user');
 
   return (
     <View style={s.chatRoot}>
       <View style={s.chatSubhead}>
         <Pressable
           style={s.chatIconBtn}
-          onPress={() => setDrawer(true)}
+          onPress={() => {
+            dismissKeyboard();
+            setDrawer(true);
+          }}
           hitSlop={4}
           accessibilityRole="button"
           accessibilityLabel="Previous conversations">
@@ -115,26 +128,49 @@ export default function ChatScreen() {
         <View style={s.chatThreadAvatar}>
           <Text style={s.chatThreadAvatarText}>{current?.icon ?? 'T'}</Text>
         </View>
-        <View style={s.chatThreadText}>
+        <Pressable style={s.chatThreadText} onPress={dismissKeyboard}>
           <Text style={s.chatThreadTitle} numberOfLines={1}>
             {current?.title ?? 'Taylo'}
           </Text>
+          {showIntentPicker ? null : (
           <Text style={s.chatThreadSub} numberOfLines={1}>
-            {current?.sub || (current?.kind === 'general' ? 'New chat' : '')}
+            {current?.sub || (current?.kind === 'general' ? (current.intent === 'offload' ? 'Offload' : 'New chat') : '')}
           </Text>
-        </View>
+          )}
+        </Pressable>
       </View>
 
       <View style={s.chatClip}>
+        {showIntentPicker ? (
+          <View style={s.intentPicker}>
+            <Pressable
+              style={({ pressed }) => [s.intentBubble, pressed && { opacity: 0.86 }]}
+              onPress={() => chooseIntent('offload')}
+              accessibilityRole="button"
+              accessibilityLabel="Offload">
+              <Text style={s.intentBubbleTitle}>Offload</Text>
+              <Text style={s.intentBubbleHint}>Dump it on the list</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [s.intentBubble, pressed && { opacity: 0.86 }]}
+              onPress={() => chooseIntent('ask')}
+              accessibilityRole="button"
+              accessibilityLabel="Ask">
+              <Text style={s.intentBubbleTitle}>Ask</Text>
+              <Text style={s.intentBubbleHint}>Talk it through</Text>
+            </Pressable>
+          </View>
+        ) : (
         <Animated.View style={[s.chatShift, shiftStyle]}>
           <ScrollView
             ref={scrollRef}
             style={s.chatBody}
             contentContainerStyle={s.chatMsgs}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="interactive"
+            keyboardDismissMode="on-drag"
             nestedScrollEnabled
             alwaysBounceVertical>
+        <Pressable onPress={dismissKeyboard} style={s.chatMsgsTap}>
         {(current?.messages ?? []).map((m, i) => (
           <View key={m.id ?? `${i}-${m.text.slice(0, 12)}`} style={[s.bubble, m.from === 'user' ? s.bubbleUser : s.bubbleTaylo]}>
             {m.from === 'taylo' ? <Text style={s.bsender}>Taylo</Text> : null}
@@ -178,6 +214,7 @@ export default function ChatScreen() {
             <View style={s.tdot} />
           </View>
         ) : null}
+        </Pressable>
       </ScrollView>
 
         {(current?.chips ?? []).length > 0 ? (
@@ -195,12 +232,14 @@ export default function ChatScreen() {
           <MicIcon />
         </Pressable>
         <TextInput
+          ref={inputRef}
           style={s.chatInput}
-          placeholder="Ask Taylo anything..."
+          placeholder={current?.intent === 'offload' ? "What's on the list..." : 'Ask Taylo anything...'}
           placeholderTextColor={colors.textHint}
           value={input}
           onChangeText={setInput}
           multiline
+          blurOnSubmit={false}
           onSubmitEditing={onSend}
         />
         <Pressable style={[s.chatRoundBtn, s.chatSend]} onPress={onSend}>
@@ -208,6 +247,7 @@ export default function ChatScreen() {
         </Pressable>
       </View>
         </Animated.View>
+        )}
       </View>
 
       {drawer ? (

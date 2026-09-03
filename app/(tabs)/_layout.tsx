@@ -9,7 +9,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export const unstable_settings = {
-  initialRouteName: 'today',
+  initialRouteName: 'home',
 };
 
 export default function TabsLayout() {
@@ -28,10 +28,11 @@ export default function TabsLayout() {
             headerShown: false,
             sceneStyle: { backgroundColor: colors.grayLight },
           }}>
-          <Tabs.Screen name="today" />
-          <Tabs.Screen name="ahead" />
-          <Tabs.Screen name="chat" />
-          <Tabs.Screen name="more" />
+          <Tabs.Screen name="home" options={{ title: 'Home' }} />
+          <Tabs.Screen name="plan" options={{ title: 'Plan' }} />
+          <Tabs.Screen name="chat" options={{ title: 'Ask' }} />
+          <Tabs.Screen name="more" options={{ title: 'More' }} />
+          <Tabs.Screen name="ahead" options={{ href: null, title: 'Ahead' }} />
         </Tabs>
       </View>
     </ChatProvider>

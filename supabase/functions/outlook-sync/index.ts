@@ -1,4 +1,9 @@
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
+import {
+  CHECKLIST_PROMPT_RULE,
+  insertPrepChecklist,
+  parseChecklistLabels,
+} from '../_shared/checklists.ts';
 import { householdVoiceBlock, loadHousehold, type Household } from '../_shared/household.ts';
 
 const MICROSOFT_TOKEN_URL =
@@ -21,16 +26,18 @@ const EXTRACT_PROMPT = `You are Taylo, a family assistant. Extract the key infor
   "nudge_title": "the action for the parent, under 8 words — e.g. Book your dental checkup — or null if no action needed",
   "nudge_body": "one short subtitle under the title, maximum ~12 words, a single extra fact — not a paragraph — or null if no action needed",
   "nudge_detail": "2-3 conversational sentences for the expanded card, like a friend filling in the context — or null if no action needed",
-  "suggestion": "the action itself, no label — e.g. Reply confirming you'll attend — or null if no action needed"
+  "suggestion": "the action itself, no label — e.g. Reply confirming you'll attend — or null if no action needed",
+  "checklist_items": ["Present", "Card"] or null
 }
 
-Voice and length (this is a Today card, not an email summary):
+Voice and length (this copy is shown on Home and Plan, not as an email summary):
 - Address the parent as "you". Never write the parent's name in the third person.
 - If the email is about a child, use the child's name (e.g. Arlo) in body, detail, who_it_affects, and in the title when it helps ("Sign Arlo's trip form").
 - nudge_title: the action, short, like a list item.
 - nudge_body: one clipped line of extra info (date, place, whose it is). No subordinate clauses. No "would be great to…".
-- nudge_detail: natural spoken English when the card expands — a bit more context, not a recap of the title.
+- nudge_detail: natural spoken English when the card expands — a friend filling in the context, not a recap of the title. This is what they read on Plan and Home.
 - suggestion: just the next step. Do not start with "Suggested".
+${CHECKLIST_PROMPT_RULE}
 
 Category guidance:
 - delivery: only action_required true if someone needs to be home, or delivery failed
@@ -40,7 +47,16 @@ Category guidance:
 If no action is required, set action_required to false and nudge_title, nudge_body, nudge_detail, and suggestion to null.`;
 
 function extractPrompt(household: Household): string {
-  return `${EXTRACT_PROMPT}\n\nWho you are talking to:\n${householdVoiceBlock(household)}`;
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
+  return `${EXTRACT_PROMPT}
+
+Date rules:
+- Today is ${today} (Europe/London).
+- If the email gives a day and month with no year, use this year or the next occurrence — never last year just because the weekday matches.
+- A school trip on "9 September" extracted in September ${today.slice(0, 4)} is ${today.slice(0, 4)}-09-09, not last year.
+
+Who you are talking to:
+${householdVoiceBlock(household)}`;
 }
 
 type Connection = {
@@ -70,6 +86,7 @@ type ExtractedNudge = {
   nudge_body: string | null;
   nudge_detail: string | null;
   suggestion: string | null;
+  checklist_items: string[];
 };
 
 Deno.serve(async (req: Request) => {
@@ -217,7 +234,7 @@ async function processEmail(
 
   const windowStart = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
   const { data: existing, error: dupError } = await supabase
-    .from('nudges')
+    .from('items')
     .select('id')
     .eq('user_id', userId)
     .eq('source_email_subject', subject)
@@ -258,7 +275,7 @@ async function processEmail(
   }
 
   const { data: inserted, error: insertError } = await supabase
-    .from('nudges')
+    .from('items')
     .insert({
       user_id: userId,
       title: extracted.nudge_title,
@@ -267,12 +284,12 @@ async function processEmail(
       suggestion: extracted.suggestion,
       category: extracted.category,
       action_description: extracted.action_description,
-      due_date: extracted.date,
+      event_date: extracted.date,
       who_it_affects: extracted.who_it_affects,
       urgency_level: extracted.urgency,
+      source: 'email',
       source_email_subject: subject,
       source_email_sender: sender,
-      urgent: extracted.urgency === 'today',
       status: 'open',
     })
     .select('id')
@@ -283,6 +300,12 @@ async function processEmail(
   }
 
   await ensureSourceEmail(supabase, userId, inserted.id, email);
+  await insertPrepChecklist(supabase, {
+    userId,
+    itemId: inserted.id,
+    itemTitle: extracted.nudge_title,
+    labels: extracted.checklist_items,
+  });
   return true;
 }
 
@@ -295,7 +318,7 @@ async function ensureSourceEmail(
   const { data: existing, error: lookupError } = await supabase
     .from('source_emails')
     .select('id')
-    .eq('nudge_id', nudgeId)
+    .eq('item_id', nudgeId)
     .limit(1);
 
   if (lookupError) {
@@ -305,7 +328,7 @@ async function ensureSourceEmail(
 
   const { error: insertError } = await supabase.from('source_emails').insert({
     user_id: userId,
-    nudge_id: nudgeId,
+    item_id: nudgeId,
     subject: email.subject ?? '',
     sender: email.sender?.emailAddress?.address ?? '',
     body_text: trimEmailBody(email),
@@ -511,6 +534,7 @@ function parseExtracted(raw: string): ExtractedNudge {
     nudge_body: parsed.nudge_body ?? null,
     nudge_detail: parsed.nudge_detail ?? null,
     suggestion: parsed.suggestion ?? null,
+    checklist_items: parseChecklistLabels(parsed.checklist_items),
   };
 }
 

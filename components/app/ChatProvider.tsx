@@ -1,4 +1,5 @@
 import { genericAheadOpener, type Chip } from '@/lib/demo-data';
+import { refreshSpotlight } from '@/lib/spotlight';
 import { supabase } from '@/lib/supabase';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
@@ -13,6 +14,8 @@ export type ChatMsg = {
   emailState?: 'open' | 'added' | 'skipped';
 };
 
+export type AskIntent = 'ask' | 'offload';
+
 export type Conversation = {
   id: string;
   icon: string;
@@ -21,6 +24,7 @@ export type Conversation = {
   messages: ChatMsg[];
   chips: Chip[];
   kind: 'general' | 'item';
+  intent: AskIntent | null;
   relatedItemId?: string | null;
   updatedAt: number;
 };
@@ -43,6 +47,7 @@ type ChatCtx = {
   openItem: (id: string, opts: OpenItemOpts) => Promise<void>;
   selectConversation: (id: string) => void;
   deleteConversation: (id: string) => Promise<void>;
+  chooseIntent: (intent: AskIntent) => void;
   send: (text: string) => void;
   setEmailState: (state: 'added' | 'skipped') => void;
 };
@@ -55,6 +60,7 @@ type ConversationRow = {
   title: string | null;
   subtitle: string | null;
   suggestion_chips: Chip[] | null;
+  intent: AskIntent | null;
   updated_at: string;
 };
 
@@ -69,9 +75,10 @@ type MessageRow = {
 
 const ChatContext = createContext<ChatCtx | null>(null);
 
-function greetings() {
-  return ["Hi! What's on your mind?", 'Hey — how can I help today?'];
-}
+const ASK_GREET = "Hi! What's on your mind?";
+
+const CONV_SELECT =
+  'id, kind, related_item_id, icon, title, subtitle, suggestion_chips, intent, updated_at';
 
 const GENERIC_CHIP_LABELS = new Set([
   'What else this week?',
@@ -87,9 +94,20 @@ function parseChips(raw: Chip[] | null | undefined): Chip[] {
   return raw.filter((c) => c?.label && c?.msg && !GENERIC_CHIP_LABELS.has(c.label));
 }
 
+function parseIntent(raw: string | null | undefined): AskIntent | null {
+  return raw === 'ask' || raw === 'offload' ? raw : null;
+}
+
 function isPlaceholderTitle(title: string, sub: string) {
   const t = title.trim().toLowerCase();
-  return t === 'taylo' || t === 'new chat' || sub.trim().toLowerCase() === 'new chat';
+  const s = sub.trim().toLowerCase();
+  return (
+    t === 'taylo' ||
+    t === 'new chat' ||
+    s === 'new chat' ||
+    s === 'offload' ||
+    s === 'offload or ask'
+  );
 }
 
 function conversationTitleFromText(text: string): string {
@@ -123,6 +141,7 @@ function mapConversation(row: ConversationRow, messages: ChatMsg[]): Conversatio
     messages,
     chips: parseChips(row.suggestion_chips),
     kind,
+    intent: parseIntent(row.intent),
     relatedItemId: row.related_item_id,
     updatedAt: new Date(row.updated_at).getTime(),
   };
@@ -133,26 +152,23 @@ async function requireUserId(): Promise<string | null> {
   return user?.id ?? null;
 }
 
-async function fetchTayloReply(
-  conversationId: string,
-  opts?: { opener?: boolean },
+async function invokeTayloFunction(
+  name: 'taylo-chat' | 'taylo-offload',
+  body: Record<string, unknown>,
 ): Promise<{ reply: string; title?: string; message_id?: string; chips?: Chip[] }> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token || !supabaseUrl || !supabaseAnonKey) {
     throw new Error('Not signed in');
   }
 
-  const res = await fetch(`${supabaseUrl}/functions/v1/taylo-chat`, {
+  const res = await fetch(`${supabaseUrl}/functions/v1/${name}`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${session.access_token}`,
       apikey: supabaseAnonKey,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      conversation_id: conversationId,
-      ...(opts?.opener ? { opener: true } : {}),
-    }),
+    body: JSON.stringify(body),
   });
 
   const payload = (await res.json()) as {
@@ -173,11 +189,28 @@ async function fetchTayloReply(
   };
 }
 
+async function fetchTayloReply(
+  conversationId: string,
+  opts?: { opener?: boolean },
+): Promise<{ reply: string; title?: string; message_id?: string; chips?: Chip[] }> {
+  return invokeTayloFunction('taylo-chat', {
+    conversation_id: conversationId,
+    ...(opts?.opener ? { opener: true } : {}),
+  });
+}
+
+async function fetchOffloadReply(
+  conversationId: string,
+): Promise<{ reply: string; title?: string; message_id?: string }> {
+  return invokeTayloFunction('taylo-offload', { conversation_id: conversationId });
+}
+
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const currentIdRef = useRef<string | null>(null);
   const [typing, setTyping] = useState(false);
+  const intentRef = useRef<AskIntent | null>(null);
 
   function setCurrent(id: string | null) {
     currentIdRef.current = id;
@@ -188,6 +221,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     () => conversations.find((c) => c.id === currentId) ?? null,
     [conversations, currentId],
   );
+  intentRef.current = current?.intent ?? null;
 
   const loadConversations = useCallback(async () => {
     const userId = await requireUserId();
@@ -199,7 +233,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     const { data: convRows, error: convError } = await supabase
       .from('conversations')
-      .select('id, kind, related_item_id, icon, title, subtitle, suggestion_chips, updated_at')
+      .select(CONV_SELECT)
       .eq('user_id', userId)
       .order('updated_at', { ascending: false });
 
@@ -246,7 +280,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const userId = await requireUserId();
     if (!userId) return;
 
-    const greet = greetings()[Math.floor(Math.random() * greetings().length)];
     const now = new Date().toISOString();
     const { data: conv, error: convError } = await supabase
       .from('conversations')
@@ -256,11 +289,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         related_item_id: null,
         icon: 'T',
         title: 'Taylo',
-        subtitle: 'New chat',
+        subtitle: null,
         suggestion_chips: [],
+        intent: null,
         updated_at: now,
       })
-      .select('id, kind, related_item_id, icon, title, subtitle, suggestion_chips, updated_at')
+      .select(CONV_SELECT)
       .single();
 
     if (convError || !conv) {
@@ -268,21 +302,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const { data: msg } = await supabase
-      .from('messages')
-      .insert({
-        conversation_id: conv.id,
-        user_id: userId,
-        sender: 'taylo',
-        body: greet,
-        has_email_card: false,
-      })
-      .select('id, conversation_id, sender, body, has_email_card, created_at')
-      .single();
-
-    const mapped = mapConversation(conv as ConversationRow, msg ? mapMessages([msg as MessageRow], conv.id) : [
-      { from: 'taylo', text: greet },
-    ]);
+    const mapped = mapConversation(conv as ConversationRow, []);
     setConversations((prev) => [mapped, ...prev.filter((c) => c.id !== mapped.id)]);
     setCurrent(mapped.id);
   }, []);
@@ -355,7 +375,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     const { data: existing } = await supabase
       .from('conversations')
-      .select('id, kind, related_item_id, icon, title, subtitle, suggestion_chips, updated_at')
+      .select(CONV_SELECT)
       .eq('user_id', userId)
       .eq('kind', 'item')
       .eq('related_item_id', id)
@@ -394,7 +414,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         suggestion_chips: chips,
         updated_at: now,
       })
-      .select('id, kind, related_item_id, icon, title, subtitle, suggestion_chips, updated_at')
+      .select(CONV_SELECT)
       .single();
 
     if (convError || !conv) {
@@ -457,6 +477,48 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const chooseIntent = useCallback((intent: AskIntent) => {
+    const id = currentIdRef.current;
+    if (!id) return;
+
+    void (async () => {
+      const userId = await requireUserId();
+      if (!userId) return;
+
+      const subtitle = intent === 'offload' ? 'Offload' : 'New chat';
+      intentRef.current = intent;
+      setConversations((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, intent, sub: subtitle, updatedAt: Date.now() } : c)),
+      );
+      await supabase
+        .from('conversations')
+        .update({ intent, subtitle, updated_at: new Date().toISOString() })
+        .eq('id', id);
+
+      if (intent !== 'ask') return;
+
+      const { data: msg } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: id,
+          user_id: userId,
+          sender: 'taylo',
+          body: ASK_GREET,
+          has_email_card: false,
+        })
+        .select('id, conversation_id, sender, body, has_email_card, created_at')
+        .single();
+
+      if (!msg) return;
+      const added = mapMessages([msg as MessageRow], id)[0];
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === id ? { ...c, messages: [...c.messages, added], updatedAt: Date.now() } : c,
+        ),
+      );
+    })();
+  }, []);
+
   const send = useCallback((text: string) => {
     const trimmed = text.trim();
     const id = currentIdRef.current;
@@ -465,6 +527,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     void (async () => {
       const userId = await requireUserId();
       if (!userId) return;
+      const offload = intentRef.current === 'offload';
 
       const { data: inserted, error: insertError } = await supabase
         .from('messages')
@@ -512,7 +575,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
       setTyping(true);
       try {
-        const { reply, title } = await fetchTayloReply(id);
+        const { reply, title } = offload ? await fetchOffloadReply(id) : await fetchTayloReply(id);
+        if (offload) void refreshSpotlight({ force: true });
         setConversations((prev) =>
           prev.map((c) =>
             c.id === id
@@ -586,10 +650,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       openItem,
       selectConversation,
       deleteConversation,
+      chooseIntent,
       send,
       setEmailState,
     }),
-    [conversations, current, typing, openGeneral, openItem, selectConversation, deleteConversation, send, setEmailState],
+    [conversations, current, typing, openGeneral, openItem, selectConversation, deleteConversation, chooseIntent, send, setEmailState],
   );
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

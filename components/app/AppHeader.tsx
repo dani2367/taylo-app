@@ -23,10 +23,10 @@ export function AppHeader() {
       const [{ data: profile }, { count }] = await Promise.all([
         supabase.from('profiles').select('first_name').eq('id', user.id).maybeSingle(),
         supabase
-          .from('nudges')
+          .from('home_spotlight')
           .select('id', { count: 'exact', head: true })
           .eq('user_id', user.id)
-          .eq('status', 'open'),
+          .eq('is_watching', false),
       ]);
 
       if (profile?.first_name) setFirstName(profile.first_name);

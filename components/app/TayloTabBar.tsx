@@ -6,16 +6,16 @@ import { Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const ICONS = {
-  today: TodayIcon,
-  ahead: AheadIcon,
+  home: TodayIcon,
+  plan: AheadIcon,
   chat: ChatIcon,
   more: MoreIcon,
 } as const;
 
 const LABELS: Record<string, string> = {
-  today: 'Today',
-  ahead: 'Ahead',
-  chat: 'Chat',
+  home: 'Home',
+  plan: 'Plan',
+  chat: 'Ask',
   more: 'More',
 };
 
@@ -40,6 +40,8 @@ export function TayloTabBar({ state, navigation }: BottomTabBarProps) {
               const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
               if (!isFocused && !event.defaultPrevented) {
                 navigation.navigate(route.name);
+              } else if (isFocused && route.name === 'plan') {
+                navigation.navigate('plan', { screen: 'index' });
               } else if (isFocused && route.name === 'more') {
                 navigation.navigate('more', { screen: 'index' });
               }

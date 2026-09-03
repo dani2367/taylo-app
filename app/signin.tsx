@@ -64,7 +64,7 @@ export default function SignInScreen() {
           setError(result.message);
           return;
         }
-        router.replace('/today');
+        router.replace('/home');
       })
       .catch(() => {
         setSubmitting(false);
