@@ -49,7 +49,7 @@ export async function findOrCreateShoppingListItem(
         detail: null,
         suggestion: 'Need a hand? Chat and Taylo can help you get this done.',
         category: 'errand',
-        icon: '🛒',
+        icon: 'cart-outline',
         colour_class: 'amber',
         status: 'open',
         source: 'chat',
@@ -65,7 +65,7 @@ export async function findOrCreateShoppingListItem(
     }
     list = { id: created.id, title: created.title };
   } else if ((list.title || '').trim().toLowerCase() !== 'shopping') {
-    await supabase.from('items').update({ title: 'Shopping', icon: '🛒' }).eq('id', list.id);
+    await supabase.from('items').update({ title: 'Shopping', icon: 'cart-outline' }).eq('id', list.id);
     list = { id: list.id, title: 'Shopping' };
   }
 

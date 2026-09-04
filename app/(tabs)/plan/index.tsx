@@ -1,10 +1,12 @@
+import { BrandIconDisc } from '@/components/app/BrandIcon';
 import { useChat } from '@/components/app/ChatProvider';
 import { PlanItemCard, type PlanItemCardModel } from '@/components/app/PlanItemCard';
 import { appStyles as s } from '@/components/app/styles';
+import { TayloMark } from '@/components/app/TayloMark';
 import { colors } from '@/constants/theme';
 import { isActiveCollection, unwrapCollection } from '@/lib/collections';
 import { itemCountLabel, planContextLine, thingsToSortLabel } from '@/lib/human-date';
-import { planEmoji } from '@/lib/plan-emoji';
+import { resolvePlanIcon, type PlanIconSpec } from '@/lib/plan-icon';
 import { looksLikeShoppingList } from '@/lib/shopping';
 import {
   comparePlanItems,
@@ -19,7 +21,7 @@ import {
   persistChecklistToggle,
 } from '@/lib/prep-checklists';
 import { supabase } from '@/lib/supabase';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router';
 import { router } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
@@ -65,7 +67,7 @@ type FeedCollection = {
   kind: 'collection';
   id: string;
   title: string;
-  emoji: string;
+  icon: PlanIconSpec;
   context: string;
   horizon: Horizon;
   event_date: string | null;
@@ -77,7 +79,7 @@ type FeedRow = FeedItem | FeedCollection;
 const HORIZON_ORDER: Horizon[] = ['now', 'next', 'later'];
 
 const SECTION: Record<Horizon, { kicker: string; hint: string; empty: string }> = {
-  now: { kicker: 'Now', hint: 'Things on your plate', empty: 'Nothing you need to act on right now ✨' },
+    now: { kicker: 'Now', hint: 'Things on your plate', empty: 'Nothing you need to act on right now.' },
   next: { kicker: 'Next', hint: 'Coming up', empty: 'Nothing coming up yet.' },
   later: { kicker: 'Later', hint: "Taylo's keeping an eye on", empty: "Taylo's keeping an eye on things." },
 };
@@ -117,7 +119,7 @@ function mapItem(row: ItemRow, today: Date, collectionEarliest: string | null): 
     suggestion: formatSuggestion(row.suggestion),
     opener: row.action_description || detail || body || title,
     src: row.source_label || row.source_email_subject || 'Plan',
-    emoji: planEmoji({ title, category: row.category, stored: row.icon, collectionType: shopping ? 'shopping' : null }),
+    icon: resolvePlanIcon({ title, category: row.category, stored: row.icon, collectionType: shopping ? 'shopping' : null }),
     prepLabel: incomplete ? thingsToSortLabel(incomplete) : null,
     checklistId: list?.id ?? null,
     checklist: entries,
@@ -224,7 +226,7 @@ export default function PlanScreen() {
         kind: 'collection',
         id: collectionId,
         title: meta?.title || 'Collection',
-        emoji: planEmoji({
+        icon: resolvePlanIcon({
           title: meta?.title,
           collectionType: meta?.type,
           stored: meta?.emoji,
@@ -334,7 +336,7 @@ export default function PlanScreen() {
 
   async function onChat(card: FeedItem) {
     await openItem(card.id, {
-      icon: card.emoji,
+      icon: card.icon.name,
       title: card.title,
       sub: card.src,
       opener: card.opener,
@@ -370,16 +372,20 @@ export default function PlanScreen() {
     return (
       <Pressable
         key={card.id}
-        style={s.uitem}
+        style={s.planCard}
         onPress={() => router.push(`/plan/${card.id}` as const)}>
-        <Text style={s.planEmoji}>{card.emoji}</Text>
-        <View style={s.ubody}>
-          <View style={s.uheadRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.utitle}>{card.title}</Text>
-              <Text style={s.usub}>{card.context}</Text>
+        <View style={s.nrow}>
+          <View style={{ flexShrink: 0 }}>
+            <BrandIconDisc name={card.icon.name} wash={card.icon.wash} />
+          </View>
+          <View style={s.ncopy}>
+            <View style={s.uheadRow}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={s.utitle}>{card.title}</Text>
+                <Text style={s.usub}>{card.context}</Text>
+              </View>
+              <Text style={s.uchevron}>›</Text>
             </View>
-            <Text style={s.uchevron}>›</Text>
           </View>
         </View>
       </Pressable>
@@ -401,9 +407,23 @@ export default function PlanScreen() {
               <Text style={s.slabel}>
                 {section.kicker} · {items.length}
               </Text>
-              <Text style={s.planSectionHint}>{section.hint}</Text>
+              <Text style={s.planSectionHint}>
+                {horizon === 'later' ? (
+                  <>
+                    <TayloMark />{' '}
+                  </>
+                ) : null}
+                {section.hint}
+              </Text>
               {items.length === 0 ? (
-                <Text style={s.planEmptyLine}>{section.empty}</Text>
+                <Text style={s.planEmptyLine}>
+                  {horizon === 'later' ? (
+                    <>
+                      <TayloMark />{' '}
+                    </>
+                  ) : null}
+                  {section.empty}
+                </Text>
               ) : (
                 items.map((row) => (row.kind === 'collection' ? renderCollection(row) : renderItem(row)))
               )}

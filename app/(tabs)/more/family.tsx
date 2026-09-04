@@ -137,7 +137,7 @@ export default function FamilyScreen() {
       </ScrollView>
 
       <Modal visible={!!profile} animationType="slide" onRequestClose={() => setProfile(null)}>
-        <View style={{ flex: 1, backgroundColor: colors.grayLight }}>
+        <View style={{ flex: 1, backgroundColor: colors.ivory }}>
           <View style={[s.psHeader, { paddingTop: insets.top + 14 }]}>
             <Pressable style={s.psBack} onPress={() => setProfile(null)}>
               <Text style={s.psBackText}>← Back</Text>

@@ -1,6 +1,8 @@
+import { BrandIconDisc } from '@/components/app/BrandIcon';
 import { useChat } from '@/components/app/ChatProvider';
 import { ItemPrepChecklist, type PrepCheckItem } from '@/components/app/ItemPrepChecklist';
 import { appStyles as s, iconBg } from '@/components/app/styles';
+import { TayloMark } from '@/components/app/TayloMark';
 import { colors } from '@/constants/theme';
 import { addProductsToShoppingList, isActiveCollection } from '@/lib/collections';
 import {
@@ -9,10 +11,11 @@ import {
   persistChecklistText,
   persistChecklistToggle,
 } from '@/lib/prep-checklists';
+import { resolvePlanIcon, type PlanIconSpec } from '@/lib/plan-icon';
 import { groceryLabelsFromText, isGroceryCapture } from '@/lib/shopping';
 import { refreshSpotlight } from '@/lib/spotlight';
 import { supabase } from '@/lib/supabase';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -69,7 +72,7 @@ type NudgeCard = {
   category: string;
   categoryLabel: string;
   urgent: boolean;
-  icon: string;
+  icon: PlanIconSpec;
   cls: keyof typeof iconBg;
   opener: string;
   src: string;
@@ -84,23 +87,23 @@ function formatSuggestion(raw: string | null | undefined): string | null {
   return trimmed || null;
 }
 
-const categoryMeta: Record<string, { icon: string; cls: keyof typeof iconBg; label: string }> = {
-  school: { icon: '📚', cls: 'blue', label: 'School' },
-  medical: { icon: '🏥', cls: 'teal', label: 'Medical' },
-  activity: { icon: '🎭', cls: 'purple', label: 'Activity' },
-  delivery: { icon: '📦', cls: 'amber', label: 'Delivery' },
-  returns: { icon: '↩️', cls: 'rose', label: 'Returns' },
-  financial: { icon: '💳', cls: 'green', label: 'Financial' },
-  errand: { icon: '🛒', cls: 'amber', label: 'Errand' },
-  home: { icon: '🏠', cls: 'rose', label: 'Home' },
+const categoryMeta: Record<string, { icon: PlanIconSpec; cls: keyof typeof iconBg; label: string }> = {
+  school: { icon: resolvePlanIcon({ category: 'school' }), cls: 'teal', label: 'School' },
+  medical: { icon: resolvePlanIcon({ category: 'medical' }), cls: 'amber', label: 'Medical' },
+  activity: { icon: resolvePlanIcon({ category: 'activity' }), cls: 'purple', label: 'Activity' },
+  delivery: { icon: resolvePlanIcon({ category: 'delivery' }), cls: 'amber', label: 'Delivery' },
+  returns: { icon: resolvePlanIcon({ category: 'returns' }), cls: 'amber', label: 'Returns' },
+  financial: { icon: resolvePlanIcon({ category: 'financial' }), cls: 'green', label: 'Financial' },
+  errand: { icon: resolvePlanIcon({ category: 'errand' }), cls: 'amber', label: 'Errand' },
+  home: { icon: resolvePlanIcon({ category: 'home' }), cls: 'rose', label: 'Home' },
 };
 
 function formatCategory(category: string | null) {
   const key = (category || '').toLowerCase();
   if (categoryMeta[key]) return categoryMeta[key];
-  if (!category) return { icon: '📌', cls: 'rose' as const, label: 'Nudge' };
+  if (!category) return { icon: resolvePlanIcon({}), cls: 'rose' as const, label: 'Nudge' };
   return {
-    icon: '📌',
+    icon: resolvePlanIcon({ category }),
     cls: 'rose' as const,
     label: category.charAt(0).toUpperCase() + category.slice(1),
   };
@@ -379,7 +382,7 @@ export default function HomeScreen() {
       detail: note || null,
       suggestion: MANUAL_HELP,
       category,
-      icon: meta.icon,
+      icon: meta.icon.name,
       colour_class: meta.cls,
       source: 'manual',
       source_label: 'Added by you',
@@ -400,7 +403,7 @@ export default function HomeScreen() {
 
   async function onChat(nudge: NudgeCard) {
     await openItem(nudge.id, {
-      icon: nudge.icon,
+      icon: nudge.icon.name,
       title: nudge.title,
       sub: nudge.src,
       opener: nudge.opener,
@@ -424,17 +427,18 @@ export default function HomeScreen() {
         <Pressable
           style={[s.nudge, n.urgent && s.nudgeUrgent, n.watching && s.nudgeWatch]}
           onPress={() => setExpanded((p) => ({ ...p, [n.id]: !p[n.id] }))}>
-          <Text style={s.nsrc}>{n.categoryLabel}</Text>
           <View style={s.nrow}>
-            <View style={[s.nicon, { backgroundColor: iconBg[n.cls] }]}>
-              <Text style={s.niconText}>{n.icon}</Text>
+            <View style={{ flexShrink: 0 }}>
+              <BrandIconDisc name={n.icon.name} wash={n.icon.wash} />
             </View>
             <View style={s.ncopy}>
               <View style={s.uheadRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.ntitle}>{n.title}</Text>
                   {n.reason ? (
-                    <Text style={[s.nreason, n.watching && s.nreasonWatch]}>{n.reason}</Text>
+                    <Text style={[s.nreason, n.watching && s.nreasonWatch]}>
+                      <TayloMark /> {n.reason}
+                    </Text>
                   ) : n.body ? (
                     <Text style={s.nbody}>{n.body}</Text>
                   ) : null}
@@ -459,7 +463,12 @@ export default function HomeScreen() {
                 onAdd={() => void addChecklistRow(n)}
                 onDelete={(id) => void removeChecklistRow(n.id, id)}
               />
-              {n.suggestion ? <Text style={s.nsuggest}>{n.suggestion}</Text> : null}
+              {n.suggestion ? (
+                <View style={s.nsuggestRow}>
+                  <TayloMark />
+                  <Text style={s.nsuggest}>{n.suggestion}</Text>
+                </View>
+              ) : null}
               <View style={s.nactions}>
                 <Pressable
                   style={[s.pill, s.pillTeal]}
@@ -467,7 +476,7 @@ export default function HomeScreen() {
                     e.stopPropagation();
                     void setStatus(n, 'done');
                   }}>
-                  <Text style={[s.pillText, s.pillTextTeal]}>✓ Done</Text>
+                  <Text style={[s.pillText, s.pillTextTeal]}>Done</Text>
                 </Pressable>
                 <Pressable
                   style={[s.pill, s.pillDelegate]}
@@ -483,7 +492,7 @@ export default function HomeScreen() {
                     e.stopPropagation();
                     void onChat(n);
                   }}>
-                  <Text style={[s.pillText, s.pillTextChat]}>💬 Chat</Text>
+                  <Text style={[s.pillText, s.pillTextChat]}>Ask</Text>
                 </Pressable>
               </View>
             </>
@@ -561,14 +570,17 @@ export default function HomeScreen() {
           <>
             {spotlight.length === 0 ? (
               <View style={s.emptyState}>
-                <Text style={s.emptyStateText}>Nothing needs your attention right now ✨</Text>
+                <Text style={s.emptyStateText}>Nothing needs your attention right now</Text>
               </View>
             ) : (
               spotlight.map(renderCard)
             )}
             {watching.length ? (
               <>
-                <Text style={s.slabel}>Taylo is keeping an eye on…</Text>
+                <View style={s.slabelRow}>
+                  <TayloMark />
+                  <Text style={s.slabelInline}>Taylo is keeping an eye on…</Text>
+                </View>
                 {watching.map(renderCard)}
               </>
             ) : null}

@@ -1,3 +1,4 @@
+import { BrandGlyph } from '@/components/app/BrandIcon';
 import { appStyles as s } from '@/components/app/styles';
 import { router } from 'expo-router';
 import { useState } from 'react';
@@ -25,7 +26,7 @@ export default function SettingsScreen() {
       </View>
       <Text style={s.slabel}>Notifications</Text>
       <View style={s.watoggle}>
-        <Text style={{ fontSize: 18 }}>💬</Text>
+        <BrandGlyph name="chatbubble-outline" size={18} />
         <View style={{ flex: 1 }}>
           <Text style={s.wlabel}>In-app chat (default)</Text>
           <Text style={s.wsub}>Taylo talks to you inside the app</Text>
@@ -33,7 +34,7 @@ export default function SettingsScreen() {
         <Toggle on={inApp} onToggle={() => setInApp((v) => !v)} />
       </View>
       <View style={s.watoggle}>
-        <Text style={{ fontSize: 18, color: '#25D366' }}>●</Text>
+        <BrandGlyph name="logo-whatsapp" size={18} color="#25D366" />
         <View style={{ flex: 1 }}>
           <Text style={s.wlabel}>WhatsApp nudges</Text>
           <Text style={s.wsub}>Also get alerts via WhatsApp</Text>

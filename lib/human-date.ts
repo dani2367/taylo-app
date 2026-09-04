@@ -89,11 +89,14 @@ export function humanizeEventDate(eventDate: string | null | undefined, today = 
   return `In ${wholeWeeks} weeks`;
 }
 
-export function clipContext(raw: string | null | undefined, max = 42): string | null {
+export function clipContext(raw: string | null | undefined, max = 100): string | null {
   const body = (raw || '').trim().replace(/\s+/g, ' ');
   if (!body) return null;
   if (body.length <= max) return body;
-  return `${body.slice(0, max - 1).trim()}…`;
+  const slice = body.slice(0, max);
+  const lastSpace = slice.lastIndexOf(' ');
+  const cut = lastSpace > 32 ? slice.slice(0, lastSpace) : slice.trim();
+  return `${cut}…`;
 }
 
 /** One line: relative when, plus a short extra fact that is not itself a date. */

@@ -19,18 +19,18 @@ export default function RootLayout() {
   }, [fontsLoaded]);
 
   if (!fontsLoaded) {
-    return <View style={{ flex: 1, backgroundColor: colors.rose }} />;
+    return <View style={{ flex: 1, backgroundColor: colors.ivory }} />;
   }
 
   return (
     <>
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.rose } }}>
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.ivory } }}>
         <Stack.Screen name="index" />
-        <Stack.Screen name="signup" options={{ contentStyle: { backgroundColor: colors.cream } }} />
-        <Stack.Screen name="signin" options={{ contentStyle: { backgroundColor: colors.cream } }} />
-        <Stack.Screen name="(tabs)" options={{ contentStyle: { backgroundColor: colors.grayLight } }} />
+        <Stack.Screen name="signup" options={{ contentStyle: { backgroundColor: colors.ivory } }} />
+        <Stack.Screen name="signin" options={{ contentStyle: { backgroundColor: colors.ivory } }} />
+        <Stack.Screen name="(tabs)" options={{ contentStyle: { backgroundColor: colors.ivory } }} />
       </Stack>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
     </>
   );
 }

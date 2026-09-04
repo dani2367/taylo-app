@@ -1,3 +1,5 @@
+import { BrandIconDisc } from '@/components/app/BrandIcon';
+import { TayloWordmark } from '@/components/app/TayloWordmark';
 import { signupStyles as s } from '@/components/signup/styles';
 import { colors, fonts, fontSizes } from '@/constants/theme';
 import {
@@ -15,6 +17,7 @@ import {
   type SignupStep,
   type UserType,
 } from '@/lib/signup';
+import type { IconName, Wash } from '@/lib/plan-icon';
 import { router } from 'expo-router';
 import { createElement, useState } from 'react';
 import {
@@ -30,18 +33,18 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const FAMILY_OPTS: { icon: string; label: string; sub: string; val: UserType }[] = [
-  { icon: '🙋', label: 'Just me', sub: 'No partner or kids', val: 'solo' },
-  { icon: '👫', label: 'Me & a partner', sub: 'No children yet', val: 'partner' },
-  { icon: '👪', label: 'Family with kids', sub: 'One or more children', val: 'family' },
-  { icon: '🤰', label: 'Baby on the way', sub: 'Expecting soon', val: 'expecting' },
+const FAMILY_OPTS: { name: IconName; wash: Wash; label: string; sub: string; val: UserType }[] = [
+  { name: 'person-outline', wash: 'paleBlue', label: 'Just me', sub: 'No partner or kids', val: 'solo' },
+  { name: 'heart-outline', wash: 'blush', label: 'Me & a partner', sub: 'No children yet', val: 'partner' },
+  { name: 'people-outline', wash: 'sage', label: 'Family with kids', sub: 'One or more children', val: 'family' },
+  { name: 'flower-outline', wash: 'blush', label: 'Baby on the way', sub: 'Expecting soon', val: 'expecting' },
 ];
 
-const CONNS = [
-  { icon: '📧', label: 'Gmail', sub: 'Newsletters, orders, appointments', key: 'gmail' },
-  { icon: '📅', label: 'Google Calendar', sub: 'Events & appointments', key: 'gcal' },
-  { icon: '💌', label: 'Outlook', sub: 'Alternative email', key: 'outlook' },
-  { icon: '🍍', label: 'Apple Calendar', sub: 'iOS calendar', key: 'appcal' },
+const CONNS: { name: IconName; wash: Wash; label: string; sub: string; key: string }[] = [
+  { name: 'mail-outline', wash: 'paleBlue', label: 'Gmail', sub: 'Newsletters, orders, appointments', key: 'gmail' },
+  { name: 'calendar-outline', wash: 'sage', label: 'Google Calendar', sub: 'Events & appointments', key: 'gcal' },
+  { name: 'mail-outline', wash: 'blush', label: 'Outlook', sub: 'Alternative email', key: 'outlook' },
+  { name: 'calendar-outline', wash: 'paleBlue', label: 'Apple Calendar', sub: 'iOS calendar', key: 'appcal' },
 ];
 
 export default function SignupScreen() {
@@ -206,7 +209,7 @@ export default function SignupScreen() {
       style={s.root}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={insets.top}>
-      <View style={[s.topbar, { paddingTop: insets.top + 14 }]}>
+      <View style={[s.topbar, { paddingTop: insets.top + 8 }]}>
         <Pressable
           style={[s.back, !showBack && s.backHidden]}
           onPress={goBack}
@@ -214,6 +217,11 @@ export default function SignupScreen() {
           hitSlop={8}>
           <Text style={s.backText}>←</Text>
         </Pressable>
+        <View style={s.topbarBrand}>
+          <TayloWordmark size={26} />
+        </View>
+      </View>
+      <View style={{ paddingHorizontal: 14, paddingBottom: 10 }}>
         <View style={s.progressTrack}>
           <View style={[s.progressFill, { width: `${Math.min(pct, 100)}%` }]} />
         </View>
@@ -324,7 +332,9 @@ export default function SignupScreen() {
                   key={o.val}
                   style={[s.choice, state.userType === o.val && s.choiceSel]}
                   onPress={() => selectType(o.val)}>
-                  <Text style={s.choiceIcon}>{o.icon}</Text>
+                  <View style={{ marginBottom: 6 }}>
+                    <BrandIconDisc name={o.name} wash={o.wash} size={40} />
+                  </View>
                   <Text style={s.choiceLabel}>{o.label}</Text>
                   <Text style={s.choiceSub}>{o.sub}</Text>
                 </Pressable>
@@ -440,7 +450,7 @@ export default function SignupScreen() {
                 const on = !!state.connections[c.key];
                 return (
                   <View key={c.key} style={s.connRow}>
-                    <Text style={s.connIcon}>{c.icon}</Text>
+                    <BrandIconDisc name={c.name} wash={c.wash} size={32} />
                     <View style={s.connCopy}>
                       <Text style={s.connLabel}>{c.label}</Text>
                       <Text style={s.connSub}>{c.sub}</Text>
@@ -454,7 +464,7 @@ export default function SignupScreen() {
                           return { ...prev, connections: next };
                         })
                       }>
-                      <Text style={[s.connBtn, on && s.connBtnOn]}>{on ? '✓ Connected' : 'Connect'}</Text>
+                      <Text style={[s.connBtn, on && s.connBtnOn]}>{on ? 'Connected' : 'Connect'}</Text>
                     </Pressable>
                   </View>
                 );
@@ -503,7 +513,7 @@ export default function SignupScreen() {
         {step === 'summary' ? (
           <>
             <Text style={s.eyebrow}>All set</Text>
-            <Text style={s.title}>Nice to meet you, {state.name}! 🎉</Text>
+            <Text style={s.title}>Nice to meet you, {state.name}</Text>
             <Text style={s.sub}>Here's what Taylo's got so far:</Text>
             <View style={s.summaryCard}>
               {summaryRows.map((row, i) => (
@@ -539,7 +549,7 @@ export default function SignupScreen() {
               onPress={onContinue}>
               {submitting ? (
                 <View style={s.continueInner}>
-                  <ActivityIndicator color={colors.white} size="small" />
+                  <ActivityIndicator color={colors.cream} size="small" />
                   <Text style={s.continueText}>{continueLabel}</Text>
                 </View>
               ) : (
@@ -578,7 +588,7 @@ function DateField({
         minWidth: 0,
         borderWidth: 1.5,
         borderStyle: 'solid',
-        borderColor: focused ? colors.rose : colors.border,
+        borderColor: focused ? colors.terracotta : colors.border,
         borderRadius: 11,
         paddingTop: 9,
         paddingBottom: 9,

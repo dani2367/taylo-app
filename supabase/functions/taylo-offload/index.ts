@@ -27,14 +27,14 @@ const CATEGORIES = [
 const URGENCIES = ['today', 'this_week', 'upcoming', 'none'] as const;
 
 const CATEGORY_META: Record<string, { icon: string; colour: string }> = {
-  school: { icon: '📚', colour: 'blue' },
-  medical: { icon: '🏥', colour: 'teal' },
-  activity: { icon: '🎭', colour: 'purple' },
-  delivery: { icon: '📦', colour: 'amber' },
-  returns: { icon: '↩️', colour: 'rose' },
-  financial: { icon: '💳', colour: 'green' },
-  errand: { icon: '🛒', colour: 'amber' },
-  home: { icon: '🏠', colour: 'rose' },
+  school: { icon: 'school-outline', colour: 'blue' },
+  medical: { icon: 'medkit-outline', colour: 'teal' },
+  activity: { icon: 'bicycle-outline', colour: 'purple' },
+  delivery: { icon: 'cube-outline', colour: 'amber' },
+  returns: { icon: 'swap-horizontal-outline', colour: 'rose' },
+  financial: { icon: 'card-outline', colour: 'green' },
+  errand: { icon: 'cart-outline', colour: 'amber' },
+  home: { icon: 'home-outline', colour: 'rose' },
 };
 
 type Category = (typeof CATEGORIES)[number];

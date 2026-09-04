@@ -83,22 +83,22 @@ export function parseExtra(txt: string): ExtraItem {
   const sub = 'Added during setup';
 
   if (t.includes('mot')) {
-    return { title: '🔧 MOT', day: day || 'Soon', month, isDay, sub };
+    return { title: 'MOT', day: day || 'Soon', month, isDay, sub };
   }
   if (t.includes('birthday')) {
     const nm = txt.match(/(\w+)'s birthday/i)?.[1] || 'Birthday';
-    return { title: `🎂 ${nm}'s birthday`, day, month, isDay, sub };
+    return { title: `${nm}'s birthday`, day, month, isDay, sub };
   }
   if (t.includes('party')) {
     const nm = txt.match(/(\w+)'s party/i)?.[1] || 'Party';
-    return { title: `🎉 ${nm}'s party`, day, month, isDay, sub };
+    return { title: `${nm}'s party`, day, month, isDay, sub };
   }
   if (t.includes('holiday') || t.includes('going to') || t.match(/fly|travel|lanzarote/)) {
     const d = txt.match(/(?:to|going to)\s+([A-Z][a-z]+)/i)?.[1] || 'Holiday';
-    return { title: `✈️ ${d}`, day, month, isDay, sub };
+    return { title: d, day, month, isDay, sub };
   }
   return {
-    title: `📌 ${txt.split(' ').slice(0, 5).join(' ')}`,
+    title: txt.split(' ').slice(0, 5).join(' '),
     day,
     month,
     isDay,

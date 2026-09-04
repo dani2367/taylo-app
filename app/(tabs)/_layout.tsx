@@ -15,18 +15,20 @@ export const unstable_settings = {
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
-  const isChat = pathname.includes('/chat');
+  const showBrandHeader = !pathname.includes('/chat');
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
     <ChatProvider>
       <View style={s.shell}>
-        <View style={[s.headerWrap, { paddingTop: insets.top }]}>{isChat ? null : <AppHeader />}</View>
+        <View style={[s.headerWrap, { paddingTop: insets.top }]}>
+          {showBrandHeader ? <AppHeader /> : null}
+        </View>
         <Tabs
           tabBar={(props) => <TayloTabBar {...props} />}
           screenOptions={{
             headerShown: false,
-            sceneStyle: { backgroundColor: colors.grayLight },
+            sceneStyle: { backgroundColor: colors.ivory },
           }}>
           <Tabs.Screen name="home" options={{ title: 'Home' }} />
           <Tabs.Screen name="plan" options={{ title: 'Plan' }} />

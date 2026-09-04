@@ -1,9 +1,11 @@
 import { useChat } from '@/components/app/ChatProvider';
 import { appStyles as s } from '@/components/app/styles';
-import { MicIcon, SendIcon } from '@/components/app/TabIcons';
+import { TayloMark } from '@/components/app/TayloMark';
+import { TayloWordmark } from '@/components/app/TayloWordmark';
+import { MenuIcon, MicIcon, SendIcon } from '@/components/app/TabIcons';
 import { colors } from '@/constants/theme';
 import { demoFamily } from '@/lib/demo-data';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { useBottomTabBarHeight } from 'expo-router/js-tabs';
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -115,7 +117,7 @@ export default function ChatScreen() {
     <View style={s.chatRoot}>
       <View style={s.chatSubhead}>
         <Pressable
-          style={s.chatIconBtn}
+          style={[s.chatIconBtn, { zIndex: 2 }]}
           onPress={() => {
             dismissKeyboard();
             setDrawer(true);
@@ -123,21 +125,16 @@ export default function ChatScreen() {
           hitSlop={4}
           accessibilityRole="button"
           accessibilityLabel="Previous conversations">
-          <Text style={s.chatIconBtnText}>☰</Text>
+          <MenuIcon />
         </Pressable>
-        <View style={s.chatThreadAvatar}>
-          <Text style={s.chatThreadAvatarText}>{current?.icon ?? 'T'}</Text>
+        <View style={s.chatLogoCenter} pointerEvents="none">
+          <TayloWordmark size={24} />
+          {current?.kind === 'item' ? (
+            <Text style={s.chatThreadSub} numberOfLines={1}>
+              {current.title}
+            </Text>
+          ) : null}
         </View>
-        <Pressable style={s.chatThreadText} onPress={dismissKeyboard}>
-          <Text style={s.chatThreadTitle} numberOfLines={1}>
-            {current?.title ?? 'Taylo'}
-          </Text>
-          {showIntentPicker ? null : (
-          <Text style={s.chatThreadSub} numberOfLines={1}>
-            {current?.sub || (current?.kind === 'general' ? (current.intent === 'offload' ? 'Offload' : 'New chat') : '')}
-          </Text>
-          )}
-        </Pressable>
       </View>
 
       <View style={s.chatClip}>
@@ -171,20 +168,32 @@ export default function ChatScreen() {
             nestedScrollEnabled
             alwaysBounceVertical>
         <Pressable onPress={dismissKeyboard} style={s.chatMsgsTap}>
-        {(current?.messages ?? []).map((m, i) => (
+        {(current?.messages ?? []).map((m, i) => {
+          const isOpener =
+            m.from === 'taylo' &&
+            current?.kind === 'item' &&
+            !(current?.messages ?? []).slice(0, i).some((prev) => prev.from === 'taylo');
+          return (
           <View key={m.id ?? `${i}-${m.text.slice(0, 12)}`} style={[s.bubble, m.from === 'user' ? s.bubbleUser : s.bubbleTaylo]}>
             {m.from === 'taylo' ? <Text style={s.bsender}>Taylo</Text> : null}
-            <Text style={[s.bubbleText, m.from === 'user' ? s.bubbleTextUser : s.bubbleTextTaylo]}>{m.text}</Text>
+            <Text style={[s.bubbleText, m.from === 'user' ? s.bubbleTextUser : s.bubbleTextTaylo]}>
+              {isOpener ? (
+                <>
+                  <TayloMark />{' '}
+                </>
+              ) : null}
+              {m.text}
+            </Text>
             {m.emailCard && m.from === 'taylo' ? (
               <View style={s.ecard}>
                 {m.emailState === 'added' ? (
                   <Text style={s.sorted}>✕ Added to calendar · reminder set for 18 June</Text>
                 ) : m.emailState === 'skipped' ? (
-                  <Text style={[s.sorted, { color: colors.textHint }]}>Got it — I'll skip these unless you ask 👍</Text>
+                  <Text style={[s.sorted, { color: colors.textHint }]}>Got it — I'll skip these unless you ask</Text>
                 ) : (
                   <>
                     <View style={s.ecardTop}>
-                      <Text>🏥</Text>
+                      <BrandIconDisc name="medkit-outline" wash="paleBlue" size={28} />
                       <View>
                         <Text style={s.ecardTitle}>GP appointment detected</Text>
                         <Text style={s.ecardFrom}>From: nhs.net · just now</Text>
@@ -195,7 +204,7 @@ export default function ChatScreen() {
                     </Text>
                     <View style={s.ecardBtns}>
                       <Pressable style={s.ecardYes} onPress={() => setEmailState('added')}>
-                        <Text style={s.ecardYesText}>✓ Add to calendar</Text>
+                        <Text style={s.ecardYesText}>Add to calendar</Text>
                       </Pressable>
                       <Pressable style={s.ecardNo} onPress={() => setEmailState('skipped')}>
                         <Text style={s.ecardNoText}>Not relevant</Text>
@@ -206,7 +215,8 @@ export default function ChatScreen() {
               </View>
             ) : null}
           </View>
-        ))}
+          );
+        })}
         {typing ? (
           <View style={s.typing}>
             <View style={s.tdot} />
@@ -220,7 +230,8 @@ export default function ChatScreen() {
         {(current?.chips ?? []).length > 0 ? (
       <View style={s.chatChips}>
         {(current?.chips ?? []).map((ch) => (
-          <Pressable key={ch.label} onPress={() => send(ch.msg)}>
+          <Pressable key={ch.label} style={s.chatChipRow} onPress={() => send(ch.msg)}>
+            <TayloMark size={11} />
             <Text style={s.chatChip}>{ch.label}</Text>
           </Pressable>
         ))}
@@ -228,7 +239,7 @@ export default function ChatScreen() {
         ) : null}
 
       <View style={s.chatBar}>
-        <Pressable style={[s.chatRoundBtn, s.chatMic]} onPress={() => Alert.alert('🎙️ Voice input — available in the live app')}>
+        <Pressable style={[s.chatRoundBtn, s.chatMic]} onPress={() => Alert.alert('Voice input — available in the live app')}>
           <MicIcon />
         </Pressable>
         <TextInput

@@ -1,5 +1,7 @@
+import { BrandGlyph } from '@/components/app/BrandIcon';
 import { useChat } from '@/components/app/ChatProvider';
 import { appStyles as s } from '@/components/app/styles';
+import { TayloMark } from '@/components/app/TayloMark';
 import {
   aheadNoticedText,
   demoChecklists,
@@ -9,15 +11,16 @@ import {
   type Checklist,
 } from '@/lib/demo-data';
 import { colors, fonts, fontSizes } from '@/constants/theme';
+import { resolvePlanIcon } from '@/lib/plan-icon';
 import { supabase } from '@/lib/supabase';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 
 const headColors = {
-  rose: { bg: colors.roseLight, title: colors.roseDeep, sub: colors.roseDark, progBg: colors.roseLight, progFg: colors.roseDark, progBorder: colors.rose },
-  blue: { bg: colors.blueLight, title: colors.blueDeep, sub: colors.blueMid, progBg: colors.blueLight, progFg: colors.blue, progBorder: colors.blueProgBorder },
-  amber: { bg: colors.amberLight, title: colors.amberDeep, sub: colors.amberMid, progBg: colors.amberLight, progFg: colors.amber, progBorder: colors.amberProgBorder },
+  rose: { bg: colors.blush, title: colors.navy, sub: colors.textMuted, progBg: colors.blush, progFg: colors.navy, progBorder: colors.border },
+  blue: { bg: colors.paleBlue, title: colors.navy, sub: colors.textMuted, progBg: colors.paleBlue, progFg: colors.navy, progBorder: colors.border },
+  amber: { bg: colors.paleBlue, title: colors.navy, sub: colors.textMuted, progBg: colors.paleBlue, progFg: colors.navy, progBorder: colors.border },
 };
 
 type AheadRow = {
@@ -90,10 +93,10 @@ export default function AheadScreen() {
   }, []);
 
   async function openAheadChat(item: AheadItem) {
-    const { icon, text } = splitIconTitle(item.title);
+    const { text } = splitIconTitle(item.title);
     const detail = item.opener || genericAheadOpener(text, item.sub);
     await openItem(item.id, {
-      icon,
+      icon: resolvePlanIcon({ title: text }).name,
       title: text,
       sub: item.sub,
       opener: detail,
@@ -104,7 +107,7 @@ export default function AheadScreen() {
   }
 
   async function openChecklistChat(list: Checklist) {
-    const { icon, text } = splitIconTitle(list.title);
+    const { text } = splitIconTitle(list.title);
     const remaining = list.items
       .map((item, i) => ({ item, i }))
       .filter(({ item, i }) => !ticks[`${list.id}-${i}`])
@@ -113,7 +116,7 @@ export default function AheadScreen() {
       ? remaining.map((t) => `• ${t}`).join('\n')
       : "Looks like everything's ticked off already — nice work!";
     await openItem(list.id, {
-      icon,
+      icon: resolvePlanIcon({ title: text }).name,
       title: text,
       sub: 'Checklist',
       opener: `Let's work through your ${text} checklist together. Here's what's left:\n\n${openerList}`,
@@ -134,7 +137,10 @@ export default function AheadScreen() {
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={s.screen}>
       <View style={s.tbox}>
-        <Text style={s.tboxTitle}>Taylo noticed…</Text>
+        <View style={s.tboxTitleRow}>
+          <TayloMark />
+          <Text style={s.tboxTitle}>Taylo noticed…</Text>
+        </View>
         <Text style={s.tboxBody}>{aheadNoticedText()}</Text>
       </View>
 
@@ -162,7 +168,7 @@ export default function AheadScreen() {
             <View style={s.ubody}>
               <View style={s.uheadRow}>
                 <View style={{ flex: 1 }}>
-                  <Text style={[s.utitle, isDone && s.utitleDone]}>{item.title}</Text>
+                  <Text style={[s.utitle, isDone && s.utitleDone]}>{text}</Text>
                   <Text style={s.usub}>{item.sub}</Text>
                 </View>
                 <Text style={[s.uchevron, isOpen && { transform: [{ rotate: '90deg' }] }]}>›</Text>
@@ -172,19 +178,19 @@ export default function AheadScreen() {
                   <Text style={s.udetail}>{detail}</Text>
                   <View style={s.uactions}>
                     {isDone ? (
-                      <Text style={s.sorted}>✓ Sorted — nice one!</Text>
+                      <Text style={s.sorted}>Sorted — nice one</Text>
                     ) : (
                       <>
                         <Pressable
                           style={[s.pill, s.pillTeal]}
                           onPress={() => setAheadDone((p) => ({ ...p, [item.id]: true }))}>
-                          <Text style={[s.pillText, s.pillTextTeal]}>✓ Mark done</Text>
+                          <Text style={[s.pillText, s.pillTextTeal]}>Mark done</Text>
                         </Pressable>
                         <Pressable style={[s.pill, s.pillChat]} onPress={() => openAheadChat(item)}>
-                          <Text style={[s.pillText, s.pillTextChat]}>💬 Chat</Text>
+                          <Text style={[s.pillText, s.pillTextChat]}>Ask</Text>
                         </Pressable>
                         <Pressable style={[s.pill, s.pillGray]} onPress={() => Alert.alert('Edit — available in the live app')}>
-                          <Text style={[s.pillText, s.pillTextMuted]}>✏️ Edit</Text>
+                          <Text style={[s.pillText, s.pillTextMuted]}>Edit</Text>
                         </Pressable>
                       </>
                     )}
@@ -197,7 +203,7 @@ export default function AheadScreen() {
       })
       )}
 
-      <Text style={s.slabel}>Your checklists ✅</Text>
+      <Text style={s.slabel}>Your checklists</Text>
       <Text style={s.clHint}>Taylo creates these when it spots something coming up. Tap to work through them.</Text>
 
       {demoChecklists.map((list) => {
@@ -216,21 +222,21 @@ export default function AheadScreen() {
                 <Pressable
                   style={[s.clIconBtn, s.clIconBtnEdit]}
                   onPress={() => Alert.alert('Edit — available in the live app')}>
-                  <Text style={s.clIconBtnText}>✏️</Text>
+                  <BrandGlyph name="pencil-outline" size={14} />
                 </Pressable>
                 <Pressable style={[s.clIconBtn, s.clIconBtnChat]} onPress={() => openChecklistChat(list)}>
-                  <Text style={s.clIconBtnText}>💬</Text>
+                  <BrandGlyph name="chatbubble-outline" size={14} />
                 </Pressable>
                 <View
                   style={[
                     s.clProg,
                     {
-                      backgroundColor: complete ? colors.tealLight : theme.progBg,
+                      backgroundColor: complete ? colors.sage : theme.progBg,
                       borderWidth: 1,
-                      borderColor: complete ? colors.teal : theme.progBorder,
+                      borderColor: complete ? colors.sage : theme.progBorder,
                     },
                   ]}>
-                  <Text style={{ fontSize: fontSizes.label, fontFamily: fonts.sansSemiBold, color: complete ? colors.teal : theme.progFg }}>
+                  <Text style={{ fontSize: fontSizes.label, fontFamily: fonts.sansSemiBold, color: complete ? colors.terracotta : theme.progFg }}>
                     {doneCount}/{list.items.length}
                   </Text>
                 </View>

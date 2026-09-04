@@ -6,7 +6,7 @@ export default function MoreLayout() {
     <Stack
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: colors.grayLight },
+        contentStyle: { backgroundColor: colors.ivory },
       }}
     />
   );

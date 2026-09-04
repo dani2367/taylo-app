@@ -51,7 +51,7 @@ export async function addProductsToShoppingList(
         detail: null,
         suggestion: 'Need a hand? Chat and Taylo can help you get this done.',
         category: 'errand',
-        icon: '🛒',
+        icon: 'cart-outline',
         colour_class: 'amber',
         source: 'manual',
         source_label: 'Added by you',

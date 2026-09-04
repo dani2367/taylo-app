@@ -4,29 +4,64 @@ import { StyleSheet } from 'react-native';
 export const signupStyles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: colors.cream,
+    backgroundColor: colors.ivory,
   },
   topbar: {
-    backgroundColor: colors.rose,
+    backgroundColor: colors.ivory,
     paddingHorizontal: 14,
-    paddingBottom: 14,
+    paddingBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
+  topbarBrand: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 48,
+    pointerEvents: 'none',
+  },
+  signinBody: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 22,
+    paddingVertical: 8,
+  },
+  signinTitle: {
+    fontFamily: fonts.serif,
+    fontSize: 28,
+    lineHeight: 34,
+    color: colors.text,
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  signinSub: {
+    fontSize: fontSizes.body,
+    fontFamily: fonts.sansRegular,
+    color: colors.textMuted,
+    lineHeight: fontSizes.body * 1.4,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  brandLockup: {
+    alignItems: 'center',
+    marginBottom: 14,
+  },
   back: {
-    backgroundColor: colors.whiteMuted,
+    backgroundColor: colors.cream,
     width: 32,
     height: 32,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   backHidden: {
     opacity: 0,
   },
   backText: {
-    color: colors.white,
+    color: colors.navy,
     fontSize: 18,
     fontFamily: fonts.sansRegular,
     lineHeight: 20,
@@ -34,13 +69,13 @@ export const signupStyles = StyleSheet.create({
   progressTrack: {
     flex: 1,
     height: 4,
-    backgroundColor: colors.whiteTrack,
+    backgroundColor: colors.paleBlue,
     borderRadius: 2,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: colors.white,
+    backgroundColor: colors.terracotta,
     borderRadius: 2,
   },
   body: {
@@ -52,7 +87,7 @@ export const signupStyles = StyleSheet.create({
   eyebrow: {
     fontSize: fontSizes.caption,
     fontFamily: fonts.sansBold,
-    color: colors.roseDark,
+    color: colors.navy,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginBottom: 8,
@@ -105,10 +140,10 @@ export const signupStyles = StyleSheet.create({
     fontSize: fontSizes.body,
   },
   inputFocused: {
-    borderColor: colors.rose,
+    borderColor: colors.navy,
   },
   inputShake: {
-    borderColor: colors.rose,
+    borderColor: colors.terracotta,
   },
   choiceGrid: {
     flexDirection: 'row',
@@ -118,7 +153,7 @@ export const signupStyles = StyleSheet.create({
   choice: {
     width: '47%',
     flexGrow: 1,
-    backgroundColor: colors.roseLight,
+    backgroundColor: colors.cream,
     borderWidth: 1.5,
     borderColor: colors.transparent,
     borderRadius: 13,
@@ -127,10 +162,10 @@ export const signupStyles = StyleSheet.create({
     alignItems: 'center',
   },
   choiceSel: {
-    borderColor: colors.rose,
-    backgroundColor: colors.white,
-    boxShadow: `0px 2px 10px ${colors.choiceShadow}`,
-    elevation: 3,
+    borderColor: colors.terracotta,
+    backgroundColor: colors.cream,
+    boxShadow: `0px 1px 3px ${colors.choiceShadow}`,
+    elevation: 1,
   },
   choiceIcon: {
     fontSize: 24,
@@ -139,7 +174,7 @@ export const signupStyles = StyleSheet.create({
   choiceLabel: {
     fontSize: fontSizes.title,
     fontFamily: fonts.sansSemiBold,
-    color: colors.roseDark,
+    color: colors.navy,
     textAlign: 'center',
   },
   choiceSub: {
@@ -159,7 +194,7 @@ export const signupStyles = StyleSheet.create({
   remove: {
     width: 26,
     height: 26,
-    backgroundColor: colors.grayLight,
+    backgroundColor: colors.paleBlue,
     borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
@@ -173,7 +208,7 @@ export const signupStyles = StyleSheet.create({
   addRow: {
     fontSize: fontSizes.body,
     fontFamily: fonts.sansSemiBold,
-    color: colors.roseDark,
+    color: colors.navy,
     paddingVertical: 10,
     paddingHorizontal: 2,
   },
@@ -181,7 +216,7 @@ export const signupStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: colors.grayLight,
+    backgroundColor: colors.paleBlue,
     borderRadius: 11,
     paddingVertical: 11,
     paddingHorizontal: 13,
@@ -204,7 +239,7 @@ export const signupStyles = StyleSheet.create({
   switch: {
     width: 32,
     height: 18,
-    backgroundColor: colors.grayLight,
+    backgroundColor: colors.paleBlue,
     borderRadius: 9,
     justifyContent: 'center',
   },
@@ -218,7 +253,7 @@ export const signupStyles = StyleSheet.create({
     width: 14,
     height: 14,
     borderRadius: 7,
-    backgroundColor: colors.white,
+    backgroundColor: colors.cream,
     boxShadow: `0px 1px 2px ${colors.knobShadow}`,
     elevation: 2,
   },
@@ -245,7 +280,7 @@ export const signupStyles = StyleSheet.create({
   },
   checkboxOn: {
     backgroundColor: colors.rose,
-    borderColor: colors.rose,
+    borderColor: colors.terracotta,
   },
   checkboxMark: {
     color: colors.white,
@@ -301,12 +336,12 @@ export const signupStyles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 8,
     overflow: 'hidden',
-    backgroundColor: colors.roseLight,
-    color: colors.roseDark,
+    backgroundColor: colors.cream,
+    color: colors.navy,
   },
   connBtnOn: {
-    backgroundColor: colors.tealLight,
-    color: colors.teal,
+    backgroundColor: colors.sage,
+    color: colors.navy,
   },
   textarea: {
     width: '100%',
@@ -320,6 +355,7 @@ export const signupStyles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.text,
     textAlignVertical: 'top',
+    backgroundColor: colors.cream,
   },
   chipList: {
     flexDirection: 'row',
@@ -328,7 +364,7 @@ export const signupStyles = StyleSheet.create({
     marginTop: 10,
   },
   chip: {
-    backgroundColor: colors.roseLight,
+    backgroundColor: colors.cream,
     borderRadius: 13,
     paddingVertical: 5,
     paddingHorizontal: 10,
@@ -337,18 +373,18 @@ export const signupStyles = StyleSheet.create({
     gap: 6,
   },
   chipText: {
-    color: colors.roseDark,
+    color: colors.navy,
     fontSize: fontSizes.label,
     fontFamily: fonts.sansMedium,
   },
   chipX: {
-    color: colors.roseDark,
+    color: colors.navy,
     opacity: 0.6,
     fontSize: fontSizes.title,
     fontFamily: fonts.sansRegular,
   },
   summaryCard: {
-    backgroundColor: colors.grayLight,
+    backgroundColor: colors.paleBlue,
     borderRadius: 12,
     paddingHorizontal: 13,
     paddingVertical: 4,
@@ -396,7 +432,7 @@ export const signupStyles = StyleSheet.create({
   },
   continue: {
     width: '100%',
-    backgroundColor: colors.rose,
+    backgroundColor: colors.navy,
     borderRadius: 22,
     paddingVertical: 14,
     alignItems: 'center',
@@ -416,9 +452,9 @@ export const signupStyles = StyleSheet.create({
   },
   errorBanner: {
     marginTop: 12,
-    backgroundColor: colors.roseLight,
+    backgroundColor: colors.blush,
     borderWidth: 1.5,
-    borderColor: colors.rose,
+    borderColor: colors.terracotta,
     borderRadius: 11,
     paddingVertical: 10,
     paddingHorizontal: 12,

@@ -1,5 +1,8 @@
+import { BrandIconDisc } from '@/components/app/BrandIcon';
 import { ItemPrepChecklist, type PrepCheckItem } from '@/components/app/ItemPrepChecklist';
 import { appStyles as s } from '@/components/app/styles';
+import { TayloMark } from '@/components/app/TayloMark';
+import type { PlanIconSpec } from '@/lib/plan-icon';
 import { Pressable, Text, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 
@@ -11,7 +14,7 @@ export type PlanItemCardModel = {
   suggestion: string | null;
   opener: string;
   src: string;
-  emoji: string;
+  icon: PlanIconSpec;
   prepLabel: string | null;
   checklistId: string | null;
   checklist: PrepCheckItem[];
@@ -58,17 +61,22 @@ export function PlanItemCard({
           <Text style={s.nudgeSwipeDeleteText}>Delete</Text>
         </Pressable>
       )}>
-      <Pressable style={s.uitem} onPress={onToggleExpand}>
-        <Text style={s.planEmoji}>{card.emoji}</Text>
-        <View style={s.ubody}>
-          <View style={s.uheadRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.utitle}>{card.title}</Text>
-              {card.context ? <Text style={s.usub}>{card.context}</Text> : null}
-              {!expanded && card.prepLabel ? <Text style={s.usub}>{card.prepLabel}</Text> : null}
-            </View>
-            <Text style={[s.uchevron, expanded && { transform: [{ rotate: '90deg' }] }]}>›</Text>
+      <Pressable style={s.planCard} onPress={onToggleExpand}>
+        <View style={s.nrow}>
+          <View style={{ flexShrink: 0 }}>
+            <BrandIconDisc name={card.icon.name} wash={card.icon.wash} />
           </View>
+          <View style={s.ncopy}>
+            <View style={s.uheadRow}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={s.utitle}>{card.title}</Text>
+                {card.context ? <Text style={s.usub}>{card.context}</Text> : null}
+                {!expanded && card.prepLabel ? <Text style={s.usub}>{card.prepLabel}</Text> : null}
+              </View>
+              <Text style={[s.uchevron, expanded && { transform: [{ rotate: '90deg' }] }]}>›</Text>
+            </View>
+          </View>
+        </View>
           {expanded ? (
             <>
               {showDetail ? <Text style={s.udetail}>{card.detail}</Text> : null}
@@ -83,7 +91,12 @@ export function PlanItemCard({
                 onAdd={onAddChecklist}
                 onDelete={onDeleteChecklist}
               />
-              {card.suggestion ? <Text style={s.nsuggest}>{card.suggestion}</Text> : null}
+              {card.suggestion ? (
+                <View style={s.nsuggestRow}>
+                  <TayloMark />
+                  <Text style={s.nsuggest}>{card.suggestion}</Text>
+                </View>
+              ) : null}
               <View style={s.uactions}>
                 <Pressable
                   style={[s.pill, s.pillTeal]}
@@ -91,7 +104,7 @@ export function PlanItemCard({
                     e.stopPropagation();
                     onDone();
                   }}>
-                  <Text style={[s.pillText, s.pillTextTeal]}>✓ Done</Text>
+                  <Text style={[s.pillText, s.pillTextTeal]}>Done</Text>
                 </Pressable>
                 <Pressable
                   style={[s.pill, s.pillDelegate]}
@@ -107,12 +120,11 @@ export function PlanItemCard({
                     e.stopPropagation();
                     onChat();
                   }}>
-                  <Text style={[s.pillText, s.pillTextChat]}>💬 Chat</Text>
+                  <Text style={[s.pillText, s.pillTextChat]}>Ask</Text>
                 </Pressable>
               </View>
             </>
           ) : null}
-        </View>
       </Pressable>
     </Swipeable>
   );

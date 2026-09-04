@@ -1,4 +1,5 @@
 import { appStyles as s } from '@/components/app/styles';
+import { TayloWordmark } from '@/components/app/TayloWordmark';
 import { supabase } from '@/lib/supabase';
 import { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
@@ -6,7 +7,7 @@ import { Text, View } from 'react-native';
 function greetingForName(name: string) {
   const hr = new Date().getHours();
   const timeGreet = hr < 12 ? 'morning' : hr < 17 ? 'afternoon' : 'evening';
-  return name ? `Good ${timeGreet}, ${name}!` : `Good ${timeGreet}!`;
+  return name ? `Good ${timeGreet}, ${name}` : `Good ${timeGreet}`;
 }
 
 export function AppHeader() {
@@ -41,9 +42,9 @@ export function AppHeader() {
   return (
     <View style={s.header}>
       <Text style={s.greeting}>{greetingForName(firstName)}</Text>
-      <Text style={s.appName}>Taylo</Text>
+      <TayloWordmark size={32} />
       <View style={s.mlBar}>
-        <Text style={s.mlStat}>{`Taylo's got ${nudgeCount} ${things} for you today ✨`}</Text>
+        <Text style={s.mlStat}>{`Taylo's got ${nudgeCount} ${things} for you today`}</Text>
       </View>
     </View>
   );

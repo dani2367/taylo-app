@@ -1,7 +1,7 @@
 import { useChat } from '@/components/app/ChatProvider';
 import { appStyles as s } from '@/components/app/styles';
 import { AheadIcon, ChatIcon, MoreIcon, TodayIcon } from '@/components/app/TabIcons';
-import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import type { BottomTabBarProps } from 'expo-router/js-tabs';
 import { Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -48,7 +48,9 @@ export function TayloTabBar({ state, navigation }: BottomTabBarProps) {
             }}
             accessibilityRole="button"
             accessibilityState={{ selected: isFocused }}>
-            <Icon active={isFocused} />
+            <View style={[s.tabIconWrap, isFocused && s.tabIconWrapActive]}>
+              <Icon active={isFocused} />
+            </View>
             <Text style={[s.tabLabel, isFocused && s.tabLabelActive]} numberOfLines={1}>
               {LABELS[route.name]}
             </Text>

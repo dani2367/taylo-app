@@ -1,9 +1,10 @@
+import { BrandIconDisc } from '@/components/app/BrandIcon';
 import { useChat } from '@/components/app/ChatProvider';
 import { PlanItemCard, type PlanItemCardModel } from '@/components/app/PlanItemCard';
 import { appStyles as s } from '@/components/app/styles';
 import { colors } from '@/constants/theme';
 import { planContextLine, thingsToSortLabel } from '@/lib/human-date';
-import { planEmoji } from '@/lib/plan-emoji';
+import { resolvePlanIcon } from '@/lib/plan-icon';
 import {
   persistChecklistAdd,
   persistChecklistDelete,
@@ -11,7 +12,7 @@ import {
   persistChecklistToggle,
 } from '@/lib/prep-checklists';
 import { supabase } from '@/lib/supabase';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
@@ -73,7 +74,7 @@ function mapItem(row: ItemRow, today: Date): PlanItemCardModel {
     suggestion: formatSuggestion(row.suggestion),
     opener: row.action_description || detail || body || title,
     src: row.source_label || row.source_email_subject || 'Plan',
-    emoji: planEmoji({ title, category: row.category, stored: row.icon }),
+    icon: resolvePlanIcon({ title, category: row.category, stored: row.icon }),
     prepLabel: incomplete ? thingsToSortLabel(incomplete) : null,
     checklistId: list?.id ?? null,
     checklist: entries,
@@ -201,7 +202,7 @@ export default function CollectionScreen() {
 
   async function onChat(card: PlanItemCardModel) {
     await openItem(card.id, {
-      icon: card.emoji,
+      icon: card.icon.name,
       title: card.title,
       sub: card.src,
       opener: card.opener,
@@ -211,7 +212,7 @@ export default function CollectionScreen() {
     router.push('/chat');
   }
 
-  const emoji = planEmoji({
+  const icon = resolvePlanIcon({
     title: collection?.title,
     collectionType: collection?.type,
     stored: collection?.emoji,
@@ -222,9 +223,12 @@ export default function CollectionScreen() {
       <Pressable style={s.planBack} onPress={() => router.back()}>
         <Text style={s.planBackText}>‹ Plan</Text>
       </Pressable>
-      <Text style={s.planCollectionTitle}>
-        {emoji}  {collection?.title || 'Collection'}
-      </Text>
+      <View style={[s.planBack, { paddingTop: 4 }]}>
+        <BrandIconDisc name={icon.name} wash={icon.wash} size={32} />
+        <Text style={[s.planCollectionTitle, { paddingHorizontal: 0, paddingBottom: 0, flex: 1 }]}>
+          {collection?.title || 'Collection'}
+        </Text>
+      </View>
       {loading ? (
         <View style={s.emptyState}>
           <ActivityIndicator color={colors.rose} />

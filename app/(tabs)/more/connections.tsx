@@ -141,10 +141,10 @@ export default function ConnectionsScreen() {
       </Text>
 
       <View style={s.hcard}>
-        <Pressable style={[s.hhead, { backgroundColor: colors.roseLight }]} onPress={() => setEmailOpen((v) => !v)}>
+        <Pressable style={[s.hhead, { backgroundColor: colors.paleBlue }]} onPress={() => setEmailOpen((v) => !v)}>
           <View style={{ flex: 1 }}>
-            <Text style={[s.hheadTitle, { color: colors.roseDeep }]}>📧 Email</Text>
-            <Text style={[s.hheadSub, { color: colors.roseDark }]}>Gmail connected · reading newsletters & orders</Text>
+            <Text style={[s.hheadTitle, { color: colors.navy }]}>Email</Text>
+            <Text style={[s.hheadSub, { color: colors.textMuted }]}>Gmail connected · reading newsletters & orders</Text>
           </View>
           <Text style={s.bon}>Active</Text>
         </Pressable>
@@ -173,7 +173,7 @@ export default function ConnectionsScreen() {
                   void promptAsync();
                 }}>
                 <Text style={[s.connAlsoBtnText, outlook && s.connAlsoBtnTextOn]}>
-                  {outlookLoading ? 'Connecting…' : outlook ? '✓ Outlook' : '💌 Outlook'}
+                  {outlookLoading ? 'Connecting…' : outlook ? 'Outlook connected' : 'Outlook'}
                 </Text>
               </Pressable>
             </View>
@@ -184,8 +184,8 @@ export default function ConnectionsScreen() {
       <View style={s.hcard}>
         <Pressable style={[s.hhead, { backgroundColor: colors.blueLight }]} onPress={() => setCalOpen((v) => !v)}>
           <View style={{ flex: 1 }}>
-            <Text style={[s.hheadTitle, { color: colors.blueDeep }]}>📅 Calendar</Text>
-            <Text style={[s.hheadSub, { color: colors.blueMid }]}>Google Calendar connected · syncing family events</Text>
+            <Text style={[s.hheadTitle, { color: colors.navy }]}>Calendar</Text>
+            <Text style={[s.hheadSub, { color: colors.textMuted }]}>Google Calendar connected · syncing family events</Text>
           </View>
           <Text style={s.bon}>Active</Text>
         </Pressable>
@@ -207,7 +207,7 @@ export default function ConnectionsScreen() {
               <Text style={s.connAlsoLabel}>Also connect:</Text>
               <Pressable style={[s.connAlsoBtn, apple && s.connAlsoBtnOn]} onPress={() => setApple((v) => !v)}>
                 <Text style={[s.connAlsoBtnText, apple && s.connAlsoBtnTextOn]}>
-                  {apple ? '✓ Apple Calendar' : '🍍 Apple Calendar'}
+                  {apple ? 'Apple Calendar connected' : 'Apple Calendar'}
                 </Text>
               </Pressable>
             </View>
@@ -216,7 +216,7 @@ export default function ConnectionsScreen() {
       </View>
 
       <Text style={s.pnote}>
-        Taylo only reads what it needs · never shares your data{'\n'}disconnect anything at any time 🔒
+        Taylo only reads what it needs · never shares your data{'\n'}disconnect anything at any time
       </Text>
     </ScrollView>
   );

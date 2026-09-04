@@ -1,107 +1,149 @@
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
+ * Taylo brand tokens. Typical screen mix: ~60% ivory/cream, ~25% navy,
+ * ~10% pastel, ~5% terracotta.
  */
 
-import {
-  DMSans_300Light,
-  DMSans_400Regular,
-  DMSans_500Medium,
-  DMSans_600SemiBold,
-  DMSans_700Bold,
-} from '@expo-google-fonts/dm-sans';
-import { DMSerifDisplay_400Regular } from '@expo-google-fonts/dm-serif-display';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Platform } from 'react-native';
 
+export const taylo = {
+  navy: '#172B45',
+  ivory: '#F8F3EC',
+  cream: '#FFFDF9',
+  blush: '#F2DED8',
+  sage: '#DDE8E2',
+  paleBlue: '#DCE7ED',
+  terracotta: '#C98F72', // brand accent / star — do not drift this hex
+};
+
+const navyMuted = '#4A5C70';
+const navyHint = '#8A96A3';
+
 export const colors = {
-  rose: '#C9917A',
-  roseDark: '#A86E58',
-  roseLight: '#F5EDE8',
-  roseDeep: '#3D1F15',
-  tealLight: '#EAF0EC',
-  teal: '#4A7560',
-  amberLight: '#F5EFE4',
-  amber: '#9A7A3A',
-  blueLight: '#EAEEF2',
-  blue: '#4A6880',
-  purpleLight: '#F0EDF5',
-  purple: '#7A6A90',
-  greenLight: '#EAF3DE',
-  green: '#3B6D11',
-  grayLight: '#F5F1EE',
-  gray: '#9A9490',
-  text: '#2A1F1A',
-  textMuted: '#6b5d58',
-  textHint: '#a8998f',
-  border: 'rgba(100,60,40,0.10)',
-  cream: '#FFFAF8',
-  white: '#fff',
-  whiteMuted: 'rgba(255,255,255,0.2)',
-  whiteTrack: 'rgba(255,255,255,0.25)',
-  whiteOutline: 'rgba(255,255,255,0.55)',
+  navy: taylo.navy,
+  ivory: taylo.ivory,
+  cream: taylo.cream,
+  blush: taylo.blush,
+  sage: taylo.sage,
+  paleBlue: taylo.paleBlue,
+  terracotta: taylo.terracotta,
+
+  text: taylo.navy,
+  textMuted: navyMuted,
+  textHint: navyHint,
+  border: 'rgba(23,43,69,0.06)',
+
+  background: taylo.ivory,
+  grayLight: taylo.ivory,
+
+  /** Cream stand-in — never pure white. Use for on-navy text and elevated fills. */
+  white: taylo.cream,
+  whiteMuted: 'rgba(23,43,69,0.08)',
+  whiteTrack: 'rgba(23,43,69,0.12)',
+  whiteOutline: 'rgba(23,43,69,0.35)',
   transparent: 'transparent',
-  switchOn: '#25D366',
-  choiceShadow: 'rgba(169,90,60,0.12)',
-  knobShadow: 'rgba(0,0,0,0.2)',
-  tabShadow: 'rgba(60,30,15,0.09)',
-  headerPill: 'rgba(255,255,255,0.15)',
-  headerStat: 'rgba(255,255,255,0.95)',
-  drawerScrim: 'rgba(30,15,10,0.35)',
-  drawerShadow: 'rgba(30,15,10,0.2)',
-  blueDeep: '#0C447C',
-  blueMid: '#185FA5',
-  amberDeep: '#633806',
-  amberMid: '#854F0B',
-  blueProgBorder: 'rgba(74,104,128,0.3)',
-  amberProgBorder: 'rgba(154,122,58,0.3)',
+
+  primary: taylo.terracotta,
+  onPrimary: taylo.cream,
+
+  /** Legacy primary fill → terracotta. Navy is ink, not fill. */
+  rose: taylo.terracotta,
+  roseDark: taylo.navy,
+  roseLight: taylo.blush,
+  roseDeep: taylo.navy,
+
+  tealLight: taylo.sage,
+  teal: taylo.navy,
+  amberLight: taylo.paleBlue,
+  amber: taylo.navy,
+  blueLight: taylo.paleBlue,
+  blue: taylo.navy,
+  purpleLight: taylo.blush,
+  purple: taylo.navy,
+  greenLight: taylo.sage,
+  green: taylo.navy,
+
+  switchOn: taylo.terracotta,
+  choiceShadow: 'rgba(23,43,69,0.06)',
+  knobShadow: 'rgba(23,43,69,0.12)',
+  tabShadow: 'rgba(23,43,69,0.04)',
+  cardShadow: 'rgba(23,43,69,0.045)',
+  headerPill: taylo.cream,
+  headerStat: taylo.navy,
+  drawerScrim: 'rgba(23,43,69,0.35)',
+  drawerShadow: 'rgba(23,43,69,0.12)',
+  blueDeep: taylo.navy,
+  blueMid: navyMuted,
+  amberDeep: taylo.navy,
+  amberMid: navyMuted,
+  blueProgBorder: 'rgba(23,43,69,0.12)',
+  amberProgBorder: 'rgba(23,43,69,0.12)',
 };
 
 export const fonts = {
-  serif: 'DMSerifDisplay_400Regular',
-  sansLight: 'DMSans_300Light',
-  sansRegular: 'DMSans_400Regular',
-  sansMedium: 'DMSans_500Medium',
-  sansSemiBold: 'DMSans_600SemiBold',
-  sansBold: 'DMSans_700Bold',
+  /** Cormorant Garamond — display only (wordmark, screen titles, headlines ≥18px). */
+  serif: 'CormorantGaramond_600SemiBold',
+  serifMedium: 'CormorantGaramond_500Medium',
+  /** Inter — all UI, labels, body, buttons. */
+  sansLight: 'Inter_300Light',
+  sansRegular: 'Inter_400Regular',
+  sansMedium: 'Inter_500Medium',
+  sansSemiBold: 'Inter_600SemiBold',
+  sansBold: 'Inter_700Bold',
 };
 
-/** iPhone-readable type scale (pt). Use these instead of prototype HTML px sizes. */
+/** iPhone-readable type scale (pt). Serif should not be used below ~18–20. */
 export const fontSizes = {
-  micro: 11,
-  caption: 12,
-  label: 13,
+  micro: 12,
+  caption: 13,
+  label: 14,
   body: 15,
-  card: 15,
-  title: 16,
+  card: 16,
+  title: 18,
   chat: 16,
   header: 17,
-  display: 22,
+  display: 34,
+} as const;
+
+export const space = {
+  gutter: 18,
+  cardPad: 16,
+  cardGap: 10,
+  sectionTop: 20,
+} as const;
+
+export const radii = {
+  card: 18,
+  button: 20,
+  chip: 12,
 } as const;
 
 export const fontAssets = {
-  DMSerifDisplay_400Regular,
-  DMSans_300Light,
-  DMSans_400Regular,
-  DMSans_500Medium,
-  DMSans_600SemiBold,
-  DMSans_700Bold,
+  CormorantGaramond_500Medium: require('@expo-google-fonts/cormorant-garamond/CormorantGaramond_500Medium.ttf'),
+  CormorantGaramond_600SemiBold: require('@expo-google-fonts/cormorant-garamond/CormorantGaramond_600SemiBold.ttf'),
+  Inter_300Light: require('@expo-google-fonts/inter/Inter_300Light.ttf'),
+  Inter_400Regular: require('@expo-google-fonts/inter/Inter_400Regular.ttf'),
+  Inter_500Medium: require('@expo-google-fonts/inter/Inter_500Medium.ttf'),
+  Inter_600SemiBold: require('@expo-google-fonts/inter/Inter_600SemiBold.ttf'),
+  Inter_700Bold: require('@expo-google-fonts/inter/Inter_700Bold.ttf'),
+  ...Ionicons.font,
 };
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+const tintColorLight = taylo.terracotta;
+const tintColorDark = taylo.cream;
 
 export const Colors = {
   light: {
-    text: '#11181C',
-    background: '#fff',
+    text: taylo.navy,
+    background: taylo.ivory,
     tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
-    tabIconSelected: tintColorLight,
+    icon: navyMuted,
+    tabIconDefault: navyHint,
+    tabIconSelected: taylo.terracotta,
   },
   dark: {
-    text: '#ECEDEE',
-    background: '#151718',
+    text: taylo.ivory,
+    background: taylo.navy,
     tint: tintColorDark,
     icon: '#9BA1A6',
     tabIconDefault: '#9BA1A6',
@@ -111,13 +153,9 @@ export const Colors = {
 
 export const Fonts = Platform.select({
   ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
     sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
     serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
     rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
     mono: 'ui-monospace',
   },
   default: {
