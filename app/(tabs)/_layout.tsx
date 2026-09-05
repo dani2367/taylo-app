@@ -16,7 +16,8 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const onHome = pathname === '/home' || pathname.endsWith('/home');
-  const showBrandHeader = !pathname.includes('/chat') && !onHome;
+  const onPlan = pathname === '/plan' || pathname.includes('/plan');
+  const showBrandHeader = !pathname.includes('/chat') && !onHome && !onPlan;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

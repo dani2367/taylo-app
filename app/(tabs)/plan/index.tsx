@@ -1,241 +1,181 @@
 import { BrandIconDisc } from '@/components/app/BrandIcon';
-import { useChat } from '@/components/app/ChatProvider';
-import { PlanItemCard, type PlanItemCardModel } from '@/components/app/PlanItemCard';
+import { PlanFamily } from '@/components/app/PlanFamily';
+import { PlanItemFeed } from '@/components/app/PlanItemFeed';
+import { PlanSchedule } from '@/components/app/PlanSchedule';
 import { appStyles as s } from '@/components/app/styles';
-import { TayloMark } from '@/components/app/TayloMark';
+import type { PlanItemCardModel } from '@/components/app/PlanItemCard';
 import { colors } from '@/constants/theme';
-import { isActiveCollection, unwrapCollection } from '@/lib/collections';
-import { itemCountLabel, planContextLine, thingsToSortLabel } from '@/lib/human-date';
+import {
+  createCustomCollection,
+  DEFAULT_LIST_EMOJI,
+  GENERAL_TODO_TITLE,
+  listActiveCollections,
+  organizeStandaloneItems,
+} from '@/lib/collections';
+import { itemCountLabel } from '@/lib/human-date';
+import { mapPlanItemRow, PLAN_ITEM_SELECT, type PlanItemRow } from '@/lib/plan-item-map';
 import { resolvePlanIcon, type PlanIconSpec } from '@/lib/plan-icon';
-import { looksLikeShoppingList } from '@/lib/shopping';
-import { helpfulSuggestion } from '@/lib/suggestion';
-import {
-  comparePlanItems,
-  earliestDatesByCollection,
-  horizonForItem,
-  type Horizon,
-} from '@/lib/plan-horizon';
-import {
-  persistChecklistAdd,
-  persistChecklistDelete,
-  persistChecklistText,
-  persistChecklistToggle,
-} from '@/lib/prep-checklists';
+import { isListHubTitle } from '@/lib/radar-organize';
+import { compareRadarItems, RADAR_PREVIEW, radarStatusLine, type RadarItem } from '@/lib/radar';
 import { supabase } from '@/lib/supabase';
-import { useFocusEffect } from 'expo-router';
-import { router } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { useFocusEffect, router, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
-type NudgeStatus = 'open' | 'done' | 'delegated' | 'dismissed';
+type PlanTab = 'radar' | 'schedule' | 'family';
 
-type NestedEntry = { id: string; text: string; done: boolean; sort_order: number };
-type NestedList = { id: string; item_id: string; checklist_items: NestedEntry[] | null };
-type CollectionJoin = {
-  id: string;
-  title: string | null;
-  emoji: string | null;
-  type: string | null;
-  status: string | null;
+const TABS: { id: PlanTab; label: string }[] = [
+  { id: 'radar', label: 'Radar' },
+  { id: 'schedule', label: 'Schedule' },
+  { id: 'family', label: 'Family' },
+];
+
+const TAB_COPY: Record<PlanTab, { sub: string; desc: string }> = {
+  radar: {
+    sub: 'On your radar',
+    desc: "Lists, reminders, and everything I'm holding a little further out.",
+  },
+  schedule: {
+    sub: 'Your schedule',
+    desc: "What's coming up, when it actually matters.",
+  },
+  family: {
+    sub: 'Your family',
+    desc: "Who's doing what, and what they might need.",
+  },
 };
 
-type ItemRow = {
-  id: string;
-  title: string | null;
-  body: string | null;
-  detail: string | null;
-  suggestion: string | null;
-  category: string | null;
-  icon: string | null;
-  action_description: string | null;
-  event_date: string | null;
-  urgency_level: string | null;
-  source: string | null;
-  source_label: string | null;
-  source_email_subject: string | null;
-  collection_id: string | null;
-  collections: CollectionJoin | CollectionJoin[] | null;
-  checklists: NestedList[] | NestedList | null;
-};
+const LIST_EMOJIS = ['📝', '🛒', '✈️', '🎂', '🏠', '📚', '🎁', '📌', '📦', '🦷'];
 
-type FeedItem = PlanItemCardModel & {
-  kind: 'item';
-  horizon: Horizon;
-  event_date: string | null;
-};
-
-type FeedCollection = {
-  kind: 'collection';
+type ListCard = {
   id: string;
   title: string;
+  emoji: string | null;
   icon: PlanIconSpec;
-  context: string;
-  horizon: Horizon;
-  event_date: string | null;
   count: number;
 };
 
-type FeedRow = FeedItem | FeedCollection;
-
-const HORIZON_ORDER: Horizon[] = ['now', 'next', 'later'];
-
-const SECTION: Record<Horizon, { kicker: string; hint: string; empty: string }> = {
-    now: { kicker: 'Now', hint: 'Things on your plate', empty: 'Nothing you need to act on right now.' },
-  next: { kicker: 'Next', hint: 'Coming up', empty: 'Nothing coming up yet.' },
-  later: { kicker: 'Later', hint: "Taylo's keeping an eye on", empty: "Taylo's keeping an eye on things." },
+type ChecklistJoin = { checklist_items: { done: boolean }[] | null };
+type ItemCountRow = {
+  id: string;
+  title: string | null;
+  collection_id: string | null;
+  checklists: ChecklistJoin[] | ChecklistJoin | null;
 };
 
-const HORIZON_RANK: Record<Horizon, number> = { now: 0, next: 1, later: 2 };
-
-function unwrapLists(raw: NestedList[] | NestedList | null): NestedList[] {
-  if (!raw) return [];
-  return Array.isArray(raw) ? raw : [raw];
+function unwrapChecks(raw: ChecklistJoin[] | ChecklistJoin | null): { done: boolean }[] {
+  const lists = !raw ? [] : Array.isArray(raw) ? raw : [raw];
+  return lists.flatMap((list) => list.checklist_items ?? []);
 }
 
-function mapItem(row: ItemRow, today: Date, collectionEarliest: string | null): FeedItem {
-  const lists = unwrapLists(row.checklists);
-  const list = lists[0];
-  const entries = [...(list?.checklist_items ?? [])]
-    .sort((a, b) => a.sort_order - b.sort_order)
-    .map((entry) => ({ id: entry.id, text: entry.text, done: entry.done }));
-  const title = row.title || 'Untitled';
-  const body = row.body || '';
-  const detail = row.detail || row.action_description || '';
-  const incomplete = entries.filter((entry) => !entry.done).length;
-  const shopping = looksLikeShoppingList(title);
-  return {
-    kind: 'item',
-    id: row.id,
-    title,
-    context: planContextLine(
-      { event_date: row.event_date, body: shopping ? null : row.body, urgency_level: row.urgency_level },
-      today,
-    ),
-    detail,
-    suggestion: helpfulSuggestion(row),
-    opener: row.action_description || detail || body || title,
-    src: row.source_label || row.source_email_subject || 'Plan',
-    icon: resolvePlanIcon({ title, category: row.category, stored: row.icon, collectionType: shopping ? 'shopping' : null }),
-    prepLabel: incomplete ? thingsToSortLabel(incomplete) : null,
-    checklistId: list?.id ?? null,
-    checklist: entries,
-    checklistHeading: shopping ? 'To pick up' : undefined,
-    horizon: horizonForItem({ ...row, status: 'open' }, today, collectionEarliest),
-    event_date: row.event_date,
-  };
-}
-
-function compareFeed(a: FeedRow, b: FeedRow, today: Date): number {
-  const rank = HORIZON_RANK[a.horizon] - HORIZON_RANK[b.horizon];
-  if (rank !== 0) return rank;
-  return comparePlanItems(
-    { event_date: a.event_date, urgency_level: null, title: a.title },
-    { event_date: b.event_date, urgency_level: null, title: b.title },
-    today,
-  );
+function listCount(members: ItemCountRow[], collectionTitle: string): number {
+  if (collectionTitle === GENERAL_TODO_TITLE) {
+    return members.filter((row) => !isListHubTitle(row.title)).length;
+  }
+  let n = 0;
+  for (const row of members) {
+    const checks = unwrapChecks(row.checklists);
+    if (checks.length) n += checks.filter((entry) => !entry.done).length;
+    else n += 1;
+  }
+  return n;
 }
 
 export default function PlanScreen() {
-  const [rows, setRows] = useState<FeedRow[]>([]);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [editingPrep, setEditingPrep] = useState<Record<string, boolean>>({});
+  const { tab: tabParam } = useLocalSearchParams<{ tab?: string | string[] }>();
+  const requestedTab = Array.isArray(tabParam) ? tabParam[0] : tabParam;
+  const [tab, setTab] = useState<PlanTab>(
+    requestedTab === 'schedule' || requestedTab === 'family' ? requestedTab : 'radar',
+  );
+  const [lists, setLists] = useState<ListCard[]>([]);
+  const [radar, setRadar] = useState<PlanItemCardModel[]>([]);
   const [loading, setLoading] = useState(true);
-  const { openItem } = useChat();
+  const [creating, setCreating] = useState(false);
+  const [listName, setListName] = useState('');
+  const [listEmoji, setListEmoji] = useState(DEFAULT_LIST_EMOJI);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (requestedTab === 'schedule' || requestedTab === 'family' || requestedTab === 'radar') {
+      setTab(requestedTab);
+    }
+  }, [requestedTab]);
 
   const load = useCallback(async () => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) {
-      setRows([]);
+      setLists([]);
+      setRadar([]);
       setLoading(false);
       return;
     }
 
-    const { data, error } = await supabase
+    await organizeStandaloneItems(user.id);
+
+    const collections = await listActiveCollections(user.id);
+    const ids = collections.map((row) => row.id);
+    let members: ItemCountRow[] = [];
+    if (ids.length) {
+      const { data } = await supabase
+        .from('items')
+        .select('id, title, collection_id, checklists(checklist_items(done))')
+        .eq('user_id', user.id)
+        .eq('status', 'open')
+        .in('collection_id', ids);
+      members = (data as ItemCountRow[] | null) ?? [];
+    }
+    const byCollection = new Map<string, ItemCountRow[]>();
+    for (const row of members) {
+      if (!row.collection_id) continue;
+      const list = byCollection.get(row.collection_id) ?? [];
+      list.push(row);
+      byCollection.set(row.collection_id, list);
+    }
+    setLists(
+      collections.map((row) => ({
+        id: row.id,
+        title: row.title,
+        emoji: row.emoji,
+        icon: resolvePlanIcon({ title: row.title, collectionType: row.type, stored: row.emoji }),
+        count: listCount(byCollection.get(row.id) ?? [], row.title),
+      })),
+    );
+
+    const { data: itemData, error } = await supabase
       .from('items')
-      .select(
-        'id, title, body, detail, suggestion, category, icon, action_description, event_date, urgency_level, source, source_label, source_email_subject, collection_id, collections(id, title, emoji, type, status), checklists(id, item_id, checklist_items(id, text, done, sort_order))',
-      )
+      .select(`${PLAN_ITEM_SELECT}, created_at, source, collection_id`)
       .eq('user_id', user.id)
       .eq('status', 'open')
       .neq('source', 'calendar');
 
     if (error) {
-      console.error('Failed to load plan:', error.message);
+      console.error('Failed to load radar items:', error.message);
       setLoading(false);
       return;
     }
 
     const today = new Date();
-    const openRows = ((data as ItemRow[] | null) ?? []).filter((row) => isActiveCollection(row.collections));
-    const collectionIds = [...new Set(openRows.map((row) => row.collection_id).filter((id): id is string => !!id))];
-    let datedSiblings: Array<{ collection_id?: string | null; event_date: string | null }> = [];
-    if (collectionIds.length) {
-      const { data: dated } = await supabase
-        .from('items')
-        .select('collection_id, event_date')
-        .eq('user_id', user.id)
-        .in('collection_id', collectionIds)
-        .not('event_date', 'is', null);
-      datedSiblings = (dated as Array<{ collection_id?: string | null; event_date: string | null }> | null) ?? [];
-    }
-    const earliest = earliestDatesByCollection(datedSiblings);
-
-    const grouped = new Map<string, ItemRow[]>();
-    const standalone: ItemRow[] = [];
-    for (const row of openRows) {
-      if (row.collection_id) {
-        const list = grouped.get(row.collection_id) ?? [];
-        list.push(row);
-        grouped.set(row.collection_id, list);
-      } else {
-        standalone.push(row);
-      }
-    }
-
-    const feed: FeedRow[] = standalone.map((row) =>
-      mapItem(row, today, row.collection_id ? earliest.get(row.collection_id) ?? null : null),
+    const later = ((itemData as (PlanItemRow & RadarItem & { source: string | null })[] | null) ?? [])
+      .filter((row) => !isListHubTitle(row.title))
+      .sort((a, b) => compareRadarItems(a, b, today));
+    setRadar(
+      later.map((row) => ({
+        ...mapPlanItemRow(row, today),
+        context: radarStatusLine(row, today),
+      })),
     );
-
-    for (const [collectionId, members] of grouped) {
-      const meta = unwrapCollection(members[0]?.collections);
-      if (meta?.type === 'shopping') {
-        for (const member of members) {
-          const card = mapItem(member, today, earliest.get(collectionId) ?? null);
-          card.checklistHeading = 'To pick up';
-          feed.push(card);
-        }
-        continue;
-      }
-      const collectionEarliest = earliest.get(collectionId) ?? null;
-      let horizon: Horizon = 'later';
-      let eventDate: string | null = collectionEarliest;
-      for (const member of members) {
-        const h = horizonForItem({ ...member, status: 'open' }, today, collectionEarliest);
-        if (HORIZON_RANK[h] < HORIZON_RANK[horizon]) horizon = h;
-        if (member.event_date && (!eventDate || member.event_date < eventDate)) eventDate = member.event_date;
-      }
-      const when = planContextLine({ event_date: eventDate, body: null }, today);
-      const countLine = itemCountLabel(members.length);
-      feed.push({
-        kind: 'collection',
-        id: collectionId,
-        title: meta?.title || 'Collection',
-        icon: resolvePlanIcon({
-          title: meta?.title,
-          collectionType: meta?.type,
-          stored: meta?.emoji,
-        }),
-        context: when ? `${when} · ${countLine}` : countLine,
-        horizon,
-        event_date: eventDate,
-        count: members.length,
-      });
-    }
-
-    feed.sort((a, b) => compareFeed(a, b, today));
-    setRows(feed);
     setLoading(false);
   }, []);
 
@@ -245,188 +185,188 @@ export default function PlanScreen() {
     }, [load]),
   );
 
-  function patchItem(itemId: string, update: (card: FeedItem) => FeedItem) {
-    setRows((prev) =>
-      prev.map((row) => (row.kind === 'item' && row.id === itemId ? update(row) : row)),
-    );
-  }
-
-  async function setStatus(card: FeedItem, status: Exclude<NudgeStatus, 'open'>) {
-    setRows((prev) => prev.filter((row) => !(row.kind === 'item' && row.id === card.id)));
-    const { error } = await supabase.from('items').update({ status }).eq('id', card.id);
-    if (error) setRows((prev) => [...prev, card].sort((a, b) => compareFeed(a, b, new Date())));
-  }
-
-  async function toggleChecklist(itemId: string, entryId: string, done: boolean) {
-    patchItem(itemId, (card) => {
-      const checklist = card.checklist.map((entry) => (entry.id === entryId ? { ...entry, done } : entry));
-      const incomplete = checklist.filter((entry) => !entry.done).length;
-      return { ...card, checklist, prepLabel: incomplete ? thingsToSortLabel(incomplete) : null };
-    });
-    const { error } = await persistChecklistToggle(entryId, done);
-    if (error) {
-      patchItem(itemId, (card) => {
-        const checklist = card.checklist.map((entry) => (entry.id === entryId ? { ...entry, done: !done } : entry));
-        const incomplete = checklist.filter((entry) => !entry.done).length;
-        return { ...card, checklist, prepLabel: incomplete ? thingsToSortLabel(incomplete) : null };
-      });
-    }
-  }
-
-  function renameChecklist(itemId: string, entryId: string, text: string) {
-    patchItem(itemId, (card) => ({
-      ...card,
-      checklist: card.checklist.map((entry) => (entry.id === entryId ? { ...entry, text } : entry)),
-    }));
-  }
-
-  async function commitChecklistText(entryId: string, text: string) {
-    const { error } = await persistChecklistText(entryId, text);
-    if (error) console.error('Failed to rename checklist item:', error.message);
-  }
-
-  async function addChecklistRow(card: FeedItem) {
+  async function saveList() {
+    setSaving(true);
+    setCreateError(null);
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (!user) return;
-    const result = await persistChecklistAdd({
-      userId: user.id,
-      itemId: card.id,
-      itemTitle: card.title,
-      checklistId: card.checklistId,
-      nextOrder: card.checklist.length,
-    });
-    if ('error' in result) {
-      console.error('Failed to add checklist item:', result.error);
+    if (!user) {
+      setCreateError('You need to be signed in.');
+      setSaving(false);
       return;
     }
-    patchItem(card.id, (row) => {
-      const checklist = [...row.checklist, result.entry];
-      const incomplete = checklist.filter((entry) => !entry.done).length;
-      return {
-        ...row,
-        checklistId: result.checklistId,
-        checklist,
-        prepLabel: incomplete ? thingsToSortLabel(incomplete) : null,
-      };
-    });
-  }
-
-  async function removeChecklistRow(itemId: string, entryId: string) {
-    const snapshot = rows.find((row) => row.kind === 'item' && row.id === itemId);
-    const prevList = snapshot && snapshot.kind === 'item' ? snapshot.checklist : [];
-    patchItem(itemId, (card) => {
-      const checklist = card.checklist.filter((entry) => entry.id !== entryId);
-      const incomplete = checklist.filter((entry) => !entry.done).length;
-      return { ...card, checklist, prepLabel: incomplete ? thingsToSortLabel(incomplete) : null };
-    });
-    const { error } = await persistChecklistDelete(entryId);
-    if (error) {
-      patchItem(itemId, (card) => {
-        const incomplete = prevList.filter((entry) => !entry.done).length;
-        return { ...card, checklist: prevList, prepLabel: incomplete ? thingsToSortLabel(incomplete) : null };
-      });
+    const { collection, error } = await createCustomCollection(user.id, listName, listEmoji);
+    setSaving(false);
+    if (error || !collection) {
+      setCreateError(error || 'Could not create that list.');
+      return;
     }
+    setLists((prev) => [
+      ...prev,
+      {
+        id: collection.id,
+        title: collection.title,
+        emoji: collection.emoji,
+        icon: resolvePlanIcon({
+          title: collection.title,
+          collectionType: collection.type,
+          stored: collection.emoji,
+        }),
+        count: 0,
+      },
+    ]);
+    setCreating(false);
+    setListName('');
+    setListEmoji(DEFAULT_LIST_EMOJI);
   }
 
-  async function onChat(card: FeedItem) {
-    await openItem(card.id, {
-      icon: card.icon.name,
-      title: card.title,
-      sub: card.src,
-      opener: card.opener,
-      chips: [],
-      generateOpener: true,
-    });
-    router.push('/chat');
-  }
-
-  function renderItem(card: FeedItem) {
-    return (
-      <PlanItemCard
-        key={card.id}
-        card={card}
-        expanded={!!expanded[card.id]}
-        editingPrep={!!editingPrep[card.id]}
-        onToggleExpand={() => setExpanded((p) => ({ ...p, [card.id]: !p[card.id] }))}
-        onDismiss={() => void setStatus(card, 'dismissed')}
-        onDone={() => void setStatus(card, 'done')}
-        onDelegate={() => void setStatus(card, 'delegated')}
-        onChat={() => void onChat(card)}
-        onTogglePrepEditing={() => setEditingPrep((p) => ({ ...p, [card.id]: !p[card.id] }))}
-        onToggleChecklist={(id, done) => void toggleChecklist(card.id, id, done)}
-        onChangeChecklistText={(id, text) => renameChecklist(card.id, id, text)}
-        onCommitChecklistText={(id, text) => void commitChecklistText(id, text)}
-        onAddChecklist={() => void addChecklistRow(card)}
-        onDeleteChecklist={(id) => void removeChecklistRow(card.id, id)}
-      />
-    );
-  }
-
-  function renderCollection(card: FeedCollection) {
-    return (
-      <Pressable
-        key={card.id}
-        style={s.planCard}
-        onPress={() => router.push(`/plan/${card.id}` as const)}>
-        <View style={s.nrow}>
-          <View style={{ flexShrink: 0 }}>
-            <BrandIconDisc name={card.icon.name} wash={card.icon.wash} />
-          </View>
-          <View style={s.ncopy}>
-            <View style={s.uheadRow}>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={s.utitle}>{card.title}</Text>
-                <Text style={s.usub}>{card.context}</Text>
-              </View>
-              <Text style={s.uchevron}>›</Text>
-            </View>
-          </View>
-        </View>
-      </Pressable>
-    );
-  }
+  const copy = TAB_COPY[tab];
 
   return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={s.screen}>
-      {loading ? (
-        <View style={s.emptyState}>
-          <ActivityIndicator color={colors.rose} />
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={s.screen} keyboardShouldPersistTaps="handled">
+      <View style={s.homeGreetBlock}>
+        <View style={s.planHeadRow}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={s.homeGreetTitle}>Plan</Text>
+            <Text style={s.homeGreetSub}>{copy.sub}</Text>
+          </View>
+          <Pressable style={s.homeBrandIconBtn} accessibilityRole="button" accessibilityLabel="Filters">
+            <Ionicons name="options-outline" size={22} color={colors.navy} />
+          </Pressable>
         </View>
-      ) : (
-        HORIZON_ORDER.map((horizon) => {
-          const items = rows.filter((row) => row.horizon === horizon);
-          const section = SECTION[horizon];
+      </View>
+
+      <View style={s.planSeg}>
+        {TABS.map((entry) => {
+          const active = tab === entry.id;
           return (
-            <View key={horizon}>
-              <Text style={s.slabel}>
-                {section.kicker} · {items.length}
-              </Text>
-              <Text style={s.planSectionHint}>
-                {horizon === 'later' ? (
-                  <>
-                    <TayloMark />{' '}
-                  </>
-                ) : null}
-                {section.hint}
-              </Text>
-              {items.length === 0 ? (
-                <Text style={s.planEmptyLine}>
-                  {horizon === 'later' ? (
-                    <>
-                      <TayloMark />{' '}
-                    </>
-                  ) : null}
-                  {section.empty}
-                </Text>
-              ) : (
-                items.map((row) => (row.kind === 'collection' ? renderCollection(row) : renderItem(row)))
-              )}
-            </View>
+            <Pressable
+              key={entry.id}
+              style={[s.planSegItem, active && s.planSegItemActive]}
+              onPress={() => setTab(entry.id)}>
+              <Text style={[s.planSegText, active && s.planSegTextActive]}>{entry.label}</Text>
+            </Pressable>
           );
-        })
+        })}
+      </View>
+
+      {tab === 'radar' ? (
+        loading ? (
+          <View style={s.emptyState}>
+            <ActivityIndicator color={colors.rose} />
+          </View>
+        ) : (
+          <>
+            <View style={s.homeReassure}>
+              <BrandIconDisc name="sparkles-outline" wash="paleBlue" size={32} />
+              <View style={s.homeReassureCopy}>
+                <Text style={s.homeReassureTitle}>I've got the rest</Text>
+                <Text style={s.homeReassureSub}>
+                  Your lists, reminders and everything on the horizon. Add a list if you need one.
+                </Text>
+              </View>
+            </View>
+
+            <View style={s.homeSectionHead}>
+              <Text style={s.homeSectionLabel}>Your lists</Text>
+            </View>
+            <View style={s.homeHero}>
+              {lists.map((list) => (
+                <Pressable
+                  key={list.id}
+                  style={s.homeHeroRow}
+                  onPress={() =>
+                    router.push({ pathname: '/plan/list/[collectionId]', params: { collectionId: list.id } })
+                  }>
+                  <View style={s.nrow}>
+                    <View style={{ flexShrink: 0 }}>
+                      <BrandIconDisc name={list.icon.name} wash={list.icon.wash} size={36} />
+                    </View>
+                    <View style={s.ncopy}>
+                      <Text style={s.homeItemTitle} numberOfLines={1}>
+                        {list.title}
+                      </Text>
+                      <Text style={s.homeItemSub}>{itemCountLabel(list.count)}</Text>
+                    </View>
+                    <Text style={s.uchevron}>›</Text>
+                  </View>
+                </Pressable>
+              ))}
+              <Pressable
+                style={[s.homeHeroRow, s.homeHeroRowLast]}
+                onPress={() => {
+                  setCreateError(null);
+                  setCreating(true);
+                }}>
+                <View style={s.nrow}>
+                  <BrandIconDisc name="add-outline" wash="sage" size={36} />
+                  <View style={s.ncopy}>
+                    <Text style={s.homeItemTitle}>Add a new list</Text>
+                  </View>
+                </View>
+              </Pressable>
+            </View>
+
+            <View style={s.homeSectionHead}>
+              <Text style={s.homeSectionLabel}>Keeping an eye on</Text>
+              {radar.length ? (
+                <Pressable onPress={() => router.push('/plan/later')}>
+                  <Text style={s.homeSeeAll}>See all</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            <PlanItemFeed
+              items={radar}
+              setItems={setRadar}
+              empty="Nothing waiting further out — I'll keep watch."
+              variant="hero"
+              maxVisible={RADAR_PREVIEW}
+            />
+          </>
+        )
+      ) : tab === 'schedule' ? (
+        <PlanSchedule />
+      ) : (
+        <PlanFamily />
       )}
+
+      <Modal visible={creating} animationType="fade" transparent onRequestClose={() => setCreating(false)}>
+        <Pressable style={s.planModalScrim} onPress={() => setCreating(false)}>
+          <Pressable style={s.planModalCard} onPress={(e) => e.stopPropagation()}>
+            <Text style={s.planModalTitle}>New list</Text>
+            <Text style={s.planModalHint}>Name it, pick an emoji if you like, and I'll keep it on your radar.</Text>
+            <TextInput
+              style={s.planModalInput}
+              placeholder="e.g. Holiday packing"
+              placeholderTextColor={colors.textHint}
+              value={listName}
+              onChangeText={setListName}
+              autoFocus
+            />
+            <View style={s.planEmojiRow}>
+              {LIST_EMOJIS.map((emoji) => (
+                <Pressable
+                  key={emoji}
+                  style={[s.planEmojiPick, listEmoji === emoji && s.planEmojiPickOn]}
+                  onPress={() => setListEmoji(emoji)}>
+                  <Text style={s.planGlyphEmoji}>{emoji}</Text>
+                </Pressable>
+              ))}
+            </View>
+            {createError ? <Text style={s.planModalError}>{createError}</Text> : null}
+            <Pressable
+              style={[s.planModalSave, (!listName.trim() || saving) && { opacity: 0.6 }]}
+              disabled={!listName.trim() || saving}
+              onPress={() => void saveList()}>
+              <Text style={s.planModalSaveText}>{saving ? 'Saving…' : 'Create list'}</Text>
+            </Pressable>
+            <Pressable onPress={() => setCreating(false)}>
+              <Text style={s.planModalCancel}>Cancel</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ScrollView>
   );
 }

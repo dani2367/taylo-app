@@ -1,7 +1,11 @@
+import { isPersonalPurchase } from './radar-organize';
+
 export function isGenericHelp(raw: string | null | undefined): boolean {
   const text = (raw || '').trim();
   if (!text) return true;
-  return /need a hand\??|chat and taylo can help|help you get this done/i.test(text);
+  return /need a hand\??|chat and taylo can help|help you get this done|i can help you get .+ moving|ask me for the next concrete step/i.test(
+    text,
+  );
 }
 
 export function formatStoredSuggestion(raw: string | null | undefined): string | null {
@@ -23,6 +27,8 @@ export function helpfulSuggestion(item: {
   if (stored) return stored;
 
   const title = (item.title || '').trim();
+  if (isPersonalPurchase(title, item.category)) return null;
+
   const blob = `${title} ${item.body || ''} ${item.category || ''} ${item.action_description || ''}`.toLowerCase();
 
   if (/\bpassport\b/.test(blob)) {
@@ -58,10 +64,6 @@ export function helpfulSuggestion(item: {
     return action;
   }
 
-  if (title) {
-    const clipped = title.replace(/\s+/g, ' ').trim();
-    return `I can help you get “${clipped}” moving — ask me for the next concrete step.`;
-  }
   return null;
 }
 

@@ -60,7 +60,15 @@ export function resolvePlanIcon(opts: {
   stored?: string | null;
 }): PlanIconSpec {
   if (opts.collectionType === 'shopping') return { name: 'cart-outline', wash: 'paleBlue' };
+  if (opts.collectionType === 'todo' || opts.title === 'General to do') {
+    return { name: 'checkbox-outline', wash: 'sage' };
+  }
   if (opts.collectionType === 'trip') return { name: 'airplane-outline', wash: 'paleBlue' };
+  if (opts.collectionType === 'custom' || opts.collectionType === 'other') {
+    const customStored = (opts.stored || '').trim();
+    if (customStored && EMOJI_TO_ICON[customStored]) return EMOJI_TO_ICON[customStored];
+    if (!customStored) return { name: 'list-outline', wash: 'sage' };
+  }
 
   const stored = (opts.stored || '').trim();
   if (stored && EMOJI_TO_ICON[stored]) return EMOJI_TO_ICON[stored];

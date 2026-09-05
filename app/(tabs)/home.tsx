@@ -1,11 +1,13 @@
 import { BrandGlyph, BrandIconDisc } from '@/components/app/BrandIcon';
 import { useChat } from '@/components/app/ChatProvider';
+import { DayTimelineCard } from '@/components/app/DayTimelineCard';
 import { ItemPrepChecklist, type PrepCheckItem } from '@/components/app/ItemPrepChecklist';
 import { appStyles as s, iconBg } from '@/components/app/styles';
 import { TayloMark } from '@/components/app/TayloMark';
 import { colors } from '@/constants/theme';
-import { isActiveCollection } from '@/lib/collections';
+import { isActiveCollection, organizeStandaloneItems } from '@/lib/collections';
 import { memberPalette } from '@/lib/demo-data';
+import { PREVIEW_HAPPENING, happenSortKey, type HappenItem } from '@/lib/happening';
 import { daysUntil, humanizeEventDate } from '@/lib/human-date';
 import { isUsableInsight, refreshNoticed } from '@/lib/noticed';
 import {
@@ -32,7 +34,6 @@ import {
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 
-const DAY_ICON = 36;
 const MAX_ACTIONS = 4;
 
 type FamilyCard = {
@@ -85,39 +86,6 @@ const PREVIEW_FAMILY: FamilyCard[] = [
     itemTitle: 'Dentist',
     itemWhen: 'Thursday',
     itemIcon: resolvePlanIcon({ title: 'dentist', category: 'medical' }),
-  },
-];
-
-type HappenItem = {
-  id: string;
-  title: string;
-  time: string;
-  sub: string | null;
-  icon: PlanIconSpec;
-};
-
-/** Temporary visual placeholders for Happening Today — remove when calendar sync lands. */
-const PREVIEW_HAPPENING: HappenItem[] = [
-  {
-    id: 'preview-dad-birthday',
-    title: "Dad's birthday",
-    time: 'All day',
-    sub: null,
-    icon: resolvePlanIcon({ title: "Dad's birthday", category: 'activity' }),
-  },
-  {
-    id: 'preview-nursery',
-    title: 'Nursery',
-    time: '8:30',
-    sub: 'Drop off',
-    icon: resolvePlanIcon({ title: 'Nursery', category: 'school' }),
-  },
-  {
-    id: 'preview-dentist',
-    title: 'Dentist',
-    time: '2:15',
-    sub: "Teddy's appointment",
-    icon: resolvePlanIcon({ title: 'dentist', category: 'medical' }),
   },
 ];
 
@@ -289,23 +257,6 @@ function happenSub(item: ItemRow): string | null {
   return null;
 }
 
-function happenSortKey(item: HappenItem): number {
-  if (/^all day$/i.test(item.time)) return 0;
-  const match = /(\d{1,2})(?::(\d{2}))?/.exec(item.time);
-  if (!match) return 1;
-  return Number(match[1]) * 60 + Number(match[2] || 0);
-}
-
-function dayMood(count: number) {
-  if (count <= 1) return 'A quiet one';
-  if (count <= 3) return 'A fairly calm one';
-  return 'A fuller one';
-}
-
-function happenCountLabel(count: number) {
-  return count === 1 ? '1 thing happening' : `${count} things happening`;
-}
-
 function isHappeningOccasion(item: ItemRow): boolean {
   if (daysUntil(item.event_date) !== 0) return false;
   if (item.source === 'calendar') return true;
@@ -423,6 +374,8 @@ export default function HomeScreen() {
       return;
     }
 
+    await organizeStandaloneItems(user.id);
+
     const [{ data: profile }, { data: spotlightData }, { data: itemData }, { data: members }, { data: noticedRow }] =
       await Promise.all([
         supabase.from('profiles').select('first_name').eq('id', user.id).maybeSingle(),
@@ -456,19 +409,19 @@ export default function HomeScreen() {
     const actionIds = new Set(actionCards.map((card) => card.id));
 
     const openItems = ((itemData as ItemRow[] | null) ?? []).filter((item) => isActiveCollection(item.collections));
+    const realHappening = openItems
+      .filter((item) => !actionIds.has(item.id) && isHappeningOccasion(item))
+      .map((item) => ({
+        id: item.id,
+        title: item.title || 'Untitled',
+        time: happenTime(item),
+        sub: happenSub(item),
+        icon: resolvePlanIcon({ title: item.title, category: item.category }),
+      }));
     setHappening(
-      [
-        ...PREVIEW_HAPPENING,
-        ...openItems
-          .filter((item) => !actionIds.has(item.id) && isHappeningOccasion(item))
-          .map((item) => ({
-            id: item.id,
-            title: item.title || 'Untitled',
-            time: happenTime(item),
-            sub: happenSub(item),
-            icon: resolvePlanIcon({ title: item.title, category: item.category }),
-          })),
-      ].sort((a, b) => happenSortKey(a) - happenSortKey(b)),
+      (realHappening.length ? realHappening : [...PREVIEW_HAPPENING]).sort(
+        (a, b) => happenSortKey(a) - happenSortKey(b),
+      ),
     );
 
     const memberRows = (members as { id: string; role: string; first_name: string | null; last_name: string | null }[] | null) ?? [];
@@ -756,47 +709,13 @@ export default function HomeScreen() {
             </View>
 
             {happening.length ? (
-              <View style={s.homeDayCard}>
-                <View style={s.homeDayHead}>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={s.homeDayKicker}>Today</Text>
-                    <Text style={s.homeDayTitle}>{dayMood(happening.length)}</Text>
-                    <Text style={s.homeDayCount}>{happenCountLabel(happening.length)}</Text>
-                  </View>
-                  <BrandGlyph name="sunny-outline" size={22} color={colors.terracotta} />
-                </View>
-                {happening.map((item, index) => (
-                  <View key={item.id} style={s.homeDayRow}>
-                    <View style={s.homeDayRailCol}>
-                      {index > 0 ? (
-                        <View style={s.homeDayRailUp} pointerEvents="none">
-                          {[0, 1, 2].map((dot) => (
-                            <View key={dot} style={s.homeDayDot} />
-                          ))}
-                        </View>
-                      ) : null}
-                      <BrandIconDisc name={item.icon.name} wash={item.icon.wash} size={DAY_ICON} />
-                      {index < happening.length - 1 ? (
-                        <View style={s.homeDayRailDown} pointerEvents="none">
-                          {[0, 1, 2].map((dot) => (
-                            <View key={dot} style={s.homeDayDot} />
-                          ))}
-                        </View>
-                      ) : null}
-                    </View>
-                    <Text style={s.homeDayTime}>{item.time}</Text>
-                    <View style={s.ncopy}>
-                      <Text style={s.homeDayName} numberOfLines={1}>
-                        {item.title}
-                      </Text>
-                      {item.sub ? <Text style={s.homeDaySub}>{item.sub}</Text> : null}
-                    </View>
-                  </View>
-                ))}
-                <Pressable style={s.homeDayFooter} onPress={() => router.push('/plan')}>
-                  <Text style={s.homeDayFooterText}>See full day ›</Text>
-                </Pressable>
-              </View>
+              <DayTimelineCard
+                items={happening}
+                footer={{
+                  label: 'See full day ›',
+                  onPress: () => router.push({ pathname: '/plan', params: { tab: 'schedule' } }),
+                }}
+              />
             ) : null}
 
             {noticed ? (

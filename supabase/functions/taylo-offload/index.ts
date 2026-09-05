@@ -178,9 +178,7 @@ Deno.serve(async (req: Request) => {
           title: extracted.title,
           body: extracted.body,
           detail: extracted.body,
-          suggestion: extracted.title
-            ? `I can help you get “${extracted.title}” moving — ask me for the next concrete step.`
-            : null,
+          suggestion: null,
           category: extracted.category,
           icon: meta.icon,
           colour_class: meta.colour,

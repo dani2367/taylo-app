@@ -10,17 +10,34 @@ const NEED_ITEM_RE =
   /\b(?:i\s+)?(?:need|want|get|grab)\s+(?:some\s+|a\s+|an\s+)?(?!to\b|help\b)/i;
 
 const NOT_GROCERY_RE =
-  /\b(present|gift|birthday|party|appointment|dentist|doctor|teacher|email|call|book|haircut|babysitter)\b/i;
+  /\b(present|gift|birthday|party|appointment|dentist|doctor|teacher|email|call|book|haircut|babysitter|shoes|wedding|clothes|uniform)\b/i;
 
 export function looksLikeShoppingList(title: string): boolean {
   return SHOPPING_TITLE_RE.test(title);
+}
+
+export function looksLikeGroceryProduct(title: string, category?: string | null): boolean {
+  const t = title.replace(/\s+/g, ' ').trim();
+  if (!t) return false;
+  if (looksLikeShoppingList(t)) return true;
+  if (NOT_GROCERY_RE.test(t)) return false;
+  if (isGroceryCapture(t)) return true;
+  if (/\b(book|call|sign|apply|return|confirm|rsvp|renew|appointment|checkup|passport|form|permission)\b/i.test(t)) {
+    return false;
+  }
+  const words = t.split(' ').filter(Boolean);
+  if (words.length === 1 && /^[a-zA-Z][a-zA-Z'-]*$/.test(t)) return true;
+  if (words.length <= 3 && (category === 'errand' || category === 'delivery')) {
+    return true;
+  }
+  return false;
 }
 
 export function isGroceryCapture(text: string): boolean {
   const t = text.trim();
   if (!t) return false;
   if (looksLikeShoppingList(t) || GROCERY_RE.test(t)) {
-    return !/\b(present|gift|birthday|party)\b/i.test(t) || looksLikeShoppingList(t);
+    return !NOT_GROCERY_RE.test(t) || looksLikeShoppingList(t);
   }
   if (/\bneed to\b/i.test(t) || NOT_GROCERY_RE.test(t)) return false;
   return NEED_ITEM_RE.test(t);
