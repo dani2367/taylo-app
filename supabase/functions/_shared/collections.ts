@@ -47,7 +47,7 @@ export async function findOrCreateShoppingListItem(
         title: 'Shopping',
         body: null,
         detail: null,
-        suggestion: 'Need a hand? Chat and Taylo can help you get this done.',
+        suggestion: 'Tell me what you still need and I can add it to the list.',
         category: 'errand',
         icon: 'cart-outline',
         colour_class: 'amber',

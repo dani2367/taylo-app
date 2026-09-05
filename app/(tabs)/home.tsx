@@ -1,10 +1,13 @@
-import { BrandIconDisc } from '@/components/app/BrandIcon';
+import { BrandGlyph, BrandIconDisc } from '@/components/app/BrandIcon';
 import { useChat } from '@/components/app/ChatProvider';
 import { ItemPrepChecklist, type PrepCheckItem } from '@/components/app/ItemPrepChecklist';
 import { appStyles as s, iconBg } from '@/components/app/styles';
 import { TayloMark } from '@/components/app/TayloMark';
 import { colors } from '@/constants/theme';
-import { addProductsToShoppingList, isActiveCollection } from '@/lib/collections';
+import { isActiveCollection } from '@/lib/collections';
+import { memberPalette } from '@/lib/demo-data';
+import { daysUntil, humanizeEventDate } from '@/lib/human-date';
+import { isUsableInsight, refreshNoticed } from '@/lib/noticed';
 import {
   persistChecklistAdd,
   persistChecklistDelete,
@@ -12,26 +15,111 @@ import {
   persistChecklistToggle,
 } from '@/lib/prep-checklists';
 import { resolvePlanIcon, type PlanIconSpec } from '@/lib/plan-icon';
-import { groceryLabelsFromText, isGroceryCapture } from '@/lib/shopping';
+import { actionSupportLine, extraEventContext, firstCompleteSentence, helpfulSuggestion } from '@/lib/suggestion';
 import { refreshSpotlight } from '@/lib/spotlight';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from 'expo-router';
 import { router } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
-  KeyboardAvoidingView,
-  Platform,
+  Image,
   Pressable,
   ScrollView,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 
-const MANUAL_HELP = 'Need a hand? Chat and Taylo can help you get this done.';
+const DAY_ICON = 36;
+const MAX_ACTIONS = 4;
+
+type FamilyCard = {
+  key: string;
+  name: string;
+  initial: string;
+  wash: string;
+  photo: string | null;
+  itemTitle: string | null;
+  itemWhen: string | null;
+  itemIcon: PlanIconSpec | null;
+};
+
+/** Temporary visual placeholders for Your Family — Unsplash face crops. */
+const STOCK_PHOTO = {
+  you: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400&h=400&fit=crop&crop=faces&q=80',
+  sophie: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400&h=400&fit=crop&crop=faces&q=80',
+  arlo: 'https://images.unsplash.com/photo-1503919545889-aef636e10ad4?w=400&h=400&fit=crop&crop=faces&q=80',
+  taya: 'https://images.unsplash.com/photo-1516627145497-ae6968895b74?w=400&h=400&fit=crop&crop=faces&q=80',
+};
+
+const PREVIEW_FAMILY_EMAIL = 'd.dennison23@hotmail.com';
+const PREVIEW_FAMILY: FamilyCard[] = [
+  {
+    key: 'preview-sophie',
+    name: 'Sophie',
+    initial: 'S',
+    wash: colors.blush,
+    photo: STOCK_PHOTO.sophie,
+    itemTitle: 'Birthday party',
+    itemWhen: 'Saturday',
+    itemIcon: resolvePlanIcon({ title: 'birthday', category: 'activity' }),
+  },
+  {
+    key: 'preview-arlo',
+    name: 'Arlo',
+    initial: 'A',
+    wash: colors.paleBlue,
+    photo: STOCK_PHOTO.arlo,
+    itemTitle: 'Football training',
+    itemWhen: 'Tomorrow',
+    itemIcon: resolvePlanIcon({ title: 'football', category: 'activity' }),
+  },
+  {
+    key: 'preview-taya',
+    name: 'Taya',
+    initial: 'T',
+    wash: colors.sage,
+    photo: STOCK_PHOTO.taya,
+    itemTitle: 'Dentist',
+    itemWhen: 'Thursday',
+    itemIcon: resolvePlanIcon({ title: 'dentist', category: 'medical' }),
+  },
+];
+
+type HappenItem = {
+  id: string;
+  title: string;
+  time: string;
+  sub: string | null;
+  icon: PlanIconSpec;
+};
+
+/** Temporary visual placeholders for Happening Today — remove when calendar sync lands. */
+const PREVIEW_HAPPENING: HappenItem[] = [
+  {
+    id: 'preview-dad-birthday',
+    title: "Dad's birthday",
+    time: 'All day',
+    sub: null,
+    icon: resolvePlanIcon({ title: "Dad's birthday", category: 'activity' }),
+  },
+  {
+    id: 'preview-nursery',
+    title: 'Nursery',
+    time: '8:30',
+    sub: 'Drop off',
+    icon: resolvePlanIcon({ title: 'Nursery', category: 'school' }),
+  },
+  {
+    id: 'preview-dentist',
+    title: 'Dentist',
+    time: '2:15',
+    sub: "Teddy's appointment",
+    icon: resolvePlanIcon({ title: 'dentist', category: 'medical' }),
+  },
+];
 
 type NudgeStatus = 'open' | 'done' | 'delegated' | 'dismissed';
 
@@ -68,10 +156,10 @@ type NudgeCard = {
   body: string;
   detail: string;
   reason: string;
+  eventDate: string | null;
   watching: boolean;
   category: string;
   categoryLabel: string;
-  urgent: boolean;
   icon: PlanIconSpec;
   cls: keyof typeof iconBg;
   opener: string;
@@ -82,10 +170,16 @@ type NudgeCard = {
   checklist: PrepCheckItem[];
 };
 
-function formatSuggestion(raw: string | null | undefined): string | null {
-  const trimmed = (raw || '').trim().replace(/^suggested:\s*/i, '');
-  return trimmed || null;
-}
+const colorMap = {
+  roseLight: colors.roseLight,
+  roseDark: colors.roseDark,
+  blueLight: colors.blueLight,
+  blue: colors.blue,
+  amberLight: colors.amberLight,
+  amber: colors.amber,
+  tealLight: colors.tealLight,
+  teal: colors.teal,
+};
 
 const categoryMeta: Record<string, { icon: PlanIconSpec; cls: keyof typeof iconBg; label: string }> = {
   school: { icon: resolvePlanIcon({ category: 'school' }), cls: 'teal', label: 'School' },
@@ -109,28 +203,6 @@ function formatCategory(category: string | null) {
   };
 }
 
-function inferCategory(title: string, note: string): string {
-  const t = `${title} ${note}`.toLowerCase();
-  const has = (re: RegExp) => re.test(t);
-  if (has(/\b(return|refund|exchange)\b/)) return 'returns';
-  if (has(/\b(school|teacher|homework|permission|nursery|reception|uniform|pe kit|packed lunch|parents.?evening|ofsted|year [0-9])\b/)) {
-    return 'school';
-  }
-  if (has(/\b(gp|nhs|doctor|dentist|hospital|prescription|vaccine|jab|check-?up|pharmacy|optician|midwife)\b/)) {
-    return 'medical';
-  }
-  if (has(/\b(bill|invoice|council tax|insurance|rent|mortgage|direct debit|pay the)\b/)) return 'financial';
-  if (has(/\b(club|football|swimming|ballet|brownies|scouts|party|playdate|match|training|piano|lesson)\b/)) {
-    return 'activity';
-  }
-  if (has(/\b(parcel|delivery|amazon|yodel|evri|royal mail|collect|pick ?up|post office)\b/)) return 'delivery';
-  if (has(/\b(buy|shop|tesco|sainsbury|waitrose|asda|aldi|lidl|grocer|present|gift|card|dry clean)\b/)) {
-    return 'errand';
-  }
-  if (has(/\b(laundry|bins|dishwasher|garden|plumber|boiler|clean|hoover)\b/)) return 'home';
-  return 'errand';
-}
-
 function unwrapItem(raw: ItemRow | ItemRow[] | null): ItemRow | null {
   if (!raw) return null;
   return Array.isArray(raw) ? raw[0] ?? null : raw;
@@ -152,19 +224,155 @@ function mapSpotlight(row: SpotlightJoin): NudgeCard | null {
     body,
     detail,
     reason: row.reason_text.trim(),
+    eventDate: item.event_date,
     watching: row.is_watching,
     category: item.category || '',
     categoryLabel: meta.label,
-    urgent: !row.is_watching && item.urgency_level === 'today',
     icon: meta.icon,
     cls: meta.cls,
     opener: item.action_description || body || title,
     src: addedByUser ? meta.label : item.source_email_subject || meta.label,
-    suggestion: formatSuggestion(item.suggestion) || (addedByUser ? MANUAL_HELP : null),
+    suggestion: helpfulSuggestion(item),
     addedByUser,
     checklistId: null,
     checklist: [],
   };
+}
+
+function timeFromEventDate(raw: string | null): string | null {
+  if (!raw) return null;
+  const match = /T(\d{2}):(\d{2})/.exec(raw);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = match[2];
+  if (hour === 0 && minute === '00') return null;
+  const h12 = hour % 12 || 12;
+  const suffix = hour < 12 ? 'am' : 'pm';
+  return minute === '00' ? `${h12}${suffix}` : `${h12}:${minute}${suffix}`;
+}
+
+function fewWords(raw: string | null | undefined, max = 7): string | null {
+  const words = (raw || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  if (!words.length) return null;
+  return words.slice(0, max).join(' ');
+}
+
+function collapsedActionLine(card: NudgeCard): string | null {
+  const when = humanizeEventDate(card.eventDate);
+  const pastWhen = !when || when === 'Today' || /ago|yesterday/i.test(when);
+  const support = actionSupportLine({
+    title: card.title,
+    body: card.body,
+    reason: card.reason,
+    category: card.category,
+  });
+  if (support) return support;
+  if (!pastWhen && when) return `Coming up ${when.toLowerCase()}.`;
+  return null;
+}
+
+function happenTime(item: ItemRow): string {
+  const time = timeFromEventDate(item.event_date);
+  if (time) return time.replace(/(am|pm)$/i, '');
+  const blob = `${item.title || ''} ${item.body || ''}`.toLowerCase();
+  if (/\b(birthday|bday|anniversary)\b/.test(blob)) return 'All day';
+  return 'All day';
+}
+
+function happenSub(item: ItemRow): string | null {
+  const extra = firstCompleteSentence(item.body);
+  if (extra) return extra;
+  const who = (item.who_it_affects || '').trim();
+  if (who && !['you', 'me', 'family'].includes(who.toLowerCase())) {
+    return who;
+  }
+  return null;
+}
+
+function happenSortKey(item: HappenItem): number {
+  if (/^all day$/i.test(item.time)) return 0;
+  const match = /(\d{1,2})(?::(\d{2}))?/.exec(item.time);
+  if (!match) return 1;
+  return Number(match[1]) * 60 + Number(match[2] || 0);
+}
+
+function dayMood(count: number) {
+  if (count <= 1) return 'A quiet one';
+  if (count <= 3) return 'A fairly calm one';
+  return 'A fuller one';
+}
+
+function happenCountLabel(count: number) {
+  return count === 1 ? '1 thing happening' : `${count} things happening`;
+}
+
+function isHappeningOccasion(item: ItemRow): boolean {
+  if (daysUntil(item.event_date) !== 0) return false;
+  if (item.source === 'calendar') return true;
+  const blob = `${item.title || ''} ${item.body || ''} ${item.category || ''}`.toLowerCase();
+  return /\b(birthday|bday|party|anniversary|wedding|appointment|dentist|nursery|holiday|concert|match|playdate|sports day)\b/.test(
+    blob,
+  );
+}
+
+function greetingLine(name: string) {
+  const hr = new Date().getHours();
+  const timeGreet = hr < 12 ? 'morning' : hr < 17 ? 'afternoon' : 'evening';
+  return name ? `Good ${timeGreet}, ${name}` : `Good ${timeGreet}`;
+}
+
+function actionsSummary(count: number) {
+  if (count <= 0) return 'Nothing that needs you right now.';
+  if (count === 1) return '1 thing to keep life moving.';
+  return `${count} things to keep life moving.`;
+}
+
+function isAdminTask(item: ItemRow): boolean {
+  const blob = `${item.title || ''} ${item.body || ''} ${item.category || ''}`.toLowerCase();
+  if (['errand', 'financial', 'returns', 'delivery'].includes((item.category || '').toLowerCase())) {
+    if (!/\b(birthday|party|dentist|appointment|nursery|school|match|lesson|holiday|trip|club)\b/.test(blob)) {
+      return true;
+    }
+  }
+  return /\b(passport|visa|apply for|renew|return|refund|bill|insurance|mot\b|council tax|shopping)\b/.test(blob);
+}
+
+function isForeseeableDoing(item: ItemRow): boolean {
+  if (isAdminTask(item)) return false;
+  const days = daysUntil(item.event_date);
+  if (days != null && days >= 0 && days <= 42) return true;
+  if (days != null && days < 0) return false;
+  const blob = `${item.title || ''} ${item.body || ''} ${item.category || ''}`.toLowerCase();
+  const category = (item.category || '').toLowerCase();
+  if (category === 'activity' || category === 'medical' || category === 'school') return true;
+  return /\b(birthday|bday|party|dentist|appointment|nursery|match|lesson|holiday|trip|club|concert|playdate|sports day)\b/.test(
+    blob,
+  );
+}
+
+function mentionsPerson(item: ItemRow, name: string, role: string): boolean {
+  const needle = name.trim().toLowerCase();
+  if (!needle) return false;
+  const who = (item.who_it_affects || '').trim().toLowerCase();
+  const title = (item.title || '').toLowerCase();
+  if (who.includes(needle) || title.includes(needle)) return true;
+  const isYou = role === 'self' || role === 'you';
+  if (isYou && (who === 'you' || who === 'me' || who === 'mum' || who === 'mom' || who === 'parent')) return true;
+  return false;
+}
+
+function pickItemForPerson(items: ItemRow[], name: string, role: string): ItemRow | null {
+  const matches = items.filter((item) => mentionsPerson(item, name, role) && isForeseeableDoing(item));
+  if (!matches.length) return null;
+  matches.sort((a, b) => {
+    const da = daysUntil(a.event_date);
+    const db = daysUntil(b.event_date);
+    if (da == null && db == null) return 0;
+    if (da == null) return 1;
+    if (db == null) return -1;
+    return da - db;
+  });
+  return matches[0];
 }
 
 async function attachChecklists(cards: NudgeCard[]) {
@@ -191,21 +399,15 @@ async function attachChecklists(cards: NudgeCard[]) {
   }
 }
 
-async function addGroceryItems(userId: string, labels: string[]): Promise<string | null> {
-  return addProductsToShoppingList(userId, labels);
-}
-
 export default function HomeScreen() {
   const [spotlight, setSpotlight] = useState<NudgeCard[]>([]);
-  const [watching, setWatching] = useState<NudgeCard[]>([]);
+  const [happening, setHappening] = useState<HappenItem[]>([]);
+  const [family, setFamily] = useState<FamilyCard[]>([]);
+  const [noticed, setNoticed] = useState<string | null>(null);
+  const [firstName, setFirstName] = useState('');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [editingPrep, setEditingPrep] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
-  const [newNote, setNewNote] = useState('');
-  const [saving, setSaving] = useState(false);
-  const scrollRef = useRef<ScrollView>(null);
   const { openItem } = useChat();
 
   const load = useCallback(async () => {
@@ -214,33 +416,115 @@ export default function HomeScreen() {
     } = await supabase.auth.getUser();
     if (!user) {
       setSpotlight([]);
-      setWatching([]);
+      setHappening([]);
+      setFamily([]);
+      setNoticed(null);
       setLoading(false);
       return;
     }
 
-    const { data } = await supabase
-      .from('home_spotlight')
-      .select(
-        'id, item_id, reason_text, rank, is_watching, items(id, title, body, detail, suggestion, category, action_description, event_date, who_it_affects, urgency_level, status, source_email_subject, source, collections(status))',
-      )
-      .eq('user_id', user.id)
-      .order('rank', { ascending: true });
+    const [{ data: profile }, { data: spotlightData }, { data: itemData }, { data: members }, { data: noticedRow }] =
+      await Promise.all([
+        supabase.from('profiles').select('first_name').eq('id', user.id).maybeSingle(),
+        supabase
+          .from('home_spotlight')
+          .select(
+            'id, item_id, reason_text, rank, is_watching, items(id, title, body, detail, suggestion, category, action_description, event_date, who_it_affects, urgency_level, status, source_email_subject, source, collections(status))',
+          )
+          .eq('user_id', user.id)
+          .eq('is_watching', false)
+          .order('rank', { ascending: true }),
+        supabase
+          .from('items')
+          .select(
+            'id, title, body, detail, suggestion, category, action_description, event_date, who_it_affects, urgency_level, status, source_email_subject, source, collections(status)',
+          )
+          .eq('user_id', user.id)
+          .eq('status', 'open'),
+        supabase.from('family_members').select('id, role, first_name, last_name').eq('user_id', user.id),
+        supabase.from('home_noticed').select('insight_text').eq('user_id', user.id).maybeSingle(),
+      ]);
 
-    const cards = ((data as SpotlightJoin[] | null) ?? [])
+    if (profile?.first_name) setFirstName(profile.first_name);
+
+    const cards = ((spotlightData as SpotlightJoin[] | null) ?? [])
       .map(mapSpotlight)
       .filter((card): card is NudgeCard => !!card);
     await attachChecklists(cards);
-    setSpotlight(cards.filter((card) => !card.watching));
-    setWatching(cards.filter((card) => card.watching));
+    const actionCards = cards.slice(0, MAX_ACTIONS);
+    setSpotlight(actionCards);
+    const actionIds = new Set(actionCards.map((card) => card.id));
+
+    const openItems = ((itemData as ItemRow[] | null) ?? []).filter((item) => isActiveCollection(item.collections));
+    setHappening(
+      [
+        ...PREVIEW_HAPPENING,
+        ...openItems
+          .filter((item) => !actionIds.has(item.id) && isHappeningOccasion(item))
+          .map((item) => ({
+            id: item.id,
+            title: item.title || 'Untitled',
+            time: happenTime(item),
+            sub: happenSub(item),
+            icon: resolvePlanIcon({ title: item.title, category: item.category }),
+          })),
+      ].sort((a, b) => happenSortKey(a) - happenSortKey(b)),
+    );
+
+    const memberRows = (members as { id: string; role: string; first_name: string | null; last_name: string | null }[] | null) ?? [];
+    const cardsOut: FamilyCard[] = [];
+    memberRows.forEach((member, index) => {
+      const name = [member.first_name, member.last_name].filter(Boolean).join(' ') || 'Family';
+      const first = member.first_name?.trim() || name;
+      const pal = memberPalette[index % memberPalette.length];
+      const match = pickItemForPerson(openItems, first, member.role);
+      const when = match ? humanizeEventDate(match.event_date) : null;
+      cardsOut.push({
+        key: member.id,
+        name: member.first_name?.trim() || name,
+        initial: name[0]?.toUpperCase() || '•',
+        wash: colorMap[pal.bg],
+        photo: null,
+        itemTitle: match?.title || null,
+        itemWhen: when && when !== 'Today' ? when : match ? fewWords(match.body, 5) : null,
+        itemIcon: match ? resolvePlanIcon({ title: match.title, category: match.category }) : null,
+      });
+    });
+    if (profile?.first_name) {
+      const youMatch = pickItemForPerson(openItems, profile.first_name, 'self');
+      const youWhen = youMatch ? humanizeEventDate(youMatch.event_date) : null;
+      cardsOut.push({
+        key: 'you',
+        name: 'You',
+        initial: profile.first_name[0]?.toUpperCase() || 'Y',
+        wash: colors.sage,
+        photo: null,
+        itemTitle: youMatch?.title || null,
+        itemWhen: youWhen && youWhen !== 'Today' ? youWhen : youMatch ? fewWords(youMatch.body, 5) : null,
+        itemIcon: youMatch ? resolvePlanIcon({ title: youMatch.title, category: youMatch.category }) : null,
+      });
+    }
+    if ((user.email || '').trim().toLowerCase() === PREVIEW_FAMILY_EMAIL) {
+      const you = cardsOut.find((card) => card.key === 'you');
+      setFamily(you ? [{ ...you, photo: STOCK_PHOTO.you }, ...PREVIEW_FAMILY] : PREVIEW_FAMILY);
+    } else {
+      setFamily(cardsOut);
+    }
+
+    const rawInsight = (noticedRow as { insight_text?: string } | null)?.insight_text?.trim() || null;
+    setNoticed(rawInsight && isUsableInsight(rawInsight) ? rawInsight : null);
+
     setLoading(false);
   }, []);
 
   const loadAndMaybeRefresh = useCallback(
     async (force = false) => {
       await load();
-      const { regenerated } = await refreshSpotlight({ force });
-      if (regenerated) await load();
+      const [{ regenerated: spot }, { regenerated: note }] = await Promise.all([
+        refreshSpotlight({ force }),
+        refreshNoticed({ force }),
+      ]);
+      if (spot || note) await load();
     },
     [load],
   );
@@ -259,13 +543,11 @@ export default function HomeScreen() {
   }, [loadAndMaybeRefresh]);
 
   function removeCard(card: NudgeCard) {
-    if (card.watching) setWatching((prev) => prev.filter((n) => n.id !== card.id));
-    else setSpotlight((prev) => prev.filter((n) => n.id !== card.id));
+    setSpotlight((prev) => prev.filter((n) => n.id !== card.id));
   }
 
   function restoreCard(card: NudgeCard) {
-    if (card.watching) setWatching((prev) => [...prev, card]);
-    else setSpotlight((prev) => [...prev, card]);
+    setSpotlight((prev) => [...prev, card]);
   }
 
   async function setStatus(nudge: NudgeCard, status: Exclude<NudgeStatus, 'open'>) {
@@ -275,9 +557,7 @@ export default function HomeScreen() {
   }
 
   function patchCard(itemId: string, update: (nudge: NudgeCard) => NudgeCard) {
-    const patch = (list: NudgeCard[]) => list.map((nudge) => (nudge.id === itemId ? update(nudge) : nudge));
-    setSpotlight(patch);
-    setWatching(patch);
+    setSpotlight((list) => list.map((nudge) => (nudge.id === itemId ? update(nudge) : nudge)));
   }
 
   async function toggleChecklist(nudgeId: string, entryId: string, done: boolean) {
@@ -330,7 +610,7 @@ export default function HomeScreen() {
   }
 
   async function removeChecklistRow(nudgeId: string, entryId: string) {
-    const snapshot = [...spotlight, ...watching].find((card) => card.id === nudgeId)?.checklist ?? [];
+    const snapshot = spotlight.find((card) => card.id === nudgeId)?.checklist ?? [];
     patchCard(nudgeId, (nudge) => ({
       ...nudge,
       checklist: nudge.checklist.filter((entry) => entry.id !== entryId),
@@ -341,67 +621,7 @@ export default function HomeScreen() {
     }
   }
 
-  async function addTodo() {
-    const title = newTitle.trim();
-    if (!title || saving) return;
-    const note = newNote.trim();
-    setSaving(true);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      setSaving(false);
-      return;
-    }
-
-    const capture = `${title} ${note}`.trim();
-    if (isGroceryCapture(capture)) {
-      const labels = groceryLabelsFromText(capture);
-      if (labels.length) {
-        const error = await addGroceryItems(user.id, labels);
-        setSaving(false);
-        if (error) {
-          console.error('Failed to add to-do:', error);
-          return;
-        }
-        setNewTitle('');
-        setNewNote('');
-        setAdding(false);
-        await loadAndMaybeRefresh(true);
-        return;
-      }
-    }
-
-    const category = inferCategory(title, note);
-    const meta = formatCategory(category);
-
-    const { error } = await supabase.from('items').insert({
-      user_id: user.id,
-      title,
-      body: note || null,
-      detail: note || null,
-      suggestion: MANUAL_HELP,
-      category,
-      icon: meta.icon.name,
-      colour_class: meta.cls,
-      source: 'manual',
-      source_label: 'Added by you',
-      status: 'open',
-    });
-
-    setSaving(false);
-    if (error) {
-      console.error('Failed to add to-do:', error.message);
-      return;
-    }
-
-    setNewTitle('');
-    setNewNote('');
-    setAdding(false);
-    await loadAndMaybeRefresh(true);
-  }
-
-  async function onChat(nudge: NudgeCard) {
+  async function onChat(nudge: { id: string; icon: PlanIconSpec; title: string; src: string; opener: string }) {
     await openItem(nudge.id, {
       icon: nudge.icon.name,
       title: nudge.title,
@@ -413,8 +633,42 @@ export default function HomeScreen() {
     router.push('/chat');
   }
 
-  function renderCard(n: NudgeCard) {
+  function renderActionPills(n: NudgeCard) {
+    return (
+      <View style={s.nactions}>
+        <Pressable
+          style={[s.pill, s.pillTeal]}
+          onPress={(e) => {
+            e.stopPropagation();
+            void setStatus(n, 'done');
+          }}>
+          <Text style={[s.pillText, s.pillTextTeal]}>Done</Text>
+        </Pressable>
+        <Pressable
+          style={[s.pill, s.pillDelegate]}
+          onPress={(e) => {
+            e.stopPropagation();
+            void setStatus(n, 'delegated');
+          }}>
+          <Text style={[s.pillText, s.pillTextBlue]}>Delegate</Text>
+        </Pressable>
+        <Pressable
+          style={[s.pill, s.pillChat]}
+          onPress={(e) => {
+            e.stopPropagation();
+            void onChat(n);
+          }}>
+          <Text style={[s.pillText, s.pillTextChat]}>Ask</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  function renderActionRow(n: NudgeCard, last: boolean) {
     const isOpen = !!expanded[n.id];
+    const support = collapsedActionLine(n);
+    const eventContext = extraEventContext(n.title, n.detail || n.body);
+    const showSuggest = !!n.suggestion && n.suggestion !== eventContext;
     return (
       <Swipeable
         key={n.spotlightId}
@@ -425,35 +679,29 @@ export default function HomeScreen() {
           </Pressable>
         )}>
         <Pressable
-          style={[s.nudge, n.urgent && s.nudgeUrgent, n.watching && s.nudgeWatch]}
+          style={[s.homeHeroRow, last && !isOpen && s.homeHeroRowLast]}
           onPress={() => setExpanded((p) => ({ ...p, [n.id]: !p[n.id] }))}>
           <View style={s.nrow}>
             <View style={{ flexShrink: 0 }}>
-              <BrandIconDisc name={n.icon.name} wash={n.icon.wash} />
+              <BrandIconDisc name={n.icon.name} wash={n.icon.wash} size={36} />
             </View>
             <View style={s.ncopy}>
-              <View style={s.uheadRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.ntitle}>{n.title}</Text>
-                  {n.reason ? (
-                    <Text style={[s.nreason, n.watching && s.nreasonWatch]}>
-                      <TayloMark /> {n.reason}
-                    </Text>
-                  ) : n.body ? (
-                    <Text style={s.nbody}>{n.body}</Text>
-                  ) : null}
-                </View>
-                <Text style={[s.uchevron, isOpen && { transform: [{ rotate: '90deg' }] }]}>›</Text>
-              </View>
+              <Text style={s.homeItemTitle} numberOfLines={1}>
+                {n.title}
+              </Text>
+              {support ? <Text style={s.homeItemSub}>{support}</Text> : null}
             </View>
           </View>
           {isOpen ? (
             <>
-              {n.detail && n.detail !== n.body && n.detail !== n.reason ? (
-                <Text style={s.udetail}>{n.detail}</Text>
+              {eventContext ? <Text style={s.homeExpandDetail}>{eventContext}</Text> : null}
+              {showSuggest ? (
+                <View style={s.nsuggestRow}>
+                  <TayloMark />
+                  <Text style={s.homeSuggest}>{n.suggestion}</Text>
+                </View>
               ) : null}
               <ItemPrepChecklist
-                heading="Getting ready"
                 items={n.checklist}
                 editing={!!editingPrep[n.id]}
                 onToggleEditing={() => setEditingPrep((p) => ({ ...p, [n.id]: !p[n.id] }))}
@@ -463,38 +711,7 @@ export default function HomeScreen() {
                 onAdd={() => void addChecklistRow(n)}
                 onDelete={(id) => void removeChecklistRow(n.id, id)}
               />
-              {n.suggestion ? (
-                <View style={s.nsuggestRow}>
-                  <TayloMark />
-                  <Text style={s.nsuggest}>{n.suggestion}</Text>
-                </View>
-              ) : null}
-              <View style={s.nactions}>
-                <Pressable
-                  style={[s.pill, s.pillTeal]}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    void setStatus(n, 'done');
-                  }}>
-                  <Text style={[s.pillText, s.pillTextTeal]}>Done</Text>
-                </Pressable>
-                <Pressable
-                  style={[s.pill, s.pillDelegate]}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    void setStatus(n, 'delegated');
-                  }}>
-                  <Text style={[s.pillText, s.pillTextBlue]}>Delegate</Text>
-                </Pressable>
-                <Pressable
-                  style={[s.pill, s.pillChat]}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    void onChat(n);
-                  }}>
-                  <Text style={[s.pillText, s.pillTextChat]}>Ask</Text>
-                </Pressable>
-              </View>
+              {renderActionPills(n)}
             </>
           ) : null}
         </Pressable>
@@ -503,90 +720,162 @@ export default function HomeScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView
-        ref={scrollRef}
         style={{ flex: 1 }}
-        contentContainerStyle={[s.screen, adding && { paddingBottom: 220 }]}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
-        automaticallyAdjustKeyboardInsets>
-        {adding ? (
-          <View style={s.addForm}>
-            <TextInput
-              style={s.addInput}
-              placeholder="What do you need to do?"
-              placeholderTextColor={colors.textHint}
-              value={newTitle}
-              onChangeText={setNewTitle}
-              autoFocus
-              returnKeyType="next"
-              onFocus={() => scrollRef.current?.scrollTo({ y: 80, animated: true })}
-            />
-            <TextInput
-              style={s.addInput}
-              placeholder="Optional note"
-              placeholderTextColor={colors.textHint}
-              value={newNote}
-              onChangeText={setNewNote}
-              onFocus={() => scrollRef.current?.scrollTo({ y: 80, animated: true })}
-            />
-            <View style={s.addFormActions}>
-              <Pressable
-                style={[s.pill, s.pillGray]}
-                onPress={() => {
-                  setAdding(false);
-                  setNewTitle('');
-                  setNewNote('');
-                }}>
-                <Text style={[s.pillText, s.pillTextMuted]}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[s.pill, s.pillTeal, (!newTitle.trim() || saving) && { opacity: 0.5 }]}
-                disabled={!newTitle.trim() || saving}
-                onPress={() => void addTodo()}>
-                <Text style={[s.pillText, s.pillTextTeal]}>{saving ? 'Adding…' : 'Add'}</Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : (
-          <Pressable style={s.newClBtn} onPress={() => setAdding(true)}>
-            <View style={s.newClIcon}>
-              <Text style={s.newClIconText}>+</Text>
-            </View>
-            <View>
-              <Text style={s.newClText}>Add to Home</Text>
-              <Text style={s.newClSub}>Whatever you need to get done</Text>
-            </View>
+        contentContainerStyle={s.screen}
+        keyboardShouldPersistTaps="handled">
+        <View style={s.homeGreetBlock}>
+          <Text style={s.homeGreetTitle}>
+            {greetingLine(firstName)} <TayloMark size={14} />
+          </Text>
+          <Text style={s.homeGreetSub}>Here's what would be helpful to do today.</Text>
+        </View>
+
+        <View style={s.homeSectionHead}>
+          <Text style={s.homeSectionLabel}>Today's actions</Text>
+          <Pressable onPress={() => router.push('/plan')}>
+            <Text style={s.homeSeeAll}>See all</Text>
           </Pressable>
-        )}
+        </View>
+        <Text style={s.homeSectionHint}>{actionsSummary(spotlight.length)}</Text>
+
         {loading ? (
           <View style={s.emptyState}>
             <ActivityIndicator color={colors.rose} />
           </View>
         ) : (
           <>
-            {spotlight.length === 0 ? (
-              <View style={s.emptyState}>
-                <Text style={s.emptyStateText}>Nothing needs your attention right now</Text>
-              </View>
-            ) : (
-              spotlight.map(renderCard)
-            )}
-            {watching.length ? (
-              <>
-                <View style={s.slabelRow}>
-                  <TayloMark />
-                  <Text style={s.slabelInline}>Taylo is keeping an eye on…</Text>
+            <View style={s.homeHero}>
+              {spotlight.length === 0 ? (
+                <View style={s.homeHeroRow}>
+                  <Text style={s.emptyStateText}>When something would be helpful to do, it'll show up here.</Text>
                 </View>
-                {watching.map(renderCard)}
+              ) : (
+                spotlight.map((card, index) => renderActionRow(card, index === spotlight.length - 1))
+              )}
+            </View>
+
+            {happening.length ? (
+              <View style={s.homeDayCard}>
+                <View style={s.homeDayHead}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={s.homeDayKicker}>Today</Text>
+                    <Text style={s.homeDayTitle}>{dayMood(happening.length)}</Text>
+                    <Text style={s.homeDayCount}>{happenCountLabel(happening.length)}</Text>
+                  </View>
+                  <BrandGlyph name="sunny-outline" size={22} color={colors.terracotta} />
+                </View>
+                {happening.map((item, index) => (
+                  <View key={item.id} style={s.homeDayRow}>
+                    <View style={s.homeDayRailCol}>
+                      {index > 0 ? (
+                        <View style={s.homeDayRailUp} pointerEvents="none">
+                          {[0, 1, 2].map((dot) => (
+                            <View key={dot} style={s.homeDayDot} />
+                          ))}
+                        </View>
+                      ) : null}
+                      <BrandIconDisc name={item.icon.name} wash={item.icon.wash} size={DAY_ICON} />
+                      {index < happening.length - 1 ? (
+                        <View style={s.homeDayRailDown} pointerEvents="none">
+                          {[0, 1, 2].map((dot) => (
+                            <View key={dot} style={s.homeDayDot} />
+                          ))}
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={s.homeDayTime}>{item.time}</Text>
+                    <View style={s.ncopy}>
+                      <Text style={s.homeDayName} numberOfLines={1}>
+                        {item.title}
+                      </Text>
+                      {item.sub ? <Text style={s.homeDaySub}>{item.sub}</Text> : null}
+                    </View>
+                  </View>
+                ))}
+                <Pressable style={s.homeDayFooter} onPress={() => router.push('/plan')}>
+                  <Text style={s.homeDayFooterText}>See full day ›</Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            {noticed ? (
+              <View style={{ marginTop: 6 }}>
+                <View style={s.homeNoticed}>
+                  <View style={s.homeNoticedHead}>
+                    <TayloMark size={12} />
+                    <Text style={s.homeNoticedLabel}>Taylo noticed</Text>
+                  </View>
+                  <Text style={s.homeNoticedText}>{noticed}</Text>
+                </View>
+              </View>
+            ) : null}
+
+            {family.length ? (
+              <>
+                <View style={s.homeSectionHead}>
+                  <Text style={[s.homeSectionLabel, s.homeSectionLabelMuted]}>Your family</Text>
+                  <Pressable onPress={() => router.push('/more/family')}>
+                    <Text style={s.homeSeeAll}>View all</Text>
+                  </Pressable>
+                </View>
+                <ScrollView
+                  horizontal
+                  nestedScrollEnabled
+                  showsHorizontalScrollIndicator={false}
+                  style={s.homeFamilyScroll}
+                  contentContainerStyle={s.homeFamilyRow}>
+                  {family.map((member) => (
+                    <Pressable
+                      key={member.key}
+                      style={s.homeFamilyCard}
+                      onPress={() => router.push('/more/family')}>
+                      <View style={[s.homeFamilyAvatar, { backgroundColor: member.wash }]}>
+                        {member.photo ? (
+                          <Image source={{ uri: member.photo }} style={s.homeFamilyPhoto} />
+                        ) : (
+                          <Text style={s.homeFamilyInitial}>{member.initial}</Text>
+                        )}
+                      </View>
+                      <Text style={s.homeFamilyName} numberOfLines={1}>
+                        {member.name}
+                      </Text>
+                      {member.itemTitle ? (
+                        <View style={s.homeFamilyDoing}>
+                          {member.itemIcon ? (
+                            <BrandGlyph name={member.itemIcon.name} size={14} color={colors.navy} />
+                          ) : null}
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={s.homeFamilyItem} numberOfLines={2}>
+                              {member.itemTitle}
+                            </Text>
+                            {member.itemWhen ? (
+                              <Text style={s.homeFamilyWhen} numberOfLines={1}>
+                                {member.itemWhen}
+                              </Text>
+                            ) : null}
+                          </View>
+                        </View>
+                      ) : (
+                        <Text style={[s.homeFamilyWhen, { marginTop: 8 }]}>Nothing coming up</Text>
+                      )}
+                    </Pressable>
+                  ))}
+                </ScrollView>
               </>
+            ) : null}
+
+            {spotlight.length === 0 ? (
+              <View style={s.homeReassure}>
+                <BrandIconDisc name="heart-outline" wash="blush" size={32} />
+                <View style={s.homeReassureCopy}>
+                  <Text style={s.homeReassureTitle}>You're all set for today.</Text>
+                  <Text style={s.homeReassureSub}>I've got everything else on the radar.</Text>
+                </View>
+              </View>
             ) : null}
           </>
         )}
       </ScrollView>
-    </KeyboardAvoidingView>
   );
 }

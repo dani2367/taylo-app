@@ -1,7 +1,7 @@
 import { colors, fonts } from '@/constants/theme';
 import { Text, View } from 'react-native';
 
-/** Lowercase taylo with terracotta ✦ on the t, slightly right of centre. */
+/** Lowercase taylo with terracotta ✦ just off the right of the o. */
 export function TayloWordmark({
   size = 32,
   color = colors.navy,
@@ -21,25 +21,25 @@ export function TayloWordmark({
 
   return (
     <View
-      style={{ flexDirection: 'row', alignItems: 'flex-end', paddingTop: Math.round(star * 0.45) }}
+      style={{
+        paddingTop: Math.round(star * 0.28),
+        paddingRight: Math.round(star * 0.72),
+      }}
       accessibilityRole="image"
       accessibilityLabel="taylo">
-      <View>
-        <Text style={letter}>t</Text>
-        <Text
-          style={{
-            position: 'absolute',
-            color: colors.terracotta,
-            fontSize: star,
-            lineHeight: star,
-            top: -Math.round(star * 0.22),
-            left: size * 0.58,
-            includeFontPadding: false,
-          }}>
-          ✦
-        </Text>
-      </View>
-      <Text style={[letter, { marginLeft: size * -0.06 }]}>aylo</Text>
+      <Text style={letter}>taylo</Text>
+      <Text
+        style={{
+          position: 'absolute',
+          right: 0,
+          top: -Math.round(star * 0.12),
+          color: colors.terracotta,
+          fontSize: star,
+          lineHeight: star,
+          includeFontPadding: false,
+        }}>
+        ✦
+      </Text>
     </View>
   );
 }

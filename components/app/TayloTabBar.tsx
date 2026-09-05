@@ -1,6 +1,6 @@
 import { useChat } from '@/components/app/ChatProvider';
 import { appStyles as s } from '@/components/app/styles';
-import { AheadIcon, ChatIcon, MoreIcon, TodayIcon } from '@/components/app/TabIcons';
+import { AheadIcon, ChatIcon, TodayIcon } from '@/components/app/TabIcons';
 import type { BottomTabBarProps } from 'expo-router/js-tabs';
 import { Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,14 +9,12 @@ const ICONS = {
   home: TodayIcon,
   plan: AheadIcon,
   chat: ChatIcon,
-  more: MoreIcon,
 } as const;
 
 const LABELS: Record<string, string> = {
   home: 'Home',
   plan: 'Plan',
   chat: 'Ask',
-  more: 'More',
 };
 
 export function TayloTabBar({ state, navigation }: BottomTabBarProps) {
@@ -42,8 +40,6 @@ export function TayloTabBar({ state, navigation }: BottomTabBarProps) {
                 navigation.navigate(route.name);
               } else if (isFocused && route.name === 'plan') {
                 navigation.navigate('plan', { screen: 'index' });
-              } else if (isFocused && route.name === 'more') {
-                navigation.navigate('more', { screen: 'index' });
               }
             }}
             accessibilityRole="button"

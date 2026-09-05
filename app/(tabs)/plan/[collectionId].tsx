@@ -11,6 +11,7 @@ import {
   persistChecklistText,
   persistChecklistToggle,
 } from '@/lib/prep-checklists';
+import { helpfulSuggestion } from '@/lib/suggestion';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from 'expo-router';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -43,11 +44,6 @@ type CollectionRow = {
   type: string | null;
 };
 
-function formatSuggestion(raw: string | null | undefined): string | null {
-  const trimmed = (raw || '').trim().replace(/^suggested:\s*/i, '');
-  return trimmed || null;
-}
-
 function unwrapLists(raw: NestedList[] | NestedList | null): NestedList[] {
   if (!raw) return [];
   return Array.isArray(raw) ? raw : [raw];
@@ -71,7 +67,7 @@ function mapItem(row: ItemRow, today: Date): PlanItemCardModel {
       today,
     ),
     detail,
-    suggestion: formatSuggestion(row.suggestion),
+    suggestion: helpfulSuggestion(row),
     opener: row.action_description || detail || body || title,
     src: row.source_label || row.source_email_subject || 'Plan',
     icon: resolvePlanIcon({ title, category: row.category, stored: row.icon }),

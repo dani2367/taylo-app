@@ -8,6 +8,7 @@ import { isActiveCollection, unwrapCollection } from '@/lib/collections';
 import { itemCountLabel, planContextLine, thingsToSortLabel } from '@/lib/human-date';
 import { resolvePlanIcon, type PlanIconSpec } from '@/lib/plan-icon';
 import { looksLikeShoppingList } from '@/lib/shopping';
+import { helpfulSuggestion } from '@/lib/suggestion';
 import {
   comparePlanItems,
   earliestDatesByCollection,
@@ -86,11 +87,6 @@ const SECTION: Record<Horizon, { kicker: string; hint: string; empty: string }> 
 
 const HORIZON_RANK: Record<Horizon, number> = { now: 0, next: 1, later: 2 };
 
-function formatSuggestion(raw: string | null | undefined): string | null {
-  const trimmed = (raw || '').trim().replace(/^suggested:\s*/i, '');
-  return trimmed || null;
-}
-
 function unwrapLists(raw: NestedList[] | NestedList | null): NestedList[] {
   if (!raw) return [];
   return Array.isArray(raw) ? raw : [raw];
@@ -116,7 +112,7 @@ function mapItem(row: ItemRow, today: Date, collectionEarliest: string | null): 
       today,
     ),
     detail,
-    suggestion: formatSuggestion(row.suggestion),
+    suggestion: helpfulSuggestion(row),
     opener: row.action_description || detail || body || title,
     src: row.source_label || row.source_email_subject || 'Plan',
     icon: resolvePlanIcon({ title, category: row.category, stored: row.icon, collectionType: shopping ? 'shopping' : null }),

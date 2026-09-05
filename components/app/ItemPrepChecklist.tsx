@@ -32,18 +32,43 @@ export function ItemPrepChecklist({
   const canEdit = !!onToggleEditing;
   if (!items.length && !canEdit && !editing) return null;
 
+  const showNamedHeading = !!heading && heading.toLowerCase() !== 'getting ready';
+
+  function startChecklist(e?: { stopPropagation?: () => void }) {
+    e?.stopPropagation?.();
+    if (!editing) onToggleEditing?.();
+    onAdd?.();
+  }
+
+  if (!items.length) {
+    return (
+      <Pressable
+        style={s.prepInlineAdd}
+        onPress={(e) => {
+          e.stopPropagation();
+          startChecklist(e);
+        }}>
+        <Text style={s.prepInlineAddText}>
+          Need to break this down? <Text style={s.prepInlineAddLink}>Add a checklist</Text>
+        </Text>
+      </Pressable>
+    );
+  }
+
   return (
     <View style={s.prepList}>
       <View style={s.prepHeadingRow}>
-        {heading ? <Text style={s.prepHeading}>{heading}</Text> : <View />}
+        {showNamedHeading ? <Text style={s.prepHeading}>{heading}</Text> : null}
         {onToggleEditing ? (
           <Pressable
-            style={s.prepEditBtn}
+            style={showNamedHeading ? s.prepEditBtn : s.prepAdd}
             onPress={(e) => {
               e.stopPropagation();
               onToggleEditing();
             }}>
-            <Text style={s.prepEditBtnText}>{editing ? 'Done' : 'Edit'}</Text>
+            <Text style={showNamedHeading ? s.prepEditBtnText : s.prepAddText}>
+              {editing ? 'Done' : 'Edit'}
+            </Text>
           </Pressable>
         ) : null}
       </View>

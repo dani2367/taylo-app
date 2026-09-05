@@ -1,13 +1,31 @@
 import { appStyles as s } from '@/components/app/styles';
 import { TayloWordmark } from '@/components/app/TayloWordmark';
+import { colors } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
 function greetingForName(name: string) {
   const hr = new Date().getHours();
   const timeGreet = hr < 12 ? 'morning' : hr < 17 ? 'afternoon' : 'evening';
   return name ? `Good ${timeGreet}, ${name}` : `Good ${timeGreet}`;
+}
+
+export function HomeBrandBar() {
+  return (
+    <View style={s.homeBrandBar}>
+      <TayloWordmark size={26} />
+      <Pressable
+        style={s.homeBrandIconBtn}
+        onPress={() => router.push('/more')}
+        accessibilityRole="button"
+        accessibilityLabel="More">
+        <Ionicons name="menu-outline" size={22} color={colors.navy} />
+      </Pressable>
+    </View>
+  );
 }
 
 export function AppHeader() {
