@@ -1,4 +1,4 @@
-import { compareRadarItems, isRadarHorizon, radarStatusLine, type RadarItem } from './radar';
+import { compareRadarItems, radarStatusLine, type RadarItem } from './radar';
 
 const today = new Date(2026, 8, 5); // 5 Sep 2026
 
@@ -20,12 +20,6 @@ function expect(name: string, got: unknown, want: unknown) {
   }
   console.log(`ok ${name}`);
 }
-
-expect('dateless → radar', isRadarHorizon(item({}), today), true);
-expect('near date still radar', isRadarHorizon(item({ event_date: ymd(2) }), today), true);
-expect('overdue still radar', isRadarHorizon(item({ event_date: ymd(-1) }), today), true);
-expect('far date radar', isRadarHorizon(item({ event_date: ymd(30) }), today), true);
-expect('undated upcoming still radar', isRadarHorizon(item({ urgency_level: 'upcoming' }), today), true);
 
 expect('no date copy', radarStatusLine(item({}), today), 'No date yet');
 expect(

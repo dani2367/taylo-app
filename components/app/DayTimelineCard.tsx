@@ -1,7 +1,7 @@
 import { BrandGlyph, BrandIconDisc } from '@/components/app/BrandIcon';
 import { appStyles as s } from '@/components/app/styles';
 import { colors } from '@/constants/theme';
-import { dayMood, happenCountLabel, isPreviewHappenId, type HappenItem } from '@/lib/happening';
+import { dayMood, happenCountLabel, type HappenItem } from '@/lib/happening';
 import { Pressable, Text, View } from 'react-native';
 
 const DAY_ICON = 36;
@@ -11,21 +11,23 @@ export function DayTimelineCard({
   items,
   footer,
   onItemPress,
+  emptyTitle,
 }: {
   kicker?: string;
   items: HappenItem[];
   footer?: { label: string; onPress: () => void };
   onItemPress?: (item: HappenItem) => void;
+  emptyTitle?: string;
 }) {
-  if (!items.length) return null;
+  if (!items.length && !emptyTitle) return null;
 
   return (
     <View style={s.homeDayCard}>
       <View style={s.homeDayHead}>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={s.homeDayKicker}>{kicker}</Text>
-          <Text style={s.homeDayTitle}>{dayMood(items.length)}</Text>
-          <Text style={s.homeDayCount}>{happenCountLabel(items.length)}</Text>
+          <Text style={s.homeDayTitle}>{items.length ? dayMood(items.length) : emptyTitle}</Text>
+          {items.length ? <Text style={s.homeDayCount}>{happenCountLabel(items.length)}</Text> : null}
         </View>
         <BrandGlyph name="sunny-outline" size={22} color={colors.terracotta} />
       </View>
@@ -58,7 +60,7 @@ export function DayTimelineCard({
             </View>
           </View>
         );
-        if (!onItemPress || isPreviewHappenId(item.id)) return <View key={item.id}>{row}</View>;
+        if (!onItemPress) return <View key={item.id}>{row}</View>;
         return (
           <Pressable key={item.id} onPress={() => onItemPress(item)}>
             {row}

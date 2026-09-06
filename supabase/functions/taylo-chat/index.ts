@@ -38,16 +38,16 @@ How you help
 - Answer what they asked, then one useful next step if it fits.
 - If you're unsure, ask one clear question instead of guessing.`;
 
-const OPENER_USER_PROMPT = `The user just opened this chat from a Today nudge. Return ONLY a JSON object, nothing else:
+const OPENER_USER_PROMPT = `The user just opened this chat from a Home item. Return ONLY a JSON object, nothing else:
 {
   "reply": "your first message",
   "chips": [{ "label": "short button", "msg": "the full message to send if they tap it" }]
 }
 
-reply: same voice as always — calm, observational, one short plain sentence, like a text. No urgency, no "don't forget", no exclamation marks. Start with a specific, useful observation or question. Address the parent as you. Use a child's name if the nudge is about that child. If they added this themselves (no email), briefly offer help — don't interrogate them.
+reply: same voice as always — calm, observational, one short plain sentence, like a text. No urgency, no "don't forget", no exclamation marks. Start with a specific, useful observation or question. Address the parent as you. Use a child's name if the item is about that child. If they added this themselves (no email), briefly offer help — don't interrogate them.
 Examples of the register: "Arlo's birthday is Saturday. You might want to pick up a card." / "The form is due Friday if you want it off your plate."
 
-chips: 0 to 3. Only include a chip if it would actually help with THIS nudge — e.g. draft a reply, what to pack, when the deadline is, gift ideas for a birthday. Label max ~5 words. msg is what they send, specific to this item.
+chips: 0 to 3. Only include a chip if it would actually help with THIS item — e.g. draft a reply, what to pack, when the deadline is, gift ideas for a birthday. Label max ~5 words. msg is what they send, specific to this item.
 Do NOT include generic chips ("what's the plan", "remind me", "what else this week", "dinner ideas"). If nothing useful, use [].`;
 
 type ConversationRow = {
@@ -350,7 +350,7 @@ function buildSystemPrompt(
 
   if (nudge) {
     parts.push(
-      `This thread is about a nudge from their Today list.
+      `This thread is about an item from Today's Actions.
 Title: ${nudge.title ?? conv.title}
 What you told them: ${nudge.body ?? ''}
 Detail: ${nudge.detail ?? ''}

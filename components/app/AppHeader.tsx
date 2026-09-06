@@ -44,8 +44,7 @@ export function AppHeader() {
         supabase
           .from('home_spotlight')
           .select('id', { count: 'exact', head: true })
-          .eq('user_id', user.id)
-          .eq('is_watching', false),
+          .eq('user_id', user.id),
       ]);
 
       if (profile?.first_name) setFirstName(profile.first_name);

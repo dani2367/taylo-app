@@ -37,7 +37,6 @@ export default function TabsLayout() {
           <Tabs.Screen name="plan" options={{ title: 'Plan' }} />
           <Tabs.Screen name="chat" options={{ title: 'Ask' }} />
           <Tabs.Screen name="more" options={{ href: null, title: 'More' }} />
-          <Tabs.Screen name="ahead" options={{ href: null, title: 'Ahead' }} />
         </Tabs>
       </View>
     </ChatProvider>

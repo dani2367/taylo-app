@@ -2,13 +2,7 @@ import { BrandGlyph, BrandIconDisc } from '@/components/app/BrandIcon';
 import { DayTimelineCard } from '@/components/app/DayTimelineCard';
 import { appStyles as s } from '@/components/app/styles';
 import { colors } from '@/constants/theme';
-import {
-  PREVIEW_HAPPENING,
-  happenClockLabel,
-  happenSortKey,
-  isPreviewHappenId,
-  type HappenItem,
-} from '@/lib/happening';
+import { happenClockLabel, happenSortKey, type HappenItem } from '@/lib/happening';
 import { cachedDensityInsight, refreshScheduleDensity } from '@/lib/schedule-density';
 import { resolvePlanIcon } from '@/lib/plan-icon';
 import {
@@ -94,10 +88,8 @@ export function PlanSchedule() {
       sub: item.sub,
       icon: resolvePlanIcon({ title: item.title, category: item.category, stored: item.storedIcon }),
     }));
-    if (real.length) return real.sort((a, b) => happenSortKey(a) - happenSortKey(b));
-    if (isToday) return [...PREVIEW_HAPPENING].sort((a, b) => happenSortKey(a) - happenSortKey(b));
-    return [];
-  }, [buckets.selected, isToday]);
+    return real.sort((a, b) => happenSortKey(a) - happenSortKey(b));
+  }, [buckets.selected]);
 
   const load = useCallback(async () => {
     const {
@@ -200,8 +192,8 @@ export function PlanSchedule() {
       <DayTimelineCard
         kicker={isToday ? 'Today' : selectedSectionTitle(selectedDate, today)}
         items={selectedHappen}
+        emptyTitle={rows.length ? (isToday ? 'Nothing on today' : 'Nothing on this day') : undefined}
         onItemPress={(item) => {
-          if (isPreviewHappenId(item.id)) return;
           router.push({ pathname: '/plan/item/[itemId]', params: { itemId: item.id } });
         }}
       />

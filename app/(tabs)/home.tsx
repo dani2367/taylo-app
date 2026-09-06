@@ -7,7 +7,7 @@ import { TayloMark } from '@/components/app/TayloMark';
 import { colors } from '@/constants/theme';
 import { isActiveCollection, organizeStandaloneItems } from '@/lib/collections';
 import { memberPalette } from '@/lib/demo-data';
-import { PREVIEW_HAPPENING, happenSortKey, type HappenItem } from '@/lib/happening';
+import { happenSortKey, type HappenItem } from '@/lib/happening';
 import { daysUntil, humanizeEventDate } from '@/lib/human-date';
 import { isUsableInsight, refreshNoticed } from '@/lib/noticed';
 import {
@@ -113,7 +113,6 @@ type SpotlightJoin = {
   item_id: string | null;
   reason_text: string;
   rank: number;
-  is_watching: boolean;
   items: ItemRow | ItemRow[] | null;
 };
 
@@ -125,7 +124,6 @@ type NudgeCard = {
   detail: string;
   reason: string;
   eventDate: string | null;
-  watching: boolean;
   category: string;
   categoryLabel: string;
   icon: PlanIconSpec;
@@ -193,7 +191,6 @@ function mapSpotlight(row: SpotlightJoin): NudgeCard | null {
     detail,
     reason: row.reason_text.trim(),
     eventDate: item.event_date,
-    watching: row.is_watching,
     category: item.category || '',
     categoryLabel: meta.label,
     icon: meta.icon,
@@ -382,10 +379,9 @@ export default function HomeScreen() {
         supabase
           .from('home_spotlight')
           .select(
-            'id, item_id, reason_text, rank, is_watching, items(id, title, body, detail, suggestion, category, action_description, event_date, who_it_affects, urgency_level, status, source_email_subject, source, collections(status))',
+            'id, item_id, reason_text, rank, items(id, title, body, detail, suggestion, category, action_description, event_date, who_it_affects, urgency_level, status, source_email_subject, source, collections(status))',
           )
           .eq('user_id', user.id)
-          .eq('is_watching', false)
           .order('rank', { ascending: true }),
         supabase
           .from('items')
@@ -418,11 +414,7 @@ export default function HomeScreen() {
         sub: happenSub(item),
         icon: resolvePlanIcon({ title: item.title, category: item.category }),
       }));
-    setHappening(
-      (realHappening.length ? realHappening : [...PREVIEW_HAPPENING]).sort(
-        (a, b) => happenSortKey(a) - happenSortKey(b),
-      ),
-    );
+    setHappening(realHappening.sort((a, b) => happenSortKey(a) - happenSortKey(b)));
 
     const memberRows = (members as { id: string; role: string; first_name: string | null; last_name: string | null }[] | null) ?? [];
     const cardsOut: FamilyCard[] = [];
@@ -708,15 +700,14 @@ export default function HomeScreen() {
               )}
             </View>
 
-            {happening.length ? (
-              <DayTimelineCard
-                items={happening}
-                footer={{
-                  label: 'See full day ›',
-                  onPress: () => router.push({ pathname: '/plan', params: { tab: 'schedule' } }),
-                }}
-              />
-            ) : null}
+            <DayTimelineCard
+              items={happening}
+              emptyTitle="Nothing on today"
+              footer={{
+                label: 'See full day ›',
+                onPress: () => router.push({ pathname: '/plan', params: { tab: 'schedule' } }),
+              }}
+            />
 
             {noticed ? (
               <View style={{ marginTop: 6 }}>

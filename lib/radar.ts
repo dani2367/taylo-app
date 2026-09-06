@@ -1,22 +1,16 @@
-import { humanizeEventDate, parseEventDate } from './human-date';
-import { daysUntil, type PlanHorizonItem } from './plan-horizon';
+import { daysUntil, humanizeEventDate, parseEventDate } from './human-date';
 
 export const RADAR_PREVIEW = 5;
 
-export type RadarItem = PlanHorizonItem & {
+export type RadarItem = {
   id: string;
   title: string | null;
   body?: string | null;
+  event_date: string | null;
+  urgency_level?: string | null;
+  status?: string | null;
   created_at?: string | null;
 };
-
-/**
- * Remaining standalone items after lists have claimed the loose to-dos.
- * Dated near-term things stay here too — this is the full rest of the pile.
- */
-export function isRadarHorizon(_item?: PlanHorizonItem, _today = new Date()): boolean {
-  return true;
-}
 
 export function compareRadarItems(a: RadarItem, b: RadarItem, today = new Date()): number {
   const da = daysUntil(a.event_date, today);

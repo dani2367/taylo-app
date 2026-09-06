@@ -6,7 +6,6 @@ const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-sonnet-5';
 const STALE_MS = 4 * 60 * 60 * 1000;
 const MAX_SPOTLIGHT = 6;
-const MAX_WATCHING = 4;
 const MAX_FACTS = 50;
 
 type ItemRow = {
@@ -115,7 +114,7 @@ Deno.serve(async (req: Request) => {
     );
     if (!items.length) {
       await supabase.from('home_spotlight').delete().eq('user_id', user.id);
-      return json({ success: true, spotlight: 0, watching: 0 });
+      return json({ success: true, spotlight: 0 });
     }
 
     const itemIds = items.map((item) => item.id);
@@ -126,7 +125,7 @@ Deno.serve(async (req: Request) => {
       loadHousehold(supabase, user.id),
     ]);
 
-    let ranked: { spotlight: Ranked[]; watching: Ranked[] };
+    let ranked: Ranked[];
     try {
       ranked = await rankItems(anthropicKey, items, checklists, facts, recentChat, household);
     } catch (err) {
@@ -134,24 +133,13 @@ Deno.serve(async (req: Request) => {
       ranked = fallbackRank(items, checklists);
     }
     const generatedAt = new Date().toISOString();
-    const rows = [
-      ...ranked.spotlight.map((entry, index) => ({
-        user_id: user.id,
-        item_id: entry.item_id,
-        reason_text: entry.reason_text,
-        rank: index,
-        is_watching: false,
-        generated_at: generatedAt,
-      })),
-      ...ranked.watching.map((entry, index) => ({
-        user_id: user.id,
-        item_id: entry.item_id,
-        reason_text: entry.reason_text,
-        rank: index,
-        is_watching: true,
-        generated_at: generatedAt,
-      })),
-    ];
+    const rows = ranked.map((entry, index) => ({
+      user_id: user.id,
+      item_id: entry.item_id,
+      reason_text: entry.reason_text,
+      rank: index,
+      generated_at: generatedAt,
+    }));
 
     const { error: deleteError } = await supabase
       .from('home_spotlight')
@@ -174,8 +162,7 @@ Deno.serve(async (req: Request) => {
       success: true,
       skipped: false,
       generated_at: generatedAt,
-      spotlight: ranked.spotlight.length,
-      watching: ranked.watching.length,
+      spotlight: ranked.length,
     });
   } catch (err) {
     console.error('Unhandled error:', err);
@@ -294,11 +281,11 @@ async function rankItems(
   facts: FactRow[],
   recentChat: string,
   household: Household,
-): Promise<{ spotlight: Ranked[]; watching: Ranked[] }> {
+): Promise<Ranked[]> {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
   const raw = await callClaude(apiKey, systemPrompt(household, today), userPrompt(items, checklists, facts, recentChat));
   const parsed = parseRanked(raw, items);
-  if (parsed.spotlight.length || parsed.watching.length) return parsed;
+  if (parsed.length) return parsed;
   return fallbackRank(items, checklists);
 }
 
@@ -309,18 +296,16 @@ Today (Europe/London) is ${today}.
 
 Return ONLY a JSON object, nothing else:
 {
-  "spotlight": [{ "item_id": "uuid", "reason": "why this matters now" }],
-  "watching": [{ "item_id": "uuid", "reason": "why you're keeping an eye on it" }]
+  "spotlight": [{ "item_id": "uuid", "reason": "why this matters now" }]
 }
 
 spotlight: 4–6 items that deserve attention right now. Fewer is fine if there aren't that many genuine ones. Never more than 6.
-watching: 2–4 lower-priority items that are approaching but not urgent. 0 is fine. Never more than 4.
-Never put the same item in both lists. Only use item_id values from the provided list.
+Only use item_id values from the provided list.
 
 reason: first person as Taylo, like a text from a friend. Maximum ~15 words. Contractions, a little warmth. One specific detail — a date, a name, leftover prep, something from family context or a recent chat. No emoji.
 
-Sound like: "If you're near a shop, carrots are still on the list." / "Sports day tomorrow — kit's not packed yet." / "I'll keep an eye on the dentist one; it's not for a bit."
-Not like: "This is on your list." / "You added this recently." / "This needs doing." / "Urgent: complete this task."
+Sound like: "If you're near a shop, carrots are still on the list." / "Sports day tomorrow — kit's not packed yet."
+Not like: "This is on your list." / "You added this recently." / "This needs doing." / "Urgent: complete this task." / "I'll keep an eye on this."
 
 Never guilt them. Never name the Home screen "Today".
 
@@ -357,20 +342,17 @@ Recent conversation snippets (lean; ignore unless genuinely relevant):
 ${recentChat.trim() || '(none)'}`;
 }
 
-function parseRanked(raw: string, items: ItemRow[]): { spotlight: Ranked[]; watching: Ranked[] } {
+function parseRanked(raw: string, items: ItemRow[]): Ranked[] {
   const known = new Set(items.map((item) => item.id));
   const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  let parsed: { spotlight?: unknown; watching?: unknown } = {};
+  let parsed: { spotlight?: unknown } = {};
   try {
-    parsed = JSON.parse(trimmed) as { spotlight?: unknown; watching?: unknown };
+    parsed = JSON.parse(trimmed) as { spotlight?: unknown };
   } catch {
     parsed = {};
   }
 
-  const used = new Set<string>();
-  const spotlight = takeRanked(parsed.spotlight, known, used, MAX_SPOTLIGHT);
-  const watching = takeRanked(parsed.watching, known, used, MAX_WATCHING);
-  return { spotlight, watching };
+  return takeRanked(parsed.spotlight, known, new Set<string>(), MAX_SPOTLIGHT);
 }
 
 function takeRanked(
@@ -405,7 +387,7 @@ function cleanReason(value: unknown): string {
 function fallbackRank(
   items: ItemRow[],
   checklists: Map<string, ChecklistEntry[]>,
-): { spotlight: Ranked[]; watching: Ranked[] } {
+): Ranked[] {
   const urgencyScore: Record<string, number> = {
     today: 4,
     this_week: 3,
@@ -419,17 +401,10 @@ function fallbackRank(
     return (a.event_date ?? '9999').localeCompare(b.event_date ?? '9999');
   });
 
-  const spotlight = sorted.slice(0, Math.min(MAX_SPOTLIGHT, sorted.length)).map((item) => ({
+  return sorted.slice(0, Math.min(MAX_SPOTLIGHT, sorted.length)).map((item) => ({
     item_id: item.id,
     reason_text: fallbackReason(item, checklists.get(item.id) ?? []),
   }));
-  const watching = sorted
-    .slice(spotlight.length, spotlight.length + MAX_WATCHING)
-    .map((item) => ({
-      item_id: item.id,
-      reason_text: fallbackReason(item, checklists.get(item.id) ?? []),
-    }));
-  return { spotlight, watching };
 }
 
 function fallbackReason(item: ItemRow, prep: ChecklistEntry[]): string {

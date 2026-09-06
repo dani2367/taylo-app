@@ -25,7 +25,7 @@ type ItemRow = {
 type FactRow = { subject: string; fact: string; category: string | null };
 type ConvRow = { id: string; title: string | null; kind: string | null };
 type MsgRow = { conversation_id: string; sender: string; body: string; created_at: string };
-type SpotlightRow = { item_id: string | null; reason_text: string | null; is_watching: boolean };
+type SpotlightRow = { item_id: string | null; reason_text: string | null };
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -170,9 +170,8 @@ function isActiveCollection(raw: ItemRow['collections']): boolean {
 async function loadSpotlight(supabase: SupabaseClient, userId: string): Promise<SpotlightRow[]> {
   const { data, error } = await supabase
     .from('home_spotlight')
-    .select('item_id, reason_text, is_watching')
+    .select('item_id, reason_text')
     .eq('user_id', userId)
-    .eq('is_watching', false)
     .order('rank', { ascending: true })
     .limit(6);
 

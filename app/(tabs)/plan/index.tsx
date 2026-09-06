@@ -18,7 +18,6 @@ import { resolvePlanIcon, type PlanIconSpec } from '@/lib/plan-icon';
 import { isListHubTitle } from '@/lib/radar-organize';
 import { compareRadarItems, RADAR_PREVIEW, radarStatusLine, type RadarItem } from '@/lib/radar';
 import { supabase } from '@/lib/supabase';
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -226,15 +225,8 @@ export default function PlanScreen() {
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={s.screen} keyboardShouldPersistTaps="handled">
       <View style={s.homeGreetBlock}>
-        <View style={s.planHeadRow}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={s.homeGreetTitle}>Plan</Text>
-            <Text style={s.homeGreetSub}>{copy.sub}</Text>
-          </View>
-          <Pressable style={s.homeBrandIconBtn} accessibilityRole="button" accessibilityLabel="Filters">
-            <Ionicons name="options-outline" size={22} color={colors.navy} />
-          </Pressable>
-        </View>
+        <Text style={s.homeGreetTitle}>Plan</Text>
+        <Text style={s.homeGreetSub}>{copy.sub}</Text>
       </View>
 
       <View style={s.planSeg}>
