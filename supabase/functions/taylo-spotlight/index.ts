@@ -68,21 +68,29 @@ Deno.serve(async (req: Request) => {
       auth: { persistSession: false },
     });
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(
-      authHeader.replace('Bearer ', ''),
-    );
+    const token = authHeader.replace(/^Bearer\s+/i, '');
+    const body = await readBody(req);
+    const force = Boolean(body.force);
 
-    if (authError || !user) {
-      return json({ error: 'Invalid or expired session' }, 401);
+    let userId: string | undefined;
+    if (token === serviceRoleKey) {
+      userId = typeof body.user_id === 'string' ? body.user_id : undefined;
+      if (!userId) return json({ error: 'Missing user_id' }, 400);
+    } else {
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !user) {
+        return json({ error: 'Invalid or expired session' }, 401);
+      }
+      userId = user.id;
     }
 
-    const force = await readForce(req);
+    if (!userId) return json({ error: 'Missing user' }, 401);
 
     if (!force) {
       const { data: latest } = await supabase
         .from('home_spotlight')
         .select('generated_at')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .order('generated_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -98,9 +106,8 @@ Deno.serve(async (req: Request) => {
       .select(
         'id, title, body, detail, category, action_description, event_date, who_it_affects, urgency_level, source, created_at, collection_id, collections(status, type)',
       )
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('status', 'open')
-      .neq('source', 'calendar')
       .order('created_at', { ascending: false })
       .limit(40);
 
@@ -113,28 +120,39 @@ Deno.serve(async (req: Request) => {
       (item) => !belongsToCompletedCollection(item.collections),
     );
     if (!items.length) {
-      await supabase.from('home_spotlight').delete().eq('user_id', user.id);
+      await supabase.from('home_spotlight').delete().eq('user_id', userId);
       return json({ success: true, spotlight: 0 });
     }
 
     const itemIds = items.map((item) => item.id);
     const [checklists, facts, recentChat, household] = await Promise.all([
       loadChecklists(supabase, itemIds),
-      loadFacts(supabase, user.id),
-      loadRecentChat(supabase, user.id),
-      loadHousehold(supabase, user.id),
+      loadFacts(supabase, userId),
+      loadRecentChat(supabase, userId),
+      loadHousehold(supabase, userId),
     ]);
+
+    const rankable = items.filter((item) => {
+      const prep = checklists.get(item.id) ?? [];
+      if (prep.some((row) => !row.done)) return true;
+      if (item.action_description?.trim()) return true;
+      return (item.source || '').toLowerCase() !== 'calendar';
+    });
+    if (!rankable.length) {
+      await supabase.from('home_spotlight').delete().eq('user_id', userId);
+      return json({ success: true, spotlight: 0 });
+    }
 
     let ranked: Ranked[];
     try {
-      ranked = await rankItems(anthropicKey, items, checklists, facts, recentChat, household);
+      ranked = await rankItems(anthropicKey, rankable, checklists, facts, recentChat, household);
     } catch (err) {
       console.error('Spotlight ranking failed, using fallback:', err);
-      ranked = fallbackRank(items, checklists);
+      ranked = fallbackRank(rankable, checklists);
     }
     const generatedAt = new Date().toISOString();
     const rows = ranked.map((entry, index) => ({
-      user_id: user.id,
+      user_id: userId,
       item_id: entry.item_id,
       reason_text: entry.reason_text,
       rank: index,
@@ -144,7 +162,7 @@ Deno.serve(async (req: Request) => {
     const { error: deleteError } = await supabase
       .from('home_spotlight')
       .delete()
-      .eq('user_id', user.id);
+      .eq('user_id', userId);
     if (deleteError) {
       console.error('Failed to clear spotlight:', deleteError.message);
       return json({ error: 'Failed to save spotlight' }, 500);
@@ -170,12 +188,11 @@ Deno.serve(async (req: Request) => {
   }
 });
 
-async function readForce(req: Request): Promise<boolean> {
+async function readBody(req: Request): Promise<{ force?: unknown; user_id?: unknown }> {
   try {
-    const body = (await req.json()) as { force?: unknown };
-    return Boolean(body?.force);
+    return (await req.json()) as { force?: unknown; user_id?: unknown };
   } catch {
-    return false;
+    return {};
   }
 }
 
@@ -310,6 +327,8 @@ Not like: "This is on your list." / "You added this recently." / "This needs doi
 Never guilt them. Never name the Home screen "Today".
 
 Choose by genuine now-ness: urgency, proximity of event_date, incomplete checklist before an event, and anything actually relevant in family context or recent conversation. Do not just pick the most recently captured items. Rank individual items only — do not invent a collection-level card.
+
+Only spotlight items with a genuine open action: an incomplete checklist, or something the parent still needs to do. Skip purely informational events with no checklist and no action — they belong on Schedule, not Home.
 
 ${householdVoiceBlock(household)}`;
 }

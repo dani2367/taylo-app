@@ -15,7 +15,7 @@ import {
 import { itemCountLabel } from '@/lib/human-date';
 import { mapPlanItemRow, PLAN_ITEM_SELECT, type PlanItemRow } from '@/lib/plan-item-map';
 import { resolvePlanIcon, type PlanIconSpec } from '@/lib/plan-icon';
-import { isListHubTitle } from '@/lib/radar-organize';
+import { isListHubTitle, isRadarEligible } from '@/lib/radar-organize';
 import { compareRadarItems, RADAR_PREVIEW, radarStatusLine, type RadarItem } from '@/lib/radar';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect, router, useLocalSearchParams } from 'expo-router';
@@ -156,8 +156,7 @@ export default function PlanScreen() {
       .from('items')
       .select(`${PLAN_ITEM_SELECT}, created_at, source, collection_id`)
       .eq('user_id', user.id)
-      .eq('status', 'open')
-      .neq('source', 'calendar');
+      .eq('status', 'open');
 
     if (error) {
       console.error('Failed to load radar items:', error.message);
@@ -167,7 +166,7 @@ export default function PlanScreen() {
 
     const today = new Date();
     const later = ((itemData as (PlanItemRow & RadarItem & { source: string | null })[] | null) ?? [])
-      .filter((row) => !isListHubTitle(row.title))
+      .filter((row) => isRadarEligible(row))
       .sort((a, b) => compareRadarItems(a, b, today));
     setRadar(
       later.map((row) => ({

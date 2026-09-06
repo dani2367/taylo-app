@@ -1,4 +1,4 @@
-import { classifyStandaloneItem, isSimpleUserTodo, LIST_FROM_CHECKLIST_MIN, simpleListTitle } from './radar-organize';
+import { classifyStandaloneItem, isRadarEligible, isSimpleUserTodo, LIST_FROM_CHECKLIST_MIN, simpleListTitle } from './radar-organize';
 import { looksLikeGroceryProduct } from './shopping';
 
 function expect(name: string, got: unknown, want: unknown) {
@@ -62,5 +62,38 @@ expect('present from email is todo', isSimpleUserTodo({ title: "Get Dad's presen
 expect('farm trip title', simpleListTitle('Return the farm trip permission slip'), 'Farm trip');
 expect('teddy list title', simpleListTitle('Get Teddy a party present'), "Teddy's party");
 expect('min list size', LIST_FROM_CHECKLIST_MIN, 2);
+expect(
+  'calendar with open prep is radar-eligible',
+  isRadarEligible({
+    title: "Dad's birthday",
+    source: 'calendar',
+    checklists: [{ checklist_items: [{ done: false }, { done: true }] }],
+  }),
+  true,
+);
+expect(
+  'plain calendar meeting is not radar-eligible',
+  isRadarEligible({
+    title: 'Standup',
+    source: 'calendar',
+    checklists: [],
+  }),
+  false,
+);
+expect(
+  'named calendar meeting with a follow-up note is radar-eligible',
+  isRadarEligible({
+    title: "Meeting with Sophie about Taya's VF",
+    source: 'calendar',
+    action_description: "Taya's VF is on the 23rd. Tell me if you need anything for it.",
+    checklists: [],
+  }),
+  true,
+);
+expect(
+  'email item without checklist stays radar-eligible',
+  isRadarEligible({ title: 'Book dentist', source: 'email' }),
+  true,
+);
 
 if (!process.exitCode) console.log('radar-organize self-test passed');

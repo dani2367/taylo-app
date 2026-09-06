@@ -115,6 +115,7 @@ Deno.serve(async (req: Request) => {
         {
           user_id: user.id,
           provider: 'microsoft',
+          connected: true,
           access_token: tokens.access_token,
           refresh_token: tokens.refresh_token,
           expires_at: expiresAt,
@@ -135,6 +136,14 @@ Deno.serve(async (req: Request) => {
         Authorization: `Bearer ${serviceRoleKey}`,
       },
       body: JSON.stringify({ initial_sync: true, user_id: user.id }),
+    });
+    fetch(`${supabaseUrl}/functions/v1/outlook-calendar-sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${serviceRoleKey}`,
+      },
+      body: JSON.stringify({ user_id: user.id }),
     });
 
     return json({ success: true });

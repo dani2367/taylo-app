@@ -14,9 +14,12 @@ import {
   formatSelectorLabel,
   LATER_PREVIEW,
   mapAgendaRow,
+  MAX_WEEK_OFFSET,
   selectedSectionTitle,
   thingsAheadLabel,
   weekCellInitial,
+  weekDaysAtOffset,
+  weekSectionLabel,
   ymdLocal,
   type AgendaRow,
   type BusyDay,
@@ -61,7 +64,8 @@ export function AgendaItemRow({
 
 export function PlanSchedule() {
   const today = useMemo(() => new Date(), []);
-  const week = useMemo(() => currentWeekDays(today), [today]);
+  const [weekOffset, setWeekOffset] = useState(0);
+  const week = useMemo(() => weekDaysAtOffset(today, weekOffset), [today, weekOffset]);
   const [selectedYmd, setSelectedYmd] = useState(() => ymdLocal(today));
   const [rows, setRows] = useState<AgendaRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -108,7 +112,6 @@ export function PlanSchedule() {
       .select(SELECT)
       .eq('user_id', user.id)
       .eq('status', 'open')
-      .neq('source', 'calendar')
       .not('event_date', 'is', null);
 
     if (error) {
@@ -157,7 +160,10 @@ export function PlanSchedule() {
       {density && busy ? (
         <Pressable
           style={s.scheduleNotice}
-          onPress={() => setSelectedYmd(busy.ymd)}
+          onPress={() => {
+            setWeekOffset(0);
+            setSelectedYmd(busy.ymd);
+          }}
           accessibilityRole="button"
           accessibilityLabel="See the busy day">
           <BrandGlyph name="sparkles-outline" size={18} color={colors.terracotta} />
@@ -167,26 +173,52 @@ export function PlanSchedule() {
       ) : null}
 
       <View style={s.homeSectionHead}>
-        <Text style={s.homeSectionLabel}>This week</Text>
+        <Text style={s.homeSectionLabel}>{weekSectionLabel(weekOffset)}</Text>
         <Pressable onPress={() => setPicker(true)} hitSlop={8} style={s.scheduleSelector}>
           <Text style={s.homeSeeAll}>{formatSelectorLabel(selectedDate, today)} ▾</Text>
         </Pressable>
       </View>
 
-      <View style={s.scheduleWeek}>
-        {week.map((day) => {
-          const ymd = ymdLocal(day);
-          const on = ymd === selectedYmd;
-          return (
-            <Pressable
-              key={ymd}
-              style={[s.scheduleWeekCell, on && s.scheduleWeekCellOn]}
-              onPress={() => setSelectedYmd(ymd)}>
-              <Text style={[s.scheduleWeekInitial, on && s.scheduleWeekTextOn]}>{weekCellInitial(day)}</Text>
-              <Text style={[s.scheduleWeekNum, on && s.scheduleWeekTextOn]}>{day.getDate()}</Text>
-            </Pressable>
-          );
-        })}
+      <View style={s.scheduleWeekNav}>
+        <Pressable
+          style={[s.scheduleWeekArrow, weekOffset <= 0 && s.scheduleWeekArrowOff]}
+          disabled={weekOffset <= 0}
+          onPress={() => {
+            const next = weekOffset - 1;
+            setWeekOffset(next);
+            setSelectedYmd(next <= 0 ? ymdLocal(today) : ymdLocal(weekDaysAtOffset(today, next)[0]));
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Previous week">
+          <Ionicons name="chevron-back" size={18} color={colors.navy} />
+        </Pressable>
+        <View style={s.scheduleWeek}>
+          {week.map((day) => {
+            const ymd = ymdLocal(day);
+            const on = ymd === selectedYmd;
+            return (
+              <Pressable
+                key={ymd}
+                style={[s.scheduleWeekCell, on && s.scheduleWeekCellOn]}
+                onPress={() => setSelectedYmd(ymd)}>
+                <Text style={[s.scheduleWeekInitial, on && s.scheduleWeekTextOn]}>{weekCellInitial(day)}</Text>
+                <Text style={[s.scheduleWeekNum, on && s.scheduleWeekTextOn]}>{day.getDate()}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Pressable
+          style={[s.scheduleWeekArrow, weekOffset >= MAX_WEEK_OFFSET && s.scheduleWeekArrowOff]}
+          disabled={weekOffset >= MAX_WEEK_OFFSET}
+          onPress={() => {
+            const next = weekOffset + 1;
+            setWeekOffset(next);
+            setSelectedYmd(ymdLocal(weekDaysAtOffset(today, next)[0]));
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Next week">
+          <Ionicons name="chevron-forward" size={18} color={colors.navy} />
+        </Pressable>
       </View>
 
       <DayTimelineCard
@@ -281,8 +313,8 @@ export function PlanSchedule() {
       <Modal visible={picker} animationType="fade" transparent onRequestClose={() => setPicker(false)}>
         <Pressable style={s.planModalScrim} onPress={() => setPicker(false)}>
           <Pressable style={s.planModalCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={s.planModalTitle}>This week</Text>
-            <Text style={s.planModalHint}>Jump to a day. Other weeks can wait.</Text>
+            <Text style={s.planModalTitle}>{weekSectionLabel(weekOffset)}</Text>
+            <Text style={s.planModalHint}>Jump to a day, or use the arrows for next week.</Text>
             {week.map((day) => {
               const ymd = ymdLocal(day);
               const on = ymd === selectedYmd;

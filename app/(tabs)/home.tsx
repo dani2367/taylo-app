@@ -5,6 +5,7 @@ import { ItemPrepChecklist, type PrepCheckItem } from '@/components/app/ItemPrep
 import { appStyles as s, iconBg } from '@/components/app/styles';
 import { TayloMark } from '@/components/app/TayloMark';
 import { colors } from '@/constants/theme';
+import { syncAppleCalendar } from '@/lib/apple-calendar';
 import { isActiveCollection, organizeStandaloneItems } from '@/lib/collections';
 import { memberPalette } from '@/lib/demo-data';
 import { happenSortKey, type HappenItem } from '@/lib/happening';
@@ -103,6 +104,7 @@ type ItemRow = {
   urgency_level: string | null;
   status: NudgeStatus | null;
   source_email_subject: string | null;
+  source_label: string | null;
   source: 'email' | 'chat' | 'manual' | 'calendar' | null;
   suggestion: string | null;
   collections: { status: string | null } | { status: string | null }[] | null;
@@ -176,7 +178,7 @@ function unwrapItem(raw: ItemRow | ItemRow[] | null): ItemRow | null {
 
 function mapSpotlight(row: SpotlightJoin): NudgeCard | null {
   const item = unwrapItem(row.items);
-  if (!item || item.status !== 'open' || item.source === 'calendar') return null;
+  if (!item || item.status !== 'open') return null;
   if (!isActiveCollection(item.collections)) return null;
   const addedByUser = item.source === 'manual' || item.source === 'chat';
   const meta = formatCategory(item.category);
@@ -196,7 +198,7 @@ function mapSpotlight(row: SpotlightJoin): NudgeCard | null {
     icon: meta.icon,
     cls: meta.cls,
     opener: item.action_description || body || title,
-    src: addedByUser ? meta.label : item.source_email_subject || meta.label,
+    src: addedByUser ? meta.label : item.source_label || item.source_email_subject || meta.label,
     suggestion: helpfulSuggestion(item),
     addedByUser,
     checklistId: null,
@@ -206,7 +208,7 @@ function mapSpotlight(row: SpotlightJoin): NudgeCard | null {
 
 function timeFromEventDate(raw: string | null): string | null {
   if (!raw) return null;
-  const match = /T(\d{2}):(\d{2})/.exec(raw);
+  const match = /(?:T| )(\d{2}):(\d{2})/.exec(raw);
   if (!match) return null;
   const hour = Number(match[1]);
   const minute = match[2];
@@ -379,14 +381,14 @@ export default function HomeScreen() {
         supabase
           .from('home_spotlight')
           .select(
-            'id, item_id, reason_text, rank, items(id, title, body, detail, suggestion, category, action_description, event_date, who_it_affects, urgency_level, status, source_email_subject, source, collections(status))',
+            'id, item_id, reason_text, rank, items(id, title, body, detail, suggestion, category, action_description, event_date, who_it_affects, urgency_level, status, source_email_subject, source_label, source, collections(status))',
           )
           .eq('user_id', user.id)
           .order('rank', { ascending: true }),
         supabase
           .from('items')
           .select(
-            'id, title, body, detail, suggestion, category, action_description, event_date, who_it_affects, urgency_level, status, source_email_subject, source, collections(status)',
+            'id, title, body, detail, suggestion, category, action_description, event_date, who_it_affects, urgency_level, status, source_email_subject, source_label, source, collections(status)',
           )
           .eq('user_id', user.id)
           .eq('status', 'open'),
@@ -464,6 +466,7 @@ export default function HomeScreen() {
 
   const loadAndMaybeRefresh = useCallback(
     async (force = false) => {
+      await syncAppleCalendar();
       await load();
       const [{ regenerated: spot }, { regenerated: note }] = await Promise.all([
         refreshSpotlight({ force }),

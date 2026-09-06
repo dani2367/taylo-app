@@ -9,9 +9,13 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.tayloapp.taylo"
+      "bundleIdentifier": "com.tayloapp.taylo",
+      "infoPlist": {
+        "UIBackgroundModes": ["fetch"]
+      }
     },
     "android": {
+      "package": "com.tayloapp.taylo",
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#F8F3EC",
@@ -42,7 +46,15 @@
       "expo-font",
       "expo-image",
       "expo-status-bar",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Taylo uses your calendar to help you stay on top of what's coming up"
+        }
+      ],
+      "expo-task-manager",
+      "expo-background-fetch"
     ],
     "experiments": {
       "typedRoutes": true,

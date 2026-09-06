@@ -99,7 +99,6 @@ Deno.serve(async (req: Request) => {
       )
       .eq('user_id', user.id)
       .eq('status', 'open')
-      .neq('source', 'calendar')
       .order('created_at', { ascending: false })
       .limit(50);
 
@@ -306,7 +305,8 @@ function userPrompt(
   const itemLines = items.length
     ? items.map((item) => {
         const email = item.source_email_subject ? `email="${item.source_email_subject}"` : 'email=none';
-        return `- ${item.id} | ${item.title ?? 'Untitled'} | ${item.body ?? ''} | category=${item.category ?? 'none'} | date=${item.event_date ?? 'none'} | urgency=${item.urgency_level ?? 'none'} | who=${item.who_it_affects ?? 'none'} | ${email}`;
+        const source = item.source ? `source=${item.source}` : 'source=none';
+        return `- ${item.id} | ${item.title ?? 'Untitled'} | ${item.body ?? ''} | category=${item.category ?? 'none'} | date=${item.event_date ?? 'none'} | urgency=${item.urgency_level ?? 'none'} | who=${item.who_it_affects ?? 'none'} | ${source} | ${email}`;
       })
     : ['(none)'];
 

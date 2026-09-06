@@ -1,4 +1,5 @@
 import { colors, fontAssets } from '@/constants/theme';
+import '@/lib/apple-calendar-task';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';

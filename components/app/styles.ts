@@ -2129,15 +2129,30 @@ export const appStyles = StyleSheet.create({
     color: colors.textHint,
   },
   scheduleWeek: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 4,
+  },
+  scheduleWeekNav: {
     marginHorizontal: space.gutter,
     marginBottom: 4,
     paddingVertical: 8,
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
     flexDirection: 'row',
-    gap: 4,
+    alignItems: 'center',
+    gap: 2,
     backgroundColor: colors.cream,
     borderRadius: radii.card,
     ...cardLift,
+  },
+  scheduleWeekArrow: {
+    width: 28,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scheduleWeekArrowOff: {
+    opacity: 0.28,
   },
   scheduleWeekCell: {
     flex: 1,

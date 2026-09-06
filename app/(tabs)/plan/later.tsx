@@ -2,7 +2,7 @@ import { PlanItemFeed, PlanStackHeader } from '@/components/app/PlanItemFeed';
 import { appStyles as s } from '@/components/app/styles';
 import { colors } from '@/constants/theme';
 import { mapPlanItemRow, PLAN_ITEM_SELECT, type PlanItemRow } from '@/lib/plan-item-map';
-import { isListHubTitle } from '@/lib/radar-organize';
+import { isRadarEligible } from '@/lib/radar-organize';
 import { compareRadarItems, radarStatusLine, type RadarItem } from '@/lib/radar';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from 'expo-router';
@@ -28,8 +28,7 @@ export default function LaterRadarScreen() {
       .from('items')
       .select(`${PLAN_ITEM_SELECT}, collection_id, created_at, source`)
       .eq('user_id', user.id)
-      .eq('status', 'open')
-      .neq('source', 'calendar');
+      .eq('status', 'open');
 
     if (error) {
       console.error('Failed to load radar items:', error.message);
@@ -39,7 +38,7 @@ export default function LaterRadarScreen() {
 
     const today = new Date();
     const rows = ((data as (PlanItemRow & RadarItem & { source: string | null })[] | null) ?? [])
-      .filter((row) => !isListHubTitle(row.title))
+      .filter((row) => isRadarEligible(row))
       .sort((a, b) => compareRadarItems(a, b, today));
     setItems(
       rows.map((row) => ({

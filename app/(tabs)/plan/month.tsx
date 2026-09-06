@@ -34,7 +34,6 @@ export default function ScheduleMonthScreen() {
       .select('id, title, body, category, icon, event_date, who_it_affects, source')
       .eq('user_id', user.id)
       .eq('status', 'open')
-      .neq('source', 'calendar')
       .not('event_date', 'is', null);
 
     if (error) console.error('Failed to load month items:', error.message);

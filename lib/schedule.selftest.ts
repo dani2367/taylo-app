@@ -5,6 +5,8 @@ import {
   fallbackDensityLine,
   formatSelectorLabel,
   mapAgendaRow,
+  weekDaysAtOffset,
+  weekSectionLabel,
   ymdLocal,
   type AgendaRow,
   type ScheduleSourceItem,
@@ -39,7 +41,7 @@ function row(partial: Partial<ScheduleSourceItem> & { id: string; title: string;
   return mapped;
 }
 
-expect('calendar source stays off schedule', mapAgendaRow({
+expect('calendar source is on schedule', mapAgendaRow({
   id: 'c',
   title: 'Nursery',
   event_date: '2026-09-05',
@@ -48,7 +50,7 @@ expect('calendar source stays off schedule', mapAgendaRow({
   icon: null,
   who_it_affects: null,
   source: 'calendar',
-}, today), null);
+}, today)?.title, 'Nursery');
 
 expect('list hub stays off schedule', mapAgendaRow({
   id: 's',
@@ -144,5 +146,12 @@ expect(
 );
 
 expect('ymd', ymdLocal(today), '2026-09-05');
+const thisWeek = weekDaysAtOffset(today, 0);
+expect('this week starts Monday', ymdLocal(thisWeek[0]), '2026-08-31');
+expect('next week starts Monday', ymdLocal(weekDaysAtOffset(today, 1)[0]), '2026-09-07');
+expect('week after starts Monday', ymdLocal(weekDaysAtOffset(today, 2)[0]), '2026-09-14');
+expect('this week label', weekSectionLabel(0), 'This week');
+expect('next week label', weekSectionLabel(1), 'Next week');
+expect('two weeks label', weekSectionLabel(2), 'In two weeks');
 
 if (!process.exitCode) console.log('schedule self-test passed');

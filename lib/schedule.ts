@@ -82,8 +82,20 @@ export function addDays(d: Date, days: number): Date {
 }
 
 export function currentWeekDays(today = new Date()): Date[] {
-  const start = startOfWeek(today);
+  return weekDaysAtOffset(today, 0);
+}
+
+export const MAX_WEEK_OFFSET = 2;
+
+export function weekDaysAtOffset(today = new Date(), offsetWeeks = 0): Date[] {
+  const start = addDays(startOfWeek(today), offsetWeeks * 7);
   return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+}
+
+export function weekSectionLabel(offsetWeeks: number): string {
+  if (offsetWeeks <= 0) return 'This week';
+  if (offsetWeeks === 1) return 'Next week';
+  return 'In two weeks';
 }
 
 export function formatDayLabel(d: Date): string {
@@ -106,7 +118,6 @@ export function weekCellInitial(d: Date): string {
 }
 
 export function isScheduleItem(row: ScheduleSourceItem, today = new Date()): boolean {
-  if ((row.source || '').toLowerCase() === 'calendar') return false;
   if (isListHubTitle(row.title)) return false;
   return resolvePlanDate(row.event_date, today) != null;
 }
@@ -121,7 +132,7 @@ export function extractEventTime(
   eventDate: string | null | undefined,
   blob: string,
 ): { minutes: number | null; label: string | null } {
-  const iso = /T(\d{2}):(\d{2})/.exec(eventDate || '');
+  const iso = /(?:T| )(\d{2}):(\d{2})/.exec(eventDate || '');
   if (iso) {
     const hour = Number(iso[1]);
     const minute = Number(iso[2]);

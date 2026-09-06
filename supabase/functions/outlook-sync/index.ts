@@ -5,10 +5,8 @@ import {
   parseChecklistLabels,
 } from '../_shared/checklists.ts';
 import { householdVoiceBlock, loadHousehold, type Household } from '../_shared/household.ts';
+import { getFreshMicrosoftAccessToken, type MicrosoftConnection } from '../_shared/microsoft.ts';
 
-const MICROSOFT_TOKEN_URL =
-  'https://login.microsoftonline.com/common/oauth2/v2.0/token';
-const MICROSOFT_CLIENT_ID = 'f976566d-39c1-48bc-b140-e7a5a727afd5';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-haiku-4-5';
 const SENDER_BLOCKLIST = ['noreply', 'no-reply', 'donotreply', 'marketing', 'newsletter'];
@@ -69,10 +67,7 @@ Who you are talking to:
 ${householdVoiceBlock(household)}`;
 }
 
-type Connection = {
-  user_id: string;
-  refresh_token: string;
-};
+type Connection = MicrosoftConnection;
 
 const EMAIL_BODY_MAX_CHARS = 3000;
 
@@ -145,7 +140,7 @@ Deno.serve(async (req: Request) => {
 
     let connectionsQuery = supabase
       .from('connections')
-      .select('user_id, refresh_token')
+      .select('user_id, refresh_token, access_token, expires_at')
       .eq('provider', 'microsoft')
       .not('refresh_token', 'is', null);
 
@@ -175,11 +170,7 @@ Deno.serve(async (req: Request) => {
       console.log('Syncing user:', connection.user_id);
 
       try {
-        const accessToken = await getFreshAccessToken(
-          supabase,
-          connection.user_id,
-          connection.refresh_token,
-        );
+        const accessToken = await getFreshMicrosoftAccessToken(supabase, connection);
         const emails = await fetchEmails(accessToken, { unreadOnly, windowDays });
         console.log('Emails fetched:', emails.length);
 
@@ -391,60 +382,6 @@ function shouldDropEmail(email: GraphEmail, windowDays: number): boolean {
   }
 
   return false;
-}
-
-async function getFreshAccessToken(
-  supabase: SupabaseClient,
-  userId: string,
-  refreshToken: string,
-): Promise<string> {
-  const params = new URLSearchParams({
-    grant_type: 'refresh_token',
-    client_id: MICROSOFT_CLIENT_ID,
-    refresh_token: refreshToken,
-    scope: 'https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/Calendars.Read offline_access',
-  });
-
-  const res = await fetch(MICROSOFT_TOKEN_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params.toString(),
-  });
-
-  const body = await res.text();
-  console.log('Microsoft token refresh status:', res.status);
-
-  if (!res.ok) {
-    throw new Error(`Microsoft token refresh failed (${res.status})`);
-  }
-
-  const tokens = JSON.parse(body) as {
-    access_token: string;
-    refresh_token?: string;
-    expires_in: number;
-  };
-
-  const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
-  const update: { access_token: string; expires_at: string; updated_at: string; refresh_token?: string } = {
-    access_token: tokens.access_token,
-    expires_at: expiresAt,
-    updated_at: new Date().toISOString(),
-  };
-  if (tokens.refresh_token) {
-    update.refresh_token = tokens.refresh_token;
-  }
-
-  const { error } = await supabase
-    .from('connections')
-    .update(update)
-    .eq('user_id', userId)
-    .eq('provider', 'microsoft');
-
-  if (error) {
-    throw new Error(`Failed to store refreshed token: ${error.message}`);
-  }
-
-  return tokens.access_token;
 }
 
 async function setInitialSyncDone(

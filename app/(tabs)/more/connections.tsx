@@ -1,12 +1,22 @@
 import { appStyles as s } from '@/components/app/styles';
 import { colors } from '@/constants/theme';
 import { demoCalToggles, demoEmailToggles } from '@/lib/demo-data';
+import {
+  listDeviceCalendars,
+  loadAppleCalendarConnection,
+  registerAppleCalendarBackgroundSync,
+  requestAppleCalendarAccess,
+  saveAppleCalendarConnection,
+  syncAppleCalendar,
+  usesPreviewAppleCalendar,
+  type DeviceCalendar,
+} from '@/lib/apple-calendar';
 import { supabase } from '@/lib/supabase';
 import * as AuthSession from 'expo-auth-session';
 import { makeRedirectUri, useAuthRequest } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -41,6 +51,9 @@ export default function ConnectionsScreen() {
   const [outlook, setOutlook] = useState(false);
   const [outlookLoading, setOutlookLoading] = useState(false);
   const [apple, setApple] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
+  const [deviceCals, setDeviceCals] = useState<DeviceCalendar[]>([]);
+  const [selectedCalIds, setSelectedCalIds] = useState<string[]>([]);
 
   const redirectUri = __DEV__
     ? 'exp://192.168.0.120:8081'
@@ -61,6 +74,20 @@ export default function ConnectionsScreen() {
 
   const codeVerifierRef = useRef<string | null>(null);
   const exchangedCodeRef = useRef<string | null>(null);
+
+  const hydrateApple = useCallback(async () => {
+    const { connected, selectedIds } = await loadAppleCalendarConnection();
+    setApple(connected);
+    setSelectedCalIds(selectedIds);
+    if (connected) {
+      const calendars = await listDeviceCalendars();
+      setDeviceCals(calendars);
+    }
+  }, []);
+
+  useEffect(() => {
+    void hydrateApple();
+  }, [hydrateApple]);
 
   useEffect(() => {
     if (response?.type !== 'success') return;
@@ -128,6 +155,57 @@ export default function ConnectionsScreen() {
     })();
   }, [response, redirectUri]);
 
+  async function connectAppleCalendar() {
+    if (appleLoading) return;
+    setAppleLoading(true);
+    try {
+      const granted = await requestAppleCalendarAccess();
+      if (!granted) {
+        Alert.alert(
+          'Calendar access needed',
+          'Taylo reads your device calendars to show what\'s coming up. You can enable this in Settings.',
+        );
+        return;
+      }
+      const calendars = await listDeviceCalendars();
+      setDeviceCals(calendars);
+      const { error } = await saveAppleCalendarConnection({
+        connected: true,
+        selectedIds,
+      });
+      if (error) throw new Error(error);
+      setApple(true);
+      setCalOpen(true);
+      await registerAppleCalendarBackgroundSync();
+      await syncAppleCalendar();
+    } catch (e: unknown) {
+      Alert.alert('Connection failed', e instanceof Error ? e.message : 'Something went wrong.');
+    } finally {
+      setAppleLoading(false);
+    }
+  }
+
+  async function toggleDeviceCalendar(id: string) {
+    const next = selectedCalIds.includes(id)
+      ? selectedCalIds.filter((value) => value !== id)
+      : [...selectedCalIds, id];
+    setSelectedCalIds(next);
+    const { error } = await saveAppleCalendarConnection({ connected: true, selectedIds: next });
+    if (error) {
+      Alert.alert('Could not save calendars', error);
+      return;
+    }
+    void syncAppleCalendar();
+  }
+
+  const calendarSub = apple
+    ? selectedCalIds.length
+      ? `${selectedCalIds.length} calendar${selectedCalIds.length === 1 ? '' : 's'} selected`
+      : 'Choose which calendars to include'
+    : usesPreviewAppleCalendar()
+      ? 'Needs a development build to read your iPhone calendar'
+      : 'Connect Apple Calendar to sync what\'s coming up';
+
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={s.screen}>
       <View style={s.subnav}>
@@ -185,29 +263,60 @@ export default function ConnectionsScreen() {
         <Pressable style={[s.hhead, { backgroundColor: colors.blueLight }]} onPress={() => setCalOpen((v) => !v)}>
           <View style={{ flex: 1 }}>
             <Text style={[s.hheadTitle, { color: colors.navy }]}>Calendar</Text>
-            <Text style={[s.hheadSub, { color: colors.textMuted }]}>Google Calendar connected · syncing family events</Text>
+            <Text style={[s.hheadSub, { color: colors.textMuted }]}>{calendarSub}</Text>
           </View>
-          <Text style={s.bon}>Active</Text>
+          {apple ? <Text style={s.bon}>Active</Text> : null}
         </Pressable>
         {calOpen ? (
           <>
-            {cal.map((t, i) => (
-              <View key={t.key} style={[s.hitem, { paddingVertical: 7 }, i === cal.length - 1 && { borderBottomWidth: 0 }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.toggleRow}>{t.label}</Text>
-                  <Text style={s.toggleSub}>{t.sub}</Text>
-                </View>
-                <Toggle
-                  on={t.on}
-                  onToggle={() => setCal((prev) => prev.map((x) => (x.key === t.key ? { ...x, on: !x.on } : x)))}
-                />
+            {apple && deviceCals.length ? (
+              <>
+                <Text style={s.connSectionLabel}>Calendars to include</Text>
+                {deviceCals.map((calendar, i) => (
+                  <View
+                    key={calendar.id}
+                    style={[s.hitem, { paddingVertical: 7 }, i === deviceCals.length - 1 && { borderBottomWidth: 0 }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.toggleRow}>{calendar.title}</Text>
+                      {calendar.sub ? <Text style={s.toggleSub}>{calendar.sub}</Text> : null}
+                    </View>
+                    <Toggle
+                      on={selectedCalIds.includes(calendar.id)}
+                      onToggle={() => void toggleDeviceCalendar(calendar.id)}
+                    />
+                  </View>
+                ))}
+              </>
+            ) : apple ? (
+              <View style={[s.hitem, { paddingVertical: 10, borderBottomWidth: 0 }]}>
+                <Text style={s.toggleRow}>No device calendars found</Text>
+                <Text style={s.toggleSub}>
+                  Permission is on, but Taylo could not list calendars. This usually means the app
+                  is running in Expo Go instead of a development build.
+                </Text>
               </View>
-            ))}
+            ) : (
+              cal.map((t, i) => (
+                <View key={t.key} style={[s.hitem, { paddingVertical: 7 }, i === cal.length - 1 && { borderBottomWidth: 0 }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.toggleRow}>{t.label}</Text>
+                    <Text style={s.toggleSub}>{t.sub}</Text>
+                  </View>
+                  <Toggle
+                    on={t.on}
+                    onToggle={() => setCal((prev) => prev.map((x) => (x.key === t.key ? { ...x, on: !x.on } : x)))}
+                  />
+                </View>
+              ))
+            )}
             <View style={s.connAlso}>
               <Text style={s.connAlsoLabel}>Also connect:</Text>
-              <Pressable style={[s.connAlsoBtn, apple && s.connAlsoBtnOn]} onPress={() => setApple((v) => !v)}>
+              <Pressable
+                style={[s.connAlsoBtn, apple && s.connAlsoBtnOn]}
+                disabled={appleLoading || apple}
+                onPress={() => void connectAppleCalendar()}>
                 <Text style={[s.connAlsoBtnText, apple && s.connAlsoBtnTextOn]}>
-                  {apple ? 'Apple Calendar connected' : 'Apple Calendar'}
+                  {appleLoading ? 'Connecting…' : apple ? 'Apple Calendar connected' : 'Apple Calendar'}
                 </Text>
               </Pressable>
             </View>
