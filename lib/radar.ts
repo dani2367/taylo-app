@@ -7,17 +7,13 @@ export type RadarItem = {
   title: string | null;
   body?: string | null;
   event_date: string | null;
+  due_at?: string | null;
   urgency_level?: string | null;
   status?: string | null;
   created_at?: string | null;
 };
 
-export function compareRadarItems(a: RadarItem, b: RadarItem, today = new Date()): number {
-  const da = daysUntil(a.event_date, today);
-  const db = daysUntil(b.event_date, today);
-  if (da != null && db != null && da !== db) return da - db;
-  if (da != null && db == null) return -1;
-  if (da == null && db != null) return 1;
+export function compareRadarItems(a: RadarItem, b: RadarItem): number {
   const ca = a.created_at ? Date.parse(a.created_at) : 0;
   const cb = b.created_at ? Date.parse(b.created_at) : 0;
   if (ca !== cb) return cb - ca;
@@ -25,7 +21,7 @@ export function compareRadarItems(a: RadarItem, b: RadarItem, today = new Date()
 }
 
 export function radarStatusLine(item: RadarItem, today = new Date()): string {
-  const days = daysUntil(item.event_date, today);
+  const days = daysUntil(item.due_at || item.event_date, today);
   if (days == null) {
     const blob = `${item.title || ''} ${item.body || ''}`.toLowerCase();
     if (/\b(sort|pack|book|renew|apply|buy|organise|organize|still need)\b/.test(blob)) {
@@ -41,7 +37,7 @@ export function radarStatusLine(item: RadarItem, today = new Date()): string {
     return 'No date yet';
   }
 
-  const date = parseEventDate(item.event_date);
+  const date = parseEventDate(item.due_at || item.event_date);
   if (date) {
     const nextMonth = (today.getMonth() + 1) % 12;
     const nextYear = today.getMonth() === 11 ? today.getFullYear() + 1 : today.getFullYear();
@@ -52,7 +48,7 @@ export function radarStatusLine(item: RadarItem, today = new Date()): string {
 
   if (days > 45) return "No rush — I'll keep this on your radar";
 
-  const when = humanizeEventDate(item.event_date, today);
+  const when = humanizeEventDate(item.due_at || item.event_date, today);
   if (when) {
     if (/^in\s+/i.test(when)) return `Due ${when.toLowerCase()}`;
     return when;

@@ -36,35 +36,29 @@ export function isListHubTitle(title?: string | null): boolean {
   return t === 'shopping' || t === 'general to do' || looksLikeShoppingList(title || '');
 }
 
-export function incompleteChecklistCount(
-  checklists:
-    | { checklist_items?: { done?: boolean }[] | null }[]
-    | { checklist_items?: { done?: boolean }[] | null }
-    | null
-    | undefined,
-): number {
-  const lists = !checklists ? [] : Array.isArray(checklists) ? checklists : [checklists];
-  return lists.reduce(
-    (n, list) => n + (list.checklist_items ?? []).filter((entry) => !entry.done).length,
-    0,
-  );
+export type PrepChildStatus = { status?: string | null };
+
+function unwrapPrepChildren(
+  children: PrepChildStatus[] | PrepChildStatus | null | undefined,
+): PrepChildStatus[] {
+  if (!children) return [];
+  return Array.isArray(children) ? children : [children];
 }
 
-/** Radar shows items with a genuine open action. Calendar events with no follow-up stay on Schedule only. */
-export function isRadarEligible(item: {
-  title?: string | null;
-  source?: string | null;
-  action_description?: string | null;
-  suggestion?: string | null;
-  checklists?:
-    | { checklist_items?: { done?: boolean }[] | null }[]
-    | { checklist_items?: { done?: boolean }[] | null }
-    | null;
-}): boolean {
-  if (isListHubTitle(item.title)) return false;
-  if ((item.source || '').toLowerCase() !== 'calendar') return true;
-  if (incompleteChecklistCount(item.checklists) > 0) return true;
-  return Boolean(item.action_description?.trim() || item.suggestion?.trim());
+export function incompletePrepCount(
+  children: PrepChildStatus[] | PrepChildStatus | null | undefined,
+): number {
+  return unwrapPrepChildren(children).filter(
+    (row) => row.status !== 'done' && row.status !== 'dismissed' && row.status !== 'delegated',
+  ).length;
+}
+
+export function nestedListCount(
+  children: PrepChildStatus[] | PrepChildStatus | null | undefined,
+): number {
+  const rows = unwrapPrepChildren(children).filter((row) => row.status !== 'dismissed');
+  if (!rows.length) return 1;
+  return rows.filter((row) => row.status !== 'done' && row.status !== 'delegated').length;
 }
 
 export function simpleListTitle(raw: string): string {

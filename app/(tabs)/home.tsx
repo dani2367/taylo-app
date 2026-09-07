@@ -5,11 +5,21 @@ import { ItemPrepChecklist, type PrepCheckItem } from '@/components/app/ItemPrep
 import { appStyles as s, iconBg } from '@/components/app/styles';
 import { TayloMark } from '@/components/app/TayloMark';
 import { colors } from '@/constants/theme';
-import { syncAppleCalendar } from '@/lib/apple-calendar';
+import { subscribeAppleCalendarSync } from '@/lib/apple-calendar';
 import { isActiveCollection, organizeStandaloneItems } from '@/lib/collections';
 import { memberPalette } from '@/lib/demo-data';
 import { happenSortKey, type HappenItem } from '@/lib/happening';
 import { daysUntil, humanizeEventDate } from '@/lib/human-date';
+import {
+  displayItemTitle,
+  HOME_ACTION_LIMIT,
+  HOME_SURFACED_COOLDOWN_MS,
+  isFamilyVisible,
+  isScheduleItem,
+  selectHomeActions,
+  type HomeSurfaced,
+  type PlacementParent,
+} from '@/lib/placement';
 import { isUsableInsight, refreshNoticed } from '@/lib/noticed';
 import {
   persistChecklistAdd,
@@ -34,8 +44,6 @@ import {
   View,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
-
-const MAX_ACTIONS = 4;
 
 type FamilyCard = {
   key: string;
@@ -100,6 +108,14 @@ type ItemRow = {
   category: string | null;
   action_description: string | null;
   event_date: string | null;
+  due_at: string | null;
+  occurs_at: string | null;
+  kind: string | null;
+  confidence: string | null;
+  surface_from: string | null;
+  surface_until: string | null;
+  parent_id: string | null;
+  created_at: string | null;
   who_it_affects: string | null;
   urgency_level: string | null;
   status: NudgeStatus | null;
@@ -107,6 +123,7 @@ type ItemRow = {
   source_label: string | null;
   source: 'email' | 'chat' | 'manual' | 'calendar' | null;
   suggestion: string | null;
+  parent?: PlacementParent | PlacementParent[] | null;
   collections: { status: string | null } | { status: string | null }[] | null;
 };
 
@@ -115,6 +132,7 @@ type SpotlightJoin = {
   item_id: string | null;
   reason_text: string;
   rank: number;
+  generated_at?: string | null;
   items: ItemRow | ItemRow[] | null;
 };
 
@@ -171,28 +189,22 @@ function formatCategory(category: string | null) {
   };
 }
 
-function unwrapItem(raw: ItemRow | ItemRow[] | null): ItemRow | null {
-  if (!raw) return null;
-  return Array.isArray(raw) ? raw[0] ?? null : raw;
-}
-
-function mapSpotlight(row: SpotlightJoin): NudgeCard | null {
-  const item = unwrapItem(row.items);
-  if (!item || item.status !== 'open') return null;
+function mapActionCard(item: ItemRow, children: ItemRow[], reason: string, spotlightId: string): NudgeCard | null {
+  if (item.status !== 'open') return null;
   if (!isActiveCollection(item.collections)) return null;
   const addedByUser = item.source === 'manual' || item.source === 'chat';
   const meta = formatCategory(item.category);
-  const title = item.title || 'Nudge';
+  const title = displayItemTitle(item);
   const body = item.body || '';
   const detail = item.detail || item.action_description || body;
   return {
     id: item.id,
-    spotlightId: row.id,
+    spotlightId,
     title,
     body,
     detail,
-    reason: row.reason_text.trim(),
-    eventDate: item.event_date,
+    reason: reason.trim(),
+    eventDate: item.due_at || item.event_date,
     category: item.category || '',
     categoryLabel: meta.label,
     icon: meta.icon,
@@ -202,7 +214,10 @@ function mapSpotlight(row: SpotlightJoin): NudgeCard | null {
     suggestion: helpfulSuggestion(item),
     addedByUser,
     checklistId: null,
-    checklist: [],
+    checklist: children
+      .filter((row) => row.status !== 'dismissed')
+      .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))
+      .map((row) => ({ id: row.id, text: row.title || '', done: row.status === 'done' })),
   };
 }
 
@@ -239,7 +254,7 @@ function collapsedActionLine(card: NudgeCard): string | null {
 }
 
 function happenTime(item: ItemRow): string {
-  const time = timeFromEventDate(item.event_date);
+  const time = timeFromEventDate(item.occurs_at || item.event_date);
   if (time) return time.replace(/(am|pm)$/i, '');
   const blob = `${item.title || ''} ${item.body || ''}`.toLowerCase();
   if (/\b(birthday|bday|anniversary)\b/.test(blob)) return 'All day';
@@ -257,12 +272,8 @@ function happenSub(item: ItemRow): string | null {
 }
 
 function isHappeningOccasion(item: ItemRow): boolean {
-  if (daysUntil(item.event_date) !== 0) return false;
-  if (item.source === 'calendar') return true;
-  const blob = `${item.title || ''} ${item.body || ''} ${item.category || ''}`.toLowerCase();
-  return /\b(birthday|bday|party|anniversary|wedding|appointment|dentist|nursery|holiday|concert|match|playdate|sports day)\b/.test(
-    blob,
-  );
+  if (!isScheduleItem(item)) return false;
+  return daysUntil(item.occurs_at) === 0;
 }
 
 function greetingLine(name: string) {
@@ -277,29 +288,6 @@ function actionsSummary(count: number) {
   return `${count} things to keep life moving.`;
 }
 
-function isAdminTask(item: ItemRow): boolean {
-  const blob = `${item.title || ''} ${item.body || ''} ${item.category || ''}`.toLowerCase();
-  if (['errand', 'financial', 'returns', 'delivery'].includes((item.category || '').toLowerCase())) {
-    if (!/\b(birthday|party|dentist|appointment|nursery|school|match|lesson|holiday|trip|club)\b/.test(blob)) {
-      return true;
-    }
-  }
-  return /\b(passport|visa|apply for|renew|return|refund|bill|insurance|mot\b|council tax|shopping)\b/.test(blob);
-}
-
-function isForeseeableDoing(item: ItemRow): boolean {
-  if (isAdminTask(item)) return false;
-  const days = daysUntil(item.event_date);
-  if (days != null && days >= 0 && days <= 42) return true;
-  if (days != null && days < 0) return false;
-  const blob = `${item.title || ''} ${item.body || ''} ${item.category || ''}`.toLowerCase();
-  const category = (item.category || '').toLowerCase();
-  if (category === 'activity' || category === 'medical' || category === 'school') return true;
-  return /\b(birthday|bday|party|dentist|appointment|nursery|match|lesson|holiday|trip|club|concert|playdate|sports day)\b/.test(
-    blob,
-  );
-}
-
 function mentionsPerson(item: ItemRow, name: string, role: string): boolean {
   const needle = name.trim().toLowerCase();
   if (!needle) return false;
@@ -312,41 +300,17 @@ function mentionsPerson(item: ItemRow, name: string, role: string): boolean {
 }
 
 function pickItemForPerson(items: ItemRow[], name: string, role: string): ItemRow | null {
-  const matches = items.filter((item) => mentionsPerson(item, name, role) && isForeseeableDoing(item));
+  const matches = items.filter((item) => mentionsPerson(item, name, role) && isFamilyVisible(item));
   if (!matches.length) return null;
   matches.sort((a, b) => {
-    const da = daysUntil(a.event_date);
-    const db = daysUntil(b.event_date);
+    const da = daysUntil(a.occurs_at || a.due_at || a.event_date);
+    const db = daysUntil(b.occurs_at || b.due_at || b.event_date);
     if (da == null && db == null) return 0;
     if (da == null) return 1;
     if (db == null) return -1;
     return da - db;
   });
   return matches[0];
-}
-
-async function attachChecklists(cards: NudgeCard[]) {
-  const ids = cards.map((card) => card.id);
-  if (!ids.length) return;
-  const { data: lists } = await supabase
-    .from('checklists')
-    .select('id, item_id, checklist_items(id, text, done, sort_order)')
-    .in('item_id', ids);
-
-  type NestedItem = { id: string; text: string; done: boolean; sort_order: number };
-  type NestedList = { id: string; item_id: string; checklist_items: NestedItem[] | null };
-  const byItem = new Map<string, { checklistId: string; items: PrepCheckItem[] }>();
-  for (const list of (lists as NestedList[] | null) ?? []) {
-    const entries = [...(list.checklist_items ?? [])]
-      .sort((a, b) => a.sort_order - b.sort_order)
-      .map((entry) => ({ id: entry.id, text: entry.text, done: entry.done }));
-    byItem.set(list.item_id, { checklistId: list.id, items: entries });
-  }
-  for (const card of cards) {
-    const found = byItem.get(card.id);
-    card.checklistId = found?.checklistId ?? null;
-    card.checklist = found?.items ?? [];
-  }
 }
 
 export default function HomeScreen() {
@@ -380,33 +344,58 @@ export default function HomeScreen() {
         supabase.from('profiles').select('first_name').eq('id', user.id).maybeSingle(),
         supabase
           .from('home_spotlight')
-          .select(
-            'id, item_id, reason_text, rank, items(id, title, body, detail, suggestion, category, action_description, event_date, who_it_affects, urgency_level, status, source_email_subject, source_label, source, collections(status))',
-          )
+          .select('id, item_id, reason_text, rank, generated_at')
           .eq('user_id', user.id)
           .order('rank', { ascending: true }),
         supabase
           .from('items')
           .select(
-            'id, title, body, detail, suggestion, category, action_description, event_date, who_it_affects, urgency_level, status, source_email_subject, source_label, source, collections(status)',
+            'id, title, body, detail, suggestion, category, action_description, event_date, due_at, occurs_at, kind, confidence, surface_from, surface_until, parent_id, created_at, who_it_affects, urgency_level, status, source_email_subject, source_label, source, parent:items!parent_id(id, title, occurs_at, event_date), collections(status)',
           )
           .eq('user_id', user.id)
-          .eq('status', 'open'),
+          .eq('status', 'open')
+          .in('kind', ['obligation', 'occurrence', 'hold']),
         supabase.from('family_members').select('id, role, first_name, last_name').eq('user_id', user.id),
         supabase.from('home_noticed').select('insight_text').eq('user_id', user.id).maybeSingle(),
       ]);
 
     if (profile?.first_name) setFirstName(profile.first_name);
 
-    const cards = ((spotlightData as SpotlightJoin[] | null) ?? [])
-      .map(mapSpotlight)
-      .filter((card): card is NudgeCard => !!card);
-    await attachChecklists(cards);
-    const actionCards = cards.slice(0, MAX_ACTIONS);
-    setSpotlight(actionCards);
-    const actionIds = new Set(actionCards.map((card) => card.id));
+    const today = new Date();
+    const spotlightRows = (spotlightData as SpotlightJoin[] | null) ?? [];
+    const generatedAt = spotlightRows[0]?.generated_at ? new Date(spotlightRows[0].generated_at) : null;
+    const freshPin =
+      generatedAt && today.getTime() - generatedAt.getTime() < HOME_SURFACED_COOLDOWN_MS
+        ? spotlightRows.map((row) => row.item_id).filter((id): id is string => !!id)
+        : [];
+    const previouslySurfaced: HomeSurfaced[] =
+      generatedAt && !freshPin.length
+        ? spotlightRows
+            .filter((row): row is SpotlightJoin & { item_id: string } => !!row.item_id)
+            .map((row) => ({ id: row.item_id, at: generatedAt }))
+        : [];
+    const reasonById = new Map(spotlightRows.map((row) => [row.item_id || '', row.reason_text || '']));
+    const spotlightIdByItem = new Map(spotlightRows.map((row) => [row.item_id || '', row.id]));
 
     const openItems = ((itemData as ItemRow[] | null) ?? []).filter((item) => isActiveCollection(item.collections));
+    const selected = selectHomeActions(openItems, {
+      today,
+      limit: HOME_ACTION_LIMIT,
+      pinnedIds: freshPin,
+      previouslySurfaced,
+    });
+    const actionCards = selected
+      .map((card) =>
+        mapActionCard(
+          card.item,
+          card.children,
+          reasonById.get(card.item.id) || card.item.action_description || card.item.body || '',
+          spotlightIdByItem.get(card.item.id) || card.item.id,
+        ),
+      )
+      .filter((card): card is NudgeCard => !!card);
+    setSpotlight(actionCards);
+    const actionIds = new Set(actionCards.map((card) => card.id));
     const realHappening = openItems
       .filter((item) => !actionIds.has(item.id) && isHappeningOccasion(item))
       .map((item) => ({
@@ -425,28 +414,28 @@ export default function HomeScreen() {
       const first = member.first_name?.trim() || name;
       const pal = memberPalette[index % memberPalette.length];
       const match = pickItemForPerson(openItems, first, member.role);
-      const when = match ? humanizeEventDate(match.event_date) : null;
+      const when = match ? humanizeEventDate(match.occurs_at || match.due_at || match.event_date) : null;
       cardsOut.push({
         key: member.id,
         name: member.first_name?.trim() || name,
         initial: name[0]?.toUpperCase() || '•',
         wash: colorMap[pal.bg],
         photo: null,
-        itemTitle: match?.title || null,
+        itemTitle: match ? displayItemTitle(match) : null,
         itemWhen: when && when !== 'Today' ? when : match ? fewWords(match.body, 5) : null,
         itemIcon: match ? resolvePlanIcon({ title: match.title, category: match.category }) : null,
       });
     });
     if (profile?.first_name) {
       const youMatch = pickItemForPerson(openItems, profile.first_name, 'self');
-      const youWhen = youMatch ? humanizeEventDate(youMatch.event_date) : null;
+      const youWhen = youMatch ? humanizeEventDate(youMatch.occurs_at || youMatch.due_at || youMatch.event_date) : null;
       cardsOut.push({
         key: 'you',
         name: 'You',
         initial: profile.first_name[0]?.toUpperCase() || 'Y',
         wash: colors.sage,
         photo: null,
-        itemTitle: youMatch?.title || null,
+        itemTitle: youMatch ? displayItemTitle(youMatch) : null,
         itemWhen: youWhen && youWhen !== 'Today' ? youWhen : youMatch ? fewWords(youMatch.body, 5) : null,
         itemIcon: youMatch ? resolvePlanIcon({ title: youMatch.title, category: youMatch.category }) : null,
       });
@@ -466,7 +455,6 @@ export default function HomeScreen() {
 
   const loadAndMaybeRefresh = useCallback(
     async (force = false) => {
-      await syncAppleCalendar();
       await load();
       const [{ regenerated: spot }, { regenerated: note }] = await Promise.all([
         refreshSpotlight({ force }),
@@ -482,6 +470,12 @@ export default function HomeScreen() {
       void loadAndMaybeRefresh();
     }, [loadAndMaybeRefresh]),
   );
+
+  useEffect(() => {
+    return subscribeAppleCalendarSync((result) => {
+      if (result.changed) void load();
+    });
+  }, [load]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {

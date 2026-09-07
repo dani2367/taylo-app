@@ -31,7 +31,7 @@ import { useFocusEffect, router } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, Text, View } from 'react-native';
 
-const SELECT = 'id, title, body, category, icon, event_date, who_it_affects, source';
+const SELECT = 'id, title, body, category, icon, occurs_at, who_it_affects, kind, status';
 
 export function AgendaItemRow({
   item,
@@ -112,7 +112,8 @@ export function PlanSchedule() {
       .select(SELECT)
       .eq('user_id', user.id)
       .eq('status', 'open')
-      .not('event_date', 'is', null);
+      .eq('kind', 'occurrence')
+      .not('occurs_at', 'is', null);
 
     if (error) {
       console.error('Failed to load schedule items:', error.message);

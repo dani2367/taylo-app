@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import {
   classifyAndApplyCalendarItems,
+  shouldClassifyExistingCalendarItem,
   type CalendarIncoming,
 } from '../_shared/calendar-classify.ts';
 import { loadHousehold } from '../_shared/household.ts';
@@ -32,10 +33,8 @@ type ExistingRow = {
   body: string | null;
   event_date: string | null;
   status: string | null;
-  urgency_level: string | null;
-  action_description: string | null;
+  classified_at: string | null;
   external_id: string | null;
-  checklists: { id: string }[] | { id: string } | null;
 };
 
 Deno.serve(async (req: Request) => {
@@ -114,7 +113,7 @@ Deno.serve(async (req: Request) => {
         stats.dismissed += result.dismissed;
         stats.checklists += result.checklists;
         stats.possible_duplicates += result.possibleDuplicates;
-        if (result.created > 0 || result.checklists > 0) {
+        if (result.created > 0) {
           const regenerated = await regenerateSpotlight(
             supabaseUrl,
             serviceRoleKey,
@@ -166,7 +165,7 @@ async function syncUser(
 
   const { data: existingRows, error: existingError } = await supabase
     .from('items')
-    .select('id, title, body, event_date, status, urgency_level, action_description, external_id, checklists(id)')
+    .select('id, title, body, event_date, status, classified_at, external_id')
     .eq('user_id', connection.user_id)
     .eq('external_source', OUTLOOK_CALENDAR_SOURCE);
 
@@ -182,7 +181,14 @@ async function syncUser(
 
   const seen = new Set<string>();
   const toInsert: Record<string, unknown>[] = [];
-  const toUpdate: { id: string; title: string; body: string | null; event_date: string; status: string }[] = [];
+  const toUpdate: {
+    id: string;
+    title: string;
+    body: string | null;
+    event_date: string;
+    status: string;
+    classified_at: string | null;
+  }[] = [];
   const classifyPayload: CalendarIncoming[] = [];
   const cancelledIds: string[] = [];
 
@@ -214,6 +220,11 @@ async function syncUser(
         external_source: OUTLOOK_CALENDAR_SOURCE,
         calendar_provider: 'outlook',
         status: 'open',
+        kind: 'occurrence',
+        occurs_at: eventDate,
+        due_at: null,
+        confidence: 'high',
+        prep_origin: 'none',
       });
       continue;
     }
@@ -223,10 +234,22 @@ async function syncUser(
     const bodyChanged = (existing.body || null) !== location;
     const titleChanged = (existing.title || '') !== title;
     const dateChanged = normalizeEventDate(existing.event_date) !== eventDate;
+    const reclassify = shouldClassifyExistingCalendarItem({
+      classifiedAt: existing.classified_at,
+      titleChanged,
+      dateChanged,
+    });
     if (titleChanged || bodyChanged || dateChanged || existing.status === 'dismissed') {
-      toUpdate.push({ id: existing.id, title, body: location, event_date: eventDate, status });
+      toUpdate.push({
+        id: existing.id,
+        title,
+        body: location,
+        event_date: eventDate,
+        status,
+        classified_at: titleChanged || dateChanged ? null : existing.classified_at,
+      });
     }
-    if (!hasChecklist(existing.checklists) && !existing.action_description?.trim() && existing.urgency_level == null) {
+    if (reclassify) {
       classifyPayload.push({
         id: existing.id,
         title,
@@ -268,7 +291,10 @@ async function syncUser(
         title: row.title,
         body: row.body,
         event_date: row.event_date,
+        occurs_at: row.event_date,
+        kind: 'occurrence',
         status: row.status,
+        classified_at: row.classified_at,
       })
       .eq('id', row.id);
     if (error) console.error('Failed to update calendar item:', error.message);
@@ -356,7 +382,7 @@ function normalizeEventDate(value: string | null): string {
   if (!value) return '';
   const match = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}):(\d{2}))?/.exec(value);
   if (!match) return value.slice(0, 19);
-  if (!match[2] || (match[2] === '00' && match[3] === '00' && !/[T ]/.test(value))) {
+  if (!match[2] || (match[2] === '00' && match[3] === '00')) {
     return match[1];
   }
   return `${match[1]}T${match[2]}:${match[3]}:00`;
@@ -387,12 +413,6 @@ function ymdFromUtc(ms: number): string {
   const m = String(date.getUTCMonth() + 1).padStart(2, '0');
   const d = String(date.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
-}
-
-function hasChecklist(raw: ExistingRow['checklists']): boolean {
-  if (!raw) return false;
-  const lists = Array.isArray(raw) ? raw : [raw];
-  return lists.some((list) => Boolean(list?.id));
 }
 
 async function flagCrossSourceDuplicates(

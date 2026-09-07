@@ -1,7 +1,6 @@
 import { fallbackWeeklySummary, weekFingerprint } from './plan-family';
 import { supabase } from '@/lib/supabase';
 
-const STALE_MS = 4 * 60 * 60 * 1000;
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -19,7 +18,6 @@ let inFlightKey = '';
 
 export function cachedFamilyWeek(fingerprint: string): Record<string, string> | null {
   if (!cache || cache.fingerprint !== fingerprint) return null;
-  if (Date.now() - cache.generatedAt >= STALE_MS) return null;
   return cache.summaries;
 }
 
@@ -66,8 +64,16 @@ async function doRefresh(
     data: { session },
   } = await supabase.auth.getSession();
   if (!session?.access_token || !supabaseUrl || !supabaseAnonKey) {
-    cache = { fingerprint, summaries: fallback, generatedAt: Date.now() };
+    remember(fingerprint, fallback, Date.now());
     return { summaries: fallback, regenerated: false };
+  }
+
+  if (!force) {
+    const stored = await readStoredFamilyWeek(fingerprint);
+    if (stored) {
+      remember(fingerprint, stored.summaries, stored.generatedAt);
+      return { summaries: stored.summaries, regenerated: false };
+    }
   }
 
   const res = await fetch(`${supabaseUrl}/functions/v1/taylo-family-week`, {
@@ -84,15 +90,49 @@ async function doRefresh(
     success?: boolean;
     skipped?: boolean;
     summaries?: Record<string, string>;
+    generated_at?: string;
     error?: string;
   };
   if (!res.ok || !payload.success) {
     console.error('Family week refresh failed:', payload.error || res.status);
-    cache = { fingerprint, summaries: fallback, generatedAt: Date.now() };
+    remember(fingerprint, fallback, Date.now());
     return { summaries: fallback, regenerated: false };
   }
 
   const summaries = { ...fallback, ...(payload.summaries || {}) };
-  cache = { fingerprint, summaries, generatedAt: Date.now() };
+  remember(
+    fingerprint,
+    summaries,
+    payload.generated_at ? new Date(payload.generated_at).getTime() : Date.now(),
+  );
   return { summaries, regenerated: !payload.skipped };
+}
+
+async function readStoredFamilyWeek(
+  fingerprint: string,
+): Promise<{ summaries: Record<string, string>; generatedAt: number } | null> {
+  const { data } = await supabase
+    .from('family_week_cache')
+    .select('fingerprint, summaries, generated_at')
+    .maybeSingle();
+  const row = data as { fingerprint?: string; summaries?: unknown; generated_at?: string } | null;
+  const summaries = parseSummaries(row?.summaries);
+  if (!row || row.fingerprint !== fingerprint || !summaries) return null;
+  return {
+    summaries,
+    generatedAt: row.generated_at ? new Date(row.generated_at).getTime() : Date.now(),
+  };
+}
+
+function parseSummaries(raw: unknown): Record<string, string> | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out: Record<string, string> = {};
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value === 'string' && value.trim()) out[id] = value.trim();
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+function remember(fingerprint: string, summaries: Record<string, string>, generatedAt: number) {
+  cache = { fingerprint, summaries, generatedAt };
 }

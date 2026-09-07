@@ -1,11 +1,12 @@
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { belongsToCompletedCollection } from '../_shared/collections.ts';
 import { householdVoiceBlock, loadHousehold, type Household } from '../_shared/household.ts';
+import { selectHomeActions, HOME_ACTION_MAX } from '../_shared/placement.ts';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-sonnet-5';
 const STALE_MS = 4 * 60 * 60 * 1000;
-const MAX_SPOTLIGHT = 6;
+const MAX_SPOTLIGHT = HOME_ACTION_MAX;
 const MAX_FACTS = 50;
 
 type ItemRow = {
@@ -16,6 +17,13 @@ type ItemRow = {
   category: string | null;
   action_description: string | null;
   event_date: string | null;
+  due_at: string | null;
+  occurs_at: string | null;
+  kind: string | null;
+  confidence: string | null;
+  surface_from: string | null;
+  surface_until: string | null;
+  parent_id: string | null;
   who_it_affects: string | null;
   urgency_level: string | null;
   source: string | null;
@@ -25,7 +33,13 @@ type ItemRow = {
 };
 
 type ChecklistEntry = { text: string; done: boolean; sort_order: number };
-type ChecklistList = { item_id: string; checklist_items: ChecklistEntry[] | null };
+type ChildPrepRow = {
+  id: string;
+  parent_id: string | null;
+  title: string | null;
+  status: string | null;
+  created_at: string | null;
+};
 
 type FactRow = { subject: string; fact: string; category: string | null };
 type ConvRow = { id: string; title: string | null; kind: string | null };
@@ -104,12 +118,13 @@ Deno.serve(async (req: Request) => {
     const { data: itemRows, error: itemsError } = await supabase
       .from('items')
       .select(
-        'id, title, body, detail, category, action_description, event_date, who_it_affects, urgency_level, source, created_at, collection_id, collections(status, type)',
+        'id, title, body, detail, category, action_description, event_date, due_at, occurs_at, kind, confidence, surface_from, surface_until, parent_id, who_it_affects, urgency_level, source, created_at, collection_id, collections(status, type)',
       )
       .eq('user_id', userId)
       .eq('status', 'open')
+      .in('kind', ['obligation', 'occurrence', 'hold'])
       .order('created_at', { ascending: false })
-      .limit(40);
+      .limit(80);
 
     if (itemsError) {
       console.error('Failed to load items:', itemsError.message);
@@ -119,29 +134,20 @@ Deno.serve(async (req: Request) => {
     const items = ((itemRows ?? []) as ItemRow[]).filter(
       (item) => !belongsToCompletedCollection(item.collections),
     );
-    if (!items.length) {
+    const cards = selectHomeActions(items, { limit: MAX_SPOTLIGHT });
+    const rankable = cards.map((card) => card.item);
+    if (!rankable.length) {
       await supabase.from('home_spotlight').delete().eq('user_id', userId);
       return json({ success: true, spotlight: 0 });
     }
 
-    const itemIds = items.map((item) => item.id);
+    const itemIds = rankable.map((item) => item.id);
     const [checklists, facts, recentChat, household] = await Promise.all([
       loadChecklists(supabase, itemIds),
       loadFacts(supabase, userId),
       loadRecentChat(supabase, userId),
       loadHousehold(supabase, userId),
     ]);
-
-    const rankable = items.filter((item) => {
-      const prep = checklists.get(item.id) ?? [];
-      if (prep.some((row) => !row.done)) return true;
-      if (item.action_description?.trim()) return true;
-      return (item.source || '').toLowerCase() !== 'calendar';
-    });
-    if (!rankable.length) {
-      await supabase.from('home_spotlight').delete().eq('user_id', userId);
-      return json({ success: true, spotlight: 0 });
-    }
 
     let ranked: Ranked[];
     try {
@@ -204,18 +210,28 @@ async function loadChecklists(
   if (!itemIds.length) return byItem;
 
   const { data, error } = await supabase
-    .from('checklists')
-    .select('item_id, checklist_items(text, done, sort_order)')
-    .in('item_id', itemIds);
+    .from('items')
+    .select('id, parent_id, title, status, created_at, kind')
+    .in('parent_id', itemIds)
+    .neq('status', 'dismissed');
 
   if (error) {
-    console.error('Failed to load checklists:', error.message);
+    console.error('Failed to load prep children:', error.message);
     return byItem;
   }
 
-  for (const list of (data ?? []) as ChecklistList[]) {
-    const entries = [...(list.checklist_items ?? [])].sort((a, b) => a.sort_order - b.sort_order);
-    if (entries.length) byItem.set(list.item_id, entries);
+  const rows = [...((data ?? []) as ChildPrepRow[])].sort((a, b) =>
+    (a.created_at || '').localeCompare(b.created_at || ''),
+  );
+  for (const row of rows) {
+    if (!row.parent_id) continue;
+    const list = byItem.get(row.parent_id) ?? [];
+    list.push({
+      text: row.title || '',
+      done: row.status === 'done',
+      sort_order: list.length,
+    });
+    byItem.set(row.parent_id, list);
   }
   return byItem;
 }
@@ -316,8 +332,8 @@ Return ONLY a JSON object, nothing else:
   "spotlight": [{ "item_id": "uuid", "reason": "why this matters now" }]
 }
 
-spotlight: 4–6 items that deserve attention right now. Fewer is fine if there aren't that many genuine ones. Never more than 6.
-Only use item_id values from the provided list.
+spotlight: 2–4 items that deserve attention right now. Fewer is fine if there aren't that many genuine ones. Never more than 4.
+Only use item_id values from the provided list. Every row is already a high-confidence obligation whose surface window is open — including child obligations that stand on their own. Do not pick occurrences or calendar blocks; those belong on Schedule.
 
 reason: first person as Taylo, like a text from a friend. Maximum ~15 words. Contractions, a little warmth. One specific detail — a date, a name, leftover prep, something from family context or a recent chat. No emoji.
 
@@ -326,9 +342,7 @@ Not like: "This is on your list." / "You added this recently." / "This needs doi
 
 Never guilt them. Never name the Home screen "Today".
 
-Choose by genuine now-ness: urgency, proximity of event_date, incomplete checklist before an event, and anything actually relevant in family context or recent conversation. Do not just pick the most recently captured items. Rank individual items only — do not invent a collection-level card.
-
-Only spotlight items with a genuine open action: an incomplete checklist, or something the parent still needs to do. Skip purely informational events with no checklist and no action — they belong on Schedule, not Home.
+Rank by genuine now-ness among the given obligations only. Child prep like "buy a card" is its own action — do not hide it behind a parent event.
 
 ${householdVoiceBlock(household)}`;
 }
@@ -344,7 +358,11 @@ function userPrompt(
     const prepBit = prep.length
       ? `checklist ${prep.filter((row) => row.done).length}/${prep.length} done [${prep.map((row) => `${row.text}${row.done ? '✓' : ''}`).join(', ')}]`
       : 'no checklist';
-    return `- ${item.id} | ${item.title ?? 'Untitled'} | ${item.body ?? ''} | category=${item.category ?? 'none'} | date=${item.event_date ?? 'none'} | urgency=${item.urgency_level ?? 'none'} | who=${item.who_it_affects ?? 'none'} | ${prepBit}`;
+    const source = item.source ? `provenance=${item.source}` : 'provenance=none';
+    const help = item.action_description?.trim()
+      ? `help="${item.action_description.trim()}"`
+      : 'help=none';
+    return `- ${item.id} | ${item.title ?? 'Untitled'} | ${item.body ?? ''} | category=${item.category ?? 'none'} | date=${item.event_date ?? 'none'} | urgency=${item.urgency_level ?? 'none'} | who=${item.who_it_affects ?? 'none'} | ${source} | ${help} | ${prepBit}`;
   });
 
   const factLines = facts.length

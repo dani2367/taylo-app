@@ -2,15 +2,15 @@ import type { PrepCheckItem } from '@/components/app/ItemPrepChecklist';
 import { supabase } from '@/lib/supabase';
 
 export async function persistChecklistToggle(entryId: string, done: boolean) {
-  return supabase.from('checklist_items').update({ done }).eq('id', entryId);
+  return supabase.from('items').update({ status: done ? 'done' : 'open' }).eq('id', entryId);
 }
 
 export async function persistChecklistText(entryId: string, text: string) {
-  return supabase.from('checklist_items').update({ text }).eq('id', entryId);
+  return supabase.from('items').update({ title: text }).eq('id', entryId);
 }
 
 export async function persistChecklistDelete(entryId: string) {
-  return supabase.from('checklist_items').delete().eq('id', entryId);
+  return supabase.from('items').update({ status: 'dismissed' }).eq('id', entryId);
 }
 
 export async function persistChecklistAdd(params: {
@@ -20,37 +20,39 @@ export async function persistChecklistAdd(params: {
   checklistId: string | null;
   nextOrder: number;
 }): Promise<{ checklistId: string; entry: PrepCheckItem } | { error: string }> {
-  let checklistId = params.checklistId;
-  if (!checklistId) {
-    const { data, error } = await supabase
-      .from('checklists')
-      .insert({
-        user_id: params.userId,
-        item_id: params.itemId,
-        title: params.itemTitle,
-        subtitle: 'Prep',
-      })
-      .select('id')
-      .single();
-    if (error || !data) return { error: error?.message || 'Failed to create checklist' };
-    checklistId = data.id;
-  }
+  const { data: parent } = await supabase
+    .from('items')
+    .select('source, source_label, category, who_it_affects')
+    .eq('id', params.itemId)
+    .maybeSingle();
+
+  const source =
+    parent?.source && ['email', 'chat', 'manual', 'calendar'].includes(parent.source)
+      ? parent.source
+      : 'manual';
 
   const { data: entry, error } = await supabase
-    .from('checklist_items')
+    .from('items')
     .insert({
-      checklist_id: checklistId,
       user_id: params.userId,
-      text: 'New',
-      done: false,
-      sort_order: params.nextOrder,
+      parent_id: params.itemId,
+      title: 'New',
+      status: 'open',
+      kind: 'obligation',
+      confidence: 'high',
+      prep_origin: 'stated',
+      due_at: null,
+      source,
+      source_label: 'Added by you',
+      category: parent?.category ?? null,
+      who_it_affects: parent?.who_it_affects ?? null,
     })
-    .select('id, text, done')
+    .select('id, title, status')
     .single();
 
   if (error || !entry) return { error: error?.message || 'Failed to add item' };
   return {
-    checklistId,
-    entry: { id: entry.id, text: entry.text, done: entry.done },
+    checklistId: params.itemId,
+    entry: { id: entry.id as string, text: (entry.title as string) || 'New', done: false },
   };
 }

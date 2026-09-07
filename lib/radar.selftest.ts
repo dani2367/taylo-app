@@ -43,8 +43,8 @@ const ordered = [
   item({ id: 'b', title: 'B', event_date: null, created_at: '2026-09-01T00:00:00Z' }),
   item({ id: 'a', title: 'A', event_date: ymd(40) }),
   item({ id: 'c', title: 'C', event_date: null, created_at: '2026-09-04T00:00:00Z' }),
-].sort((a, b) => compareRadarItems(a, b, today));
-expect('dated first', ordered[0].id, 'a');
-expect('newer dateless next', ordered[1].id, 'c');
+].sort((a, b) => compareRadarItems(a, b));
+expect('newer created first', ordered[0].id, 'c');
+expect('older created next', ordered[1].id, 'b');
 
 if (!process.exitCode) console.log('radar self-test passed');

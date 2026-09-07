@@ -147,56 +147,44 @@ export async function addProductsToShoppingList(
 async function appendShoppingLabels(
   userId: string,
   itemId: string,
-  itemTitle: string,
+  _itemTitle: string,
   labels: string[],
 ): Promise<string | null> {
   const unique = [...new Map(labels.map((label) => [label.toLowerCase(), label])).values()];
   if (!unique.length) return null;
 
-  const { data: list } = await supabase
-    .from('checklists')
-    .select('id, checklist_items(text, sort_order)')
-    .eq('item_id', itemId)
-    .maybeSingle();
+  const [{ data: parent }, { data: existing }] = await Promise.all([
+    supabase.from('items').select('source, source_label, category, who_it_affects').eq('id', itemId).maybeSingle(),
+    supabase.from('items').select('title').eq('parent_id', itemId),
+  ]);
 
-  type Nested = { text: string; sort_order: number };
-  if (!list) {
-    const { data: created, error: listError } = await supabase
-      .from('checklists')
-      .insert({
-        user_id: userId,
-        item_id: itemId,
-        title: itemTitle,
-        subtitle: 'Shopping',
-      })
-      .select('id')
-      .single();
-    if (listError || !created) return listError?.message || 'Failed to save shopping list';
-    const { error } = await supabase.from('checklist_items').insert(
-      unique.map((text, index) => ({
-        checklist_id: created.id,
-        user_id: userId,
-        text,
-        done: false,
-        sort_order: index,
-      })),
-    );
-    return error?.message ?? null;
-  }
-
-  const rows = ([...((list as { checklist_items?: Nested[] | null }).checklist_items ?? [])] as Nested[])
-    .sort((a, b) => a.sort_order - b.sort_order);
-  const seen = new Set(rows.map((row) => row.text.toLowerCase()));
-  const nextOrder = rows.length ? Math.max(...rows.map((row) => row.sort_order)) + 1 : 0;
+  const seen = new Set(
+    ((existing as { title: string | null }[] | null) ?? [])
+      .map((row) => (row.title || '').trim().toLowerCase())
+      .filter(Boolean),
+  );
   const toAdd = unique.filter((label) => !seen.has(label.toLowerCase()));
   if (!toAdd.length) return null;
-  const { error } = await supabase.from('checklist_items').insert(
-    toAdd.map((text, index) => ({
-      checklist_id: (list as { id: string }).id,
+
+  const source =
+    parent?.source && ['email', 'chat', 'manual', 'calendar'].includes(parent.source)
+      ? parent.source
+      : 'manual';
+
+  const { error } = await supabase.from('items').insert(
+    toAdd.map((title) => ({
       user_id: userId,
-      text,
-      done: false,
-      sort_order: nextOrder + index,
+      parent_id: itemId,
+      title,
+      status: 'open',
+      kind: 'list_item',
+      confidence: 'high',
+      prep_origin: 'none',
+      due_at: null,
+      source,
+      source_label: parent?.source_label ?? 'Prep',
+      category: parent?.category ?? 'errand',
+      who_it_affects: parent?.who_it_affects ?? null,
     })),
   );
   return error?.message ?? null;
@@ -230,7 +218,7 @@ function sortPlanLists(rows: CollectionRow[]): CollectionRow[] {
   });
 }
 
-type ChecklistJoin = { title?: string | null; checklist_items: { id: string }[] | null };
+type PrepJoin = { id: string }[] | { id: string } | null;
 type StandaloneRow = {
   id: string;
   title: string | null;
@@ -242,29 +230,13 @@ type StandaloneRow = {
   source: string | null;
   category: string | null;
   collection_id: string | null;
-  checklists: ChecklistJoin[] | ChecklistJoin | null;
+  prep_children: PrepJoin;
   collections: { title: string | null; type: string | null } | { title: string | null; type: string | null }[] | null;
 };
 
-function firstChecklist(raw: StandaloneRow['checklists']): ChecklistJoin | null {
-  if (!raw) return null;
-  return Array.isArray(raw) ? raw[0] ?? null : raw;
-}
-
-function checklistCount(raw: StandaloneRow['checklists']): number {
-  const lists = !raw ? [] : Array.isArray(raw) ? raw : [raw];
-  return lists.reduce((n, list) => n + (list.checklist_items?.length ?? 0), 0);
-}
-
-function originalListItemTitle(row: StandaloneRow): string | null {
-  const stored = firstChecklist(row.checklists)?.title?.replace(/\s+/g, ' ').trim() || '';
-  const current = (row.title || '').replace(/\s+/g, ' ').trim();
-  if (!stored || stored === current) return null;
-  if (isHubItem(stored) || isHubItem(current)) return null;
-  if (current === simpleListTitle(stored) || simpleListTitle(current) === simpleListTitle(stored)) {
-    return stored;
-  }
-  return null;
+function prepCount(raw: PrepJoin): number {
+  if (!raw) return 0;
+  return Array.isArray(raw) ? raw.length : 1;
 }
 
 function isHubItem(title: string | null): boolean {
@@ -290,24 +262,23 @@ async function removeShoppingChecklistCopies(collectionId: string, titles: strin
   const hubIds = ((hubs as { id: string }[] | null) ?? []).map((row) => row.id);
   if (!hubIds.length) return;
 
-  const { data: lists } = await supabase
-    .from('checklists')
-    .select('id, checklist_items(id, text)')
-    .in('item_id', hubIds);
+  const { data: children } = await supabase
+    .from('items')
+    .select('id, title')
+    .in('parent_id', hubIds)
+    .neq('status', 'dismissed');
 
   const drop: string[] = [];
-  for (const list of (lists as { checklist_items?: { id: string; text: string }[] | null }[] | null) ?? []) {
-    for (const entry of list.checklist_items ?? []) {
-      const text = (entry.text || '').replace(/\s+/g, ' ').trim().toLowerCase();
-      if (!text) continue;
-      if (text.length < 4) continue;
-      if (needles.has(text) || [...needles].some((needle) => needle.length >= 4 && (needle.includes(text) || text.includes(needle)))) {
-        drop.push(entry.id);
-      }
+  for (const entry of (children as { id: string; title: string | null }[] | null) ?? []) {
+    const text = (entry.title || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!text) continue;
+    if (text.length < 4) continue;
+    if (needles.has(text) || [...needles].some((needle) => needle.length >= 4 && (needle.includes(text) || text.includes(needle)))) {
+      drop.push(entry.id);
     }
   }
   if (drop.length) {
-    await supabase.from('checklist_items').delete().in('id', drop);
+    await supabase.from('items').update({ status: 'dismissed' }).in('id', drop);
   }
 }
 
@@ -315,9 +286,10 @@ async function removeShoppingChecklistCopies(collectionId: string, titles: strin
 export async function organizeStandaloneItems(userId: string): Promise<void> {
   const { data, error } = await supabase
     .from('items')
-    .select('id, title, body, detail, suggestion, action_description, event_date, source, category, collection_id, collections(title, type), checklists(title, checklist_items(id))')
+    .select('id, title, body, detail, suggestion, action_description, event_date, source, category, collection_id, collections(title, type), prep_children:items!parent_id(id)')
     .eq('user_id', userId)
     .eq('status', 'open')
+    .is('parent_id', null)
     .neq('source', 'calendar');
 
   if (error) {
@@ -327,13 +299,6 @@ export async function organizeStandaloneItems(userId: string): Promise<void> {
 
   const rows = (data as StandaloneRow[] | null) ?? [];
   if (!rows.length) return;
-
-  for (const row of rows) {
-    const restored = originalListItemTitle(row);
-    if (!restored) continue;
-    await supabase.from('items').update({ title: restored }).eq('id', row.id);
-    row.title = restored;
-  }
 
   const missingCopy = rows.filter((row) => !isHubItem(row.title) && (!row.body || !row.detail));
   if (missingCopy.length) {
@@ -381,7 +346,7 @@ export async function organizeStandaloneItems(userId: string): Promise<void> {
       event_date: row.event_date,
       source: row.source,
       category: row.category,
-      checklistCount: checklistCount(row.checklists),
+      checklistCount: prepCount(row.prep_children),
     });
     const label = (row.title || '').trim();
     if (kind === 'shopping') {
@@ -446,7 +411,7 @@ export async function organizeStandaloneItems(userId: string): Promise<void> {
   if (shopCol?.id) {
     const { data: closedShop } = await supabase
       .from('items')
-      .select('id, title, category, source, collection_id')
+      .select('id, title, category, source, collection_id, parent_id')
       .eq('user_id', userId)
       .eq('status', 'done');
     const { data: hubs } = await supabase
@@ -457,20 +422,21 @@ export async function organizeStandaloneItems(userId: string): Promise<void> {
     const hubIds = ((hubs as { id: string }[] | null) ?? []).map((row) => row.id);
     let shopLabels = new Set<string>();
     if (hubIds.length) {
-      const { data: lists } = await supabase
-        .from('checklists')
-        .select('checklist_items(text)')
-        .in('item_id', hubIds);
+      const { data: children } = await supabase
+        .from('items')
+        .select('title')
+        .in('parent_id', hubIds)
+        .neq('status', 'dismissed');
       shopLabels = new Set(
-        ((lists as { checklist_items?: { text: string }[] | null }[] | null) ?? [])
-          .flatMap((list) => list.checklist_items ?? [])
-          .map((entry) => (entry.text || '').replace(/\s+/g, ' ').trim().toLowerCase())
+        ((children as { title: string | null }[] | null) ?? [])
+          .map((entry) => (entry.title || '').replace(/\s+/g, ' ').trim().toLowerCase())
           .filter(Boolean),
       );
     }
 
-    const rescue = ((closedShop as { id: string; title: string | null; category: string | null; source: string | null; collection_id: string | null }[] | null) ?? []).filter(
+    const rescue = ((closedShop as { id: string; title: string | null; category: string | null; source: string | null; collection_id: string | null; parent_id: string | null }[] | null) ?? []).filter(
       (row) => {
+        if (row.parent_id) return false;
         if (isHubItem(row.title) || looksLikeGroceryProduct(row.title || '', row.category)) return false;
         if (row.collection_id === shopCol.id) return true;
         const labels = [row.title || '', ...groceryLabelsFromText(row.title || '')].map((value) =>

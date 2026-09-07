@@ -14,8 +14,8 @@ import {
   type FamilyMemberSource,
   type FamilySourceItem,
 } from '@/lib/plan-family';
-import { mapPlanItemRow, PLAN_ITEM_SELECT, type PlanItemRow } from '@/lib/plan-item-map';
-import { isListHubTitle } from '@/lib/radar-organize';
+import { ITEM_COUNT_SELECT, mapPlanItemRow, PLAN_ITEM_SELECT, type PlanItemRow } from '@/lib/plan-item-map';
+import { nestedListCount, isListHubTitle } from '@/lib/radar-organize';
 import { compareRadarItems, radarStatusLine, type RadarItem } from '@/lib/radar';
 import { resolvePlanIcon } from '@/lib/plan-icon';
 import { supabase } from '@/lib/supabase';
@@ -24,18 +24,12 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import type { PlanItemCardModel } from '@/components/app/PlanItemCard';
 
-type ChecklistJoin = { checklist_items: { done: boolean }[] | null };
 type ItemCountRow = {
   id: string;
   title: string | null;
   collection_id: string | null;
-  checklists: ChecklistJoin[] | ChecklistJoin | null;
+  prep_children?: { status: string | null }[] | { status: string | null } | null;
 };
-
-function unwrapChecks(raw: ChecklistJoin[] | ChecklistJoin | null): { done: boolean }[] {
-  const lists = !raw ? [] : Array.isArray(raw) ? raw : [raw];
-  return lists.flatMap((list) => list.checklist_items ?? []);
-}
 
 function listCount(members: ItemCountRow[], collectionTitle: string): number {
   if (collectionTitle === GENERAL_TODO_TITLE) {
@@ -43,9 +37,8 @@ function listCount(members: ItemCountRow[], collectionTitle: string): number {
   }
   let n = 0;
   for (const row of members) {
-    const checks = unwrapChecks(row.checklists);
-    if (checks.length) n += checks.filter((entry) => !entry.done).length;
-    else n += 1;
+    const openPrep = nestedListCount(row.prep_children);
+    n += openPrep;
   }
   return n;
 }
@@ -77,15 +70,16 @@ export default function FamilyPersonScreen() {
       supabase.from('family_members').select('id, role, first_name, last_name').eq('user_id', user.id),
       supabase
         .from('items')
-        .select(`${PLAN_ITEM_SELECT}, who_it_affects, source, collection_id, created_at`)
+        .select(`${PLAN_ITEM_SELECT}, who_it_affects, source, collection_id, created_at, parent_id`)
         .eq('user_id', user.id)
         .eq('status', 'open'),
       ids.length
         ? supabase
             .from('items')
-            .select('id, title, collection_id, checklists(checklist_items(done))')
+            .select(ITEM_COUNT_SELECT)
             .eq('user_id', user.id)
             .eq('status', 'open')
+            .is('parent_id', null)
             .in('collection_id', ids)
         : Promise.resolve({ data: [] as ItemCountRow[] }),
     ]);
@@ -122,7 +116,7 @@ export default function FamilyPersonScreen() {
       const mapped = plan.householdItems
         .map((item) => byId.get(item.id))
         .filter((row): row is PlanItemRow & RadarItem => !!row)
-        .sort((a, b) => compareRadarItems(a, b, today))
+        .sort((a, b) => compareRadarItems(a, b))
         .map((row) => ({
           ...mapPlanItemRow(row, today),
           context: radarStatusLine(row, today),
@@ -135,7 +129,7 @@ export default function FamilyPersonScreen() {
       const mapped = (bucket?.items ?? [])
         .map((item) => byId.get(item.id))
         .filter((row): row is PlanItemRow & RadarItem => !!row)
-        .sort((a, b) => compareRadarItems(a, b, today))
+        .sort((a, b) => compareRadarItems(a, b))
         .map((row) => ({
           ...mapPlanItemRow(row, today),
           context: radarStatusLine(row, today),

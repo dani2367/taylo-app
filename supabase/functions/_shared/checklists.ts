@@ -1,4 +1,5 @@
 import type { SupabaseClient } from 'jsr:@supabase/supabase-js@2';
+import { intakeRowFields, type IntakeItem } from './intake-contract.ts';
 
 const MAX_ITEMS = 24;
 const MAX_LABEL_LEN = 40;
@@ -44,101 +45,116 @@ export function parseChecklistLabels(value: unknown): string[] {
   return labels;
 }
 
+type ParentRow = {
+  source: string | null;
+  source_label: string | null;
+  category: string | null;
+  who_it_affects: string | null;
+};
+
+export async function insertIntakeChildren(
+  supabase: SupabaseClient,
+  params: { userId: string; itemId: string; items: IntakeItem[]; listItem?: boolean },
+): Promise<string[]> {
+  const items = params.items.filter((item) => item.title.trim()).slice(0, MAX_ITEMS);
+  if (!items.length) return [];
+
+  const [{ data: parent }, { data: existing, error: existingError }] = await Promise.all([
+    supabase
+      .from('items')
+      .select('source, source_label, category, who_it_affects')
+      .eq('id', params.itemId)
+      .maybeSingle(),
+    supabase.from('items').select('title').eq('parent_id', params.itemId),
+  ]);
+
+  if (existingError) {
+    console.error('Failed to load child obligations:', existingError.message);
+    return [];
+  }
+
+  const seen = new Set(
+    ((existing ?? []) as { title: string | null }[])
+      .map((row) => (row.title || '').trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const toAdd = items.filter((item) => !seen.has(item.title.toLowerCase()));
+  const room = Math.max(0, MAX_ITEMS - seen.size);
+  const slice = toAdd.slice(0, room);
+  if (!slice.length) return [];
+
+  const meta = (parent as ParentRow | null) ?? null;
+  const source =
+    meta?.source && ['email', 'chat', 'manual', 'calendar'].includes(meta.source)
+      ? meta.source
+      : 'manual';
+
+  const { error: insertError } = await supabase.from('items').insert(
+    slice.map((item) => ({
+      user_id: params.userId,
+      parent_id: params.itemId,
+      title: item.title.slice(0, MAX_LABEL_LEN),
+      status: 'open',
+      source,
+      source_label: meta?.source_label ?? 'Prep',
+      category: meta?.category ?? null,
+      who_it_affects: meta?.who_it_affects ?? null,
+      ...intakeRowFields(item),
+      kind: params.listItem ? 'list_item' : item.kind,
+    })),
+  );
+  if (insertError) {
+    console.error('Failed to insert child obligations:', insertError.message);
+    return [];
+  }
+  return slice.map((item) => item.title);
+}
+
+/** Create prep as independent items rows (parent_id = owning occurrence/heads-up). */
 export async function insertPrepChecklist(
   supabase: SupabaseClient,
   params: { userId: string; itemId: string; itemTitle: string; labels: string[]; subtitle?: string },
 ): Promise<void> {
-  const labels = parseChecklistLabels(params.labels);
-  if (!labels.length) return;
-
-  const { data: checklist, error: checklistError } = await supabase
-    .from('checklists')
-    .insert({
-      user_id: params.userId,
-      item_id: params.itemId,
-      title: params.itemTitle,
-      subtitle: params.subtitle ?? (looksLikeShoppingList(params.itemTitle) ? 'Shopping' : 'Prep'),
-    })
-    .select('id')
-    .single();
-
-  if (checklistError || !checklist) {
-    console.error('Failed to insert checklist:', checklistError?.message);
-    return;
-  }
-
-  const rows = labels.map((text, index) => ({
-    checklist_id: checklist.id,
-    user_id: params.userId,
-    text,
-    done: false,
-    sort_order: index,
-  }));
-
-  const { error: itemsError } = await supabase.from('checklist_items').insert(rows);
-  if (itemsError) {
-    console.error('Failed to insert checklist items:', itemsError.message);
-  }
+  await insertIntakeChildren(supabase, {
+    userId: params.userId,
+    itemId: params.itemId,
+    items: parseChecklistLabels(params.labels).map((title) => ({
+      title,
+      kind: 'obligation',
+      occurs_at: null,
+      due_at: null,
+      actionable: 'yes',
+      prep_implied: 'inferred',
+      confidence: 'medium',
+      evidence: '',
+      surface_from: null,
+      surface_until: null,
+    })),
+  });
 }
-
-type NestedEntry = { text: string; sort_order: number };
 
 export async function appendChecklistItems(
   supabase: SupabaseClient,
   params: { userId: string; itemId: string; itemTitle: string; labels: string[] },
 ): Promise<string[]> {
-  const labels = parseChecklistLabels(params.labels);
-  if (!labels.length) return [];
-
-  const { data: existing, error } = await supabase
-    .from('checklists')
-    .select('id, checklist_items(text, sort_order)')
-    .eq('item_id', params.itemId)
-    .maybeSingle();
-
-  if (error) {
-    console.error('Failed to load checklist for append:', error.message);
-    return [];
-  }
-
-  if (!existing) {
-    await insertPrepChecklist(supabase, params);
-    return labels;
-  }
-
-  const rows = ((existing as { checklist_items?: NestedEntry[] | null }).checklist_items ?? [])
-    .slice()
-    .sort((a, b) => a.sort_order - b.sort_order);
-  const seen = new Set(rows.map((row) => row.text.toLowerCase()));
-  const nextOrder = rows.length ? Math.max(...rows.map((row) => row.sort_order)) + 1 : 0;
-  const room = Math.max(0, MAX_ITEMS - rows.length);
-  const toAdd = labels.filter((label) => !seen.has(label.toLowerCase())).slice(0, room);
-  if (!toAdd.length) return [];
-
-  const { error: insertError } = await supabase.from('checklist_items').insert(
-    toAdd.map((text, index) => ({
-      checklist_id: (existing as { id: string }).id,
-      user_id: params.userId,
-      text,
-      done: false,
-      sort_order: nextOrder + index,
+  return insertIntakeChildren(supabase, {
+    userId: params.userId,
+    itemId: params.itemId,
+    listItem: true,
+    items: parseChecklistLabels(params.labels).map((title) => ({
+      title,
+      kind: 'list_item',
+      occurs_at: null,
+      due_at: null,
+      actionable: 'yes',
+      prep_implied: 'none',
+      confidence: 'high',
+      evidence: '',
+      surface_from: null,
+      surface_until: null,
     })),
-  );
-  if (insertError) {
-    console.error('Failed to append checklist items:', insertError.message);
-    return [];
-  }
-  return toAdd;
+  });
 }
 
-export const CHECKLIST_PROMPT_RULE = `- checklist_items: optional array of short labels, or null.
-
-  Shopping / groceries / "I need some turmeric" / "I need to buy X" / "get milk and bread":
-  These are shopping products, not a standalone to-do. title should be the product name ("Turmeric"), never "Buy turmeric" or "Shopping list".
-  Put every product they mentioned in checklist_items, even if there is only one: ["Chicken"]. Product names only — never "To buy some chicken", "Need chicken", or "Buy chicken".
-  Do not invent extra groceries they did not mention.
-
-  Prep for something coming up (birthday, party, trip, sports day, appointment):
-  2–5 concrete prep labels they mentioned or clearly need (e.g. ["Present", "Card"]).
-
-  Do NOT invent a list for a bill, a delivery to track, or a one-step non-shopping to-do ("email the teacher", "book the dentist").`;
+export const CHECKLIST_PROMPT_RULE = `- Shopping / groceries only: put each mentioned product in checklist_items (["Chicken"]). Product names only. Do not invent extras.
+- For family prep (trips, birthdays, appointments): do NOT use checklist_items. Return each obligation as its own intake item instead.`;

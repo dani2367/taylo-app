@@ -1,4 +1,4 @@
-import { calendarExternalId, toCalendarEventDate } from './apple-calendar-map.ts';
+import { calendarExternalId, normalizeCalendarEventDate, toCalendarEventDate } from './apple-calendar-map.ts';
 
 function expect(name: string, got: unknown, want: unknown) {
   if (got !== want) {
@@ -19,5 +19,8 @@ expect(
   calendarExternalId('ek-1', '2026-09-12T14:15:00'),
   'ek-1:2026-09-12T14:15:00',
 );
+expect('all-day midnight from postgres', normalizeCalendarEventDate('2026-09-08 00:00:00'), '2026-09-08');
+expect('all-day date-only', normalizeCalendarEventDate('2026-09-08'), '2026-09-08');
+expect('timed event stays timed', normalizeCalendarEventDate('2026-09-08 14:00:00'), '2026-09-08T14:00:00');
 
 if (!process.exitCode) console.log('apple-calendar self-test passed');

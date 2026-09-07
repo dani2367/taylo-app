@@ -10,9 +10,10 @@ export function isUsableInsight(raw: string | null | undefined): boolean {
   const text = (raw || '').replace(/\s+/g, ' ').trim();
   if (!text) return false;
   const watching = /keep(ing)? (an )?eye|worth (keeping|watching)\b/i.test(text);
-  const practical = /\b(confirm|add|start|book|pack|send|call|reply|form|photo|order|check|talk you through|if you want|tonight|this week)\b/i.test(
-    text,
-  );
+  const practical =
+    /\b(confirm|add|start|book|pack|kit|present|snack|send|call|reply|form|photo|order|check|talk you through|if you want|tonight|this week|weekend|saturday|sunday|radar|suspect)\b/i.test(
+      text,
+    );
   if (watching && !practical) return false;
   return true;
 }

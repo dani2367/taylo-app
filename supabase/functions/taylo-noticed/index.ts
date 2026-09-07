@@ -99,6 +99,7 @@ Deno.serve(async (req: Request) => {
       )
       .eq('user_id', user.id)
       .eq('status', 'open')
+      .is('parent_id', null)
       .order('created_at', { ascending: false })
       .limit(50);
 
@@ -267,7 +268,7 @@ function systemPrompt(household: Household, today: string): string {
 
 Today (Europe/London) is ${today}.
 
-This is NOT a to-do ranking. Today's Actions already lists what needs doing right now. Your job is Taylo Noticed: one practical, suggestive observation — a next step they could actually take, a useful connection, or a specific offer of help. Not a vague watch-item.
+This is NOT a to-do ranking. Today's Actions already lists what needs doing right now. Your job is Taylo Noticed: one helpful heads-up — relevance from the week ahead, a suspected next step, a useful connection, or a specific offer of help.
 
 Return ONLY a JSON object, nothing else:
 { "insight": "one or two short sentences" }
@@ -277,13 +278,13 @@ If nothing is genuinely useful — or you would only be restating Today's Action
 
 Rules for insight:
 - First person as Taylo, like a text from a friend. Maximum two sentences, about 40 words. Contractions, a little warmth. No emoji. No leading sparkle mark.
-- Make it actionable or suggestive: a concrete next step, a thing to start, a form to open, a question that unblocks them. Sound like: "If you've got the photos, I can talk you through the passport form tonight." / "Lily's wellies still aren't on the list — want me to add them before the weekend?"
-- Never hedge with "worth keeping an eye on", "I'll keep an eye", "just something to watch", "on the radar", or similar. If you cannot suggest something practical, return null.
+- A calendar heads-up is on-brief when it is not already on Today's Actions: name what is coming (this weekend, Tuesday), suspect the likely prep (kit, present, form, snacks), and put it on their radar. Sound like: "Sports day is Saturday — I suspect you'll want kit, a water bottle, and a snack. Just putting it on your radar." / "If you've got the photos, I can talk you through the passport form tonight."
+- Prefer an upcoming family event (source=calendar, or a dated school/medical/activity item) that is not already listed under Today's Actions. Skip standups, commute, generic meetings, and regular lessons.
+- Make it suggestive, not a nag: a concrete suspected step or an offer. Never "don't forget", "you need to", "urgent", "overdue", or "make sure".
 - Do not restate, reword, or summarise items already listed under Today's Actions.
-- Prefer a connection: a family fact plus an undated item, a pattern across dates, something implied by a recent chat, a detail from an email subject that is not already the action.
+- Prefer a connection when you have one: a family fact plus an event, something implied by a recent chat, a detail from an email that is not already the action.
 - Never invent facts, people, dates, or commitments that are not in the context.
-- Never guilt them. Never "you need to", "urgent", "overdue", "don't forget", or nagging.
-- If the only true thing to say is generic ("looks like a busy week"), return null instead.
+- Empty watching language with no event and no suspected step is not allowed ("I'll keep an eye", "busy week"). If you cannot name the thing and the help, return null.
 
 ${householdVoiceBlock(household)}`;
 }
@@ -306,7 +307,10 @@ function userPrompt(
     ? items.map((item) => {
         const email = item.source_email_subject ? `email="${item.source_email_subject}"` : 'email=none';
         const source = item.source ? `source=${item.source}` : 'source=none';
-        return `- ${item.id} | ${item.title ?? 'Untitled'} | ${item.body ?? ''} | category=${item.category ?? 'none'} | date=${item.event_date ?? 'none'} | urgency=${item.urgency_level ?? 'none'} | who=${item.who_it_affects ?? 'none'} | ${source} | ${email}`;
+        const help = item.action_description?.trim()
+          ? `help="${item.action_description.trim()}"`
+          : 'help=none';
+        return `- ${item.id} | ${item.title ?? 'Untitled'} | ${item.body ?? ''} | category=${item.category ?? 'none'} | date=${item.event_date ?? 'none'} | urgency=${item.urgency_level ?? 'none'} | who=${item.who_it_affects ?? 'none'} | ${source} | ${help} | ${email}`;
       })
     : ['(none)'];
 
@@ -328,9 +332,17 @@ ${recentChat.trim() || '(none)'}`;
 }
 
 function isVagueNoticed(text: string): boolean {
-  return /busy (week|day)|nothing (much )?to (report|flag)|all (looks )?good|keep(ing)? (an )?eye|worth (keeping|watching)|on the radar|here's what|today's actions/i.test(
-    text,
-  );
+  if (/busy (week|day)|nothing (much )?to (report|flag)|all (looks )?good|here's what|today's actions/i.test(text)) {
+    return true;
+  }
+  const watching = /keep(ing)? (an )?eye|worth (keeping|watching)/i.test(text);
+  const specific =
+    /\b(saturday|sunday|weekend|monday|tuesday|wednesday|thursday|friday|pack|kit|present|form|snack|appointment|birthday|party|trip|school)\b/i.test(
+      text,
+    );
+  if (watching && !specific) return true;
+  if (/on the radar/i.test(text) && !specific) return true;
+  return false;
 }
 
 function parseInsight(raw: string): string | null {

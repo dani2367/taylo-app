@@ -1,3 +1,4 @@
+import { displayItemTitle } from './placement.ts';
 import {
   assignItem,
   buildFamilyPlan,
@@ -69,6 +70,12 @@ function item(partial: Partial<FamilySourceItem> & { id: string; title: string }
     category: null,
     icon: null,
     event_date: null,
+    due_at: null,
+    occurs_at: null,
+    kind: 'hold',
+    confidence: 'high',
+    surface_from: '2026-09-01',
+    surface_until: '2026-12-01',
     who_it_affects: null,
     delegated_to: null,
     status: 'open',
@@ -147,15 +154,25 @@ const plan = buildFamilyPlan(
   members,
   { first_name: 'Sophie' },
   [
-    item({ id: 'fb', title: 'Football', who_it_affects: 'Arlo', event_date: '2026-09-06', category: 'activity' }),
-    item({ id: 'sleep', title: 'Sleepover', who_it_affects: '  Arlo', event_date: '2026-09-05' }),
-    item({ id: 'dent', title: 'Dentist', who_it_affects: 'Taya', event_date: '2026-09-04' }),
-    item({ id: 'parcel', title: 'Pick up parcel', who_it_affects: null, event_date: '2026-09-08' }),
-    item({ id: 'radar', title: 'Renew passport', who_it_affects: 'family' }),
-    item({ id: 'milk', title: 'Milk', collection_id: 'shop' }),
-    item({ id: 'form', title: 'Trip form', collection_id: 'todo', who_it_affects: 'Taya', event_date: '2026-09-05' }),
-    item({ id: 'party', title: 'Joint party', who_it_affects: 'Arlo and Taya' }),
-    item({ id: 'you', title: 'GP checkup', who_it_affects: 'you', event_date: '2026-09-11' }),
+    item({ id: 'fb', title: 'Football', who_it_affects: 'Arlo', kind: 'occurrence', occurs_at: '2026-09-06', category: 'activity' }),
+    item({ id: 'kit', title: 'Wash kit', who_it_affects: 'Arlo', kind: 'obligation', due_at: '2026-09-06' }),
+    item({ id: 'sleep', title: 'Pack for sleepover', who_it_affects: '  Arlo', kind: 'obligation', due_at: '2026-09-05' }),
+    item({
+      id: 'card',
+      title: 'Buy card',
+      who_it_affects: 'Arlo',
+      kind: 'obligation',
+      due_at: null,
+      parent_id: 'party',
+      parent: { title: "Arlo's birthday party", occurs_at: '2026-09-12' },
+    }),
+    item({ id: 'dent', title: 'Dentist', who_it_affects: 'Taya', kind: 'occurrence', occurs_at: '2026-09-04' }),
+    item({ id: 'parcel', title: 'Pick up parcel', who_it_affects: null, kind: 'obligation', due_at: '2026-09-08' }),
+    item({ id: 'radar', title: 'Renew passport', who_it_affects: 'family', kind: 'hold' }),
+    item({ id: 'milk', title: 'Milk', collection_id: 'shop', kind: 'list_item' }),
+    item({ id: 'form', title: 'Trip form', collection_id: 'todo', who_it_affects: 'Taya', kind: 'obligation', due_at: '2026-09-05' }),
+    item({ id: 'party', title: 'Joint party', who_it_affects: 'Arlo and Taya', kind: 'occurrence', occurs_at: '2026-09-12' }),
+    item({ id: 'you', title: 'Book GP checkup', who_it_affects: 'you', kind: 'obligation', due_at: '2026-09-11' }),
   ],
   [shopping, todo],
   new Map([['shop', 4]]),
@@ -167,12 +184,17 @@ const taya = plan.buckets.find((b) => b.person.key === 'taya')!;
 const sophie = plan.buckets.find((b) => b.person.key === 'sophie')!;
 
 expect(
-  'arlo items',
+  'arlo items include calendar occurrence and obligations',
   arlo.items.map((i) => i.id).sort(),
-  ['fb', 'sleep'],
+  ['card', 'fb', 'kit', 'sleep'],
 );
 expect(
-  'taya items include todo collection item',
+  'child obligation title includes parent context',
+  displayItemTitle(arlo.items.find((i) => i.id === 'card')!, today).includes("Arlo's birthday party"),
+  true,
+);
+expect(
+  'taya items include appointment and open to-do',
   taya.items.map((i) => i.id).sort(),
   ['dent', 'form'],
 );
@@ -215,7 +237,7 @@ expect(
 expect(
   'arlo summary uses arlo items',
   fallbackWeeklySummary('Arlo', arlo.weekTitles),
-  "Arlo's week is mostly football and sleepover.",
+  "Arlo's week is mostly football and wash kit.",
 );
 expect(
   'taya summary uses taya items',
@@ -231,6 +253,23 @@ expect(
   'empty week copy',
   fallbackWeeklySummary('Arlo', []),
   "Arlo's week looks quiet so far.",
+);
+
+const appointmentOnly = buildFamilyPlan(
+  members,
+  { first_name: 'Sophie' },
+  [item({ id: 'taya-dent', title: 'Dentist', who_it_affects: 'Taya', kind: 'occurrence', occurs_at: '2026-09-10' })],
+  [],
+  new Map(),
+  today,
+);
+const tayaOnly = appointmentOnly.buckets.find((b) => b.person.key === 'taya')!;
+expect('appointment-only person is not empty', tayaOnly.items.map((i) => i.id), ['taya-dent']);
+expect('appointment-only preview shows the event', tayaOnly.preview.map((i) => i.id), ['taya-dent']);
+expect(
+  'appointment-only siblings stay empty',
+  appointmentOnly.buckets.filter((b) => b.person.key !== 'taya').every((b) => b.items.length === 0),
+  true,
 );
 
 if (!process.exitCode) console.log('plan-family self-test passed');

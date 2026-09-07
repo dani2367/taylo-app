@@ -11,9 +11,6 @@ type Body = {
   fingerprint?: unknown;
 };
 
-const memory = new Map<string, { insight: string; generatedAt: number; fingerprint: string }>();
-const STALE_MS = 4 * 60 * 60 * 1000;
-
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return json(null, 204);
@@ -56,15 +53,22 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'Invalid density payload' }, 400);
     }
 
-    const cacheKey = `${user.id}:${fingerprint}`;
-    const cached = memory.get(cacheKey);
-    if (
-      !force &&
-      cached &&
-      cached.fingerprint === fingerprint &&
-      Date.now() - cached.generatedAt < STALE_MS
-    ) {
-      return json({ success: true, skipped: true, insight: cached.insight });
+    if (!force) {
+      const { data: latest } = await supabase
+        .from('schedule_density_cache')
+        .select('fingerprint, insight_text, generated_at')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      const row = latest as { fingerprint?: string; insight_text?: string; generated_at?: string } | null;
+      const cached = (row?.insight_text || '').trim();
+      if (row?.fingerprint === fingerprint && cached) {
+        return json({
+          success: true,
+          skipped: true,
+          insight: cached,
+          generated_at: row.generated_at,
+        });
+      }
     }
 
     let insight = fallbackLine(weekday, titles);
@@ -75,8 +79,21 @@ Deno.serve(async (req: Request) => {
       console.error('Schedule density generation failed:', err);
     }
 
-    memory.set(cacheKey, { insight, fingerprint, generatedAt: Date.now() });
-    return json({ success: true, skipped: false, insight });
+    const generatedAt = new Date().toISOString();
+    const { error: upsertError } = await supabase.from('schedule_density_cache').upsert(
+      {
+        user_id: user.id,
+        fingerprint,
+        insight_text: insight,
+        generated_at: generatedAt,
+      },
+      { onConflict: 'user_id' },
+    );
+    if (upsertError) {
+      console.error('Failed to save schedule density cache:', upsertError.message);
+    }
+
+    return json({ success: true, skipped: false, insight, generated_at: generatedAt });
   } catch (err) {
     console.error('Unhandled error:', err);
     return json({ error: 'Internal server error' }, 500);

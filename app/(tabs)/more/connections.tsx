@@ -177,7 +177,7 @@ export default function ConnectionsScreen() {
       setApple(true);
       setCalOpen(true);
       await registerAppleCalendarBackgroundSync();
-      await syncAppleCalendar();
+      await syncAppleCalendar({ force: true });
     } catch (e: unknown) {
       Alert.alert('Connection failed', e instanceof Error ? e.message : 'Something went wrong.');
     } finally {
@@ -195,7 +195,7 @@ export default function ConnectionsScreen() {
       Alert.alert('Could not save calendars', error);
       return;
     }
-    void syncAppleCalendar();
+    void syncAppleCalendar({ force: true });
   }
 
   const calendarSub = apple

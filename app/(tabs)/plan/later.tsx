@@ -2,8 +2,8 @@ import { PlanItemFeed, PlanStackHeader } from '@/components/app/PlanItemFeed';
 import { appStyles as s } from '@/components/app/styles';
 import { colors } from '@/constants/theme';
 import { mapPlanItemRow, PLAN_ITEM_SELECT, type PlanItemRow } from '@/lib/plan-item-map';
-import { isRadarEligible } from '@/lib/radar-organize';
-import { compareRadarItems, radarStatusLine, type RadarItem } from '@/lib/radar';
+import { selectHomeActions, selectRadarWatch } from '@/lib/placement';
+import { radarStatusLine, type RadarItem } from '@/lib/radar';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -26,9 +26,10 @@ export default function LaterRadarScreen() {
 
     const { data, error } = await supabase
       .from('items')
-      .select(`${PLAN_ITEM_SELECT}, collection_id, created_at, source`)
+      .select(`${PLAN_ITEM_SELECT}, collection_id, created_at, source, parent_id`)
       .eq('user_id', user.id)
-      .eq('status', 'open');
+      .eq('status', 'open')
+      .in('kind', ['hold', 'obligation', 'occurrence']);
 
     if (error) {
       console.error('Failed to load radar items:', error.message);
@@ -37,13 +38,24 @@ export default function LaterRadarScreen() {
     }
 
     const today = new Date();
-    const rows = ((data as (PlanItemRow & RadarItem & { source: string | null })[] | null) ?? [])
-      .filter((row) => isRadarEligible(row))
-      .sort((a, b) => compareRadarItems(a, b, today));
+    const all = (data as (PlanItemRow & RadarItem)[] | null) ?? [];
+    const homeIds = new Set(selectHomeActions(all, { today }).map((card) => card.item.id));
+    const rows = selectRadarWatch(all, today).filter((card) => !homeIds.has(card.item.id));
     setItems(
-      rows.map((row) => ({
-        ...mapPlanItemRow(row, today),
-        context: radarStatusLine(row, today),
+      rows.map((card) => ({
+        ...mapPlanItemRow(
+          {
+            ...card.item,
+            prep_children: card.children.map((child) => ({
+              id: child.id,
+              title: child.title,
+              status: child.status ?? 'open',
+              created_at: child.created_at,
+            })),
+          },
+          today,
+        ),
+        context: radarStatusLine(card.item, today),
       })),
     );
     setLoading(false);

@@ -2,7 +2,6 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-haiku-4-5';
-const STALE_MS = 4 * 60 * 60 * 1000;
 
 type PersonIn = { id?: unknown; name?: unknown; titles?: unknown };
 
@@ -12,8 +11,6 @@ type Body = {
   fingerprint?: unknown;
   people?: unknown;
 };
-
-const memory = new Map<string, { summaries: Record<string, string>; generatedAt: number; fingerprint: string }>();
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return json(null, 204);
@@ -46,10 +43,22 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'Invalid family-week payload' }, 400);
     }
 
-    const cacheKey = `${user.id}:${fingerprint}`;
-    const cached = memory.get(cacheKey);
-    if (!force && cached && cached.fingerprint === fingerprint && Date.now() - cached.generatedAt < STALE_MS) {
-      return json({ success: true, skipped: true, summaries: cached.summaries });
+    if (!force) {
+      const { data: latest } = await supabase
+        .from('family_week_cache')
+        .select('fingerprint, summaries, generated_at')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      const row = latest as { fingerprint?: string; summaries?: unknown; generated_at?: string } | null;
+      const cached = parseStoredSummaries(row?.summaries);
+      if (row?.fingerprint === fingerprint && cached) {
+        return json({
+          success: true,
+          skipped: true,
+          summaries: cached,
+          generated_at: row.generated_at,
+        });
+      }
     }
 
     const summaries = fallbackAll(people);
@@ -65,8 +74,22 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    memory.set(cacheKey, { summaries, fingerprint, generatedAt: Date.now() });
-    return json({ success: true, skipped: false, summaries });
+    const generatedAt = new Date().toISOString();
+    const { error: upsertError } = await supabase.from('family_week_cache').upsert(
+      {
+        user_id: user.id,
+        week_start: weekStart,
+        fingerprint,
+        summaries,
+        generated_at: generatedAt,
+      },
+      { onConflict: 'user_id' },
+    );
+    if (upsertError) {
+      console.error('Failed to save family week cache:', upsertError.message);
+    }
+
+    return json({ success: true, skipped: false, summaries, generated_at: generatedAt });
   } catch (err) {
     console.error('Unhandled error:', err);
     return json({ error: 'Internal server error' }, 500);
@@ -148,6 +171,16 @@ Rules for each person:
   const data = (await res.json()) as { content?: Array<{ type?: string; text?: string }> };
   const text = data.content?.find((block) => block.type === 'text')?.text?.trim() ?? '';
   return parseSummaries(text);
+}
+
+function parseStoredSummaries(raw: unknown): Record<string, string> | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out: Record<string, string> = {};
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    const cleaned = cleanInsight(value);
+    if (cleaned) out[id] = cleaned;
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 function parseSummaries(raw: string): Record<string, string> {

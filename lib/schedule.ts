@@ -1,5 +1,5 @@
 import { resolvePlanDate, startOfWeek } from './human-date';
-import { isListHubTitle } from './radar-organize';
+import { isScheduleItem as isOccurrenceRecord } from './placement';
 import { extraEventContext, firstCompleteSentence } from './suggestion';
 
 export const LATER_PREVIEW = 4;
@@ -31,9 +31,11 @@ export type ScheduleSourceItem = {
   body: string | null;
   category: string | null;
   icon: string | null;
-  event_date: string | null;
+  occurs_at: string | null;
+  event_date?: string | null;
   who_it_affects: string | null;
-  source: string | null;
+  kind?: string | null;
+  status?: string | null;
 };
 
 export type AgendaRow = {
@@ -118,8 +120,8 @@ export function weekCellInitial(d: Date): string {
 }
 
 export function isScheduleItem(row: ScheduleSourceItem, today = new Date()): boolean {
-  if (isListHubTitle(row.title)) return false;
-  return resolvePlanDate(row.event_date, today) != null;
+  if (!isOccurrenceRecord({ ...row, occurs_at: row.occurs_at || null })) return false;
+  return resolvePlanDate(row.occurs_at, today) != null;
 }
 
 function formatClock(hour: number, minute: number): string {
@@ -175,10 +177,10 @@ function scheduleSub(title: string, who: string | null, body: string | null): st
 
 export function mapAgendaRow(row: ScheduleSourceItem, today = new Date()): AgendaRow | null {
   if (!isScheduleItem(row, today)) return null;
-  const date = resolvePlanDate(row.event_date, today);
+  const date = resolvePlanDate(row.occurs_at, today);
   if (!date) return null;
   const title = (row.title || 'Untitled').trim() || 'Untitled';
-  const time = extractEventTime(row.event_date, `${row.title || ''} ${row.body || ''}`);
+  const time = extractEventTime(row.occurs_at, `${row.title || ''} ${row.body || ''}`);
   return {
     id: row.id,
     title,

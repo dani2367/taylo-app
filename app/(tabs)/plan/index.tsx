@@ -13,10 +13,11 @@ import {
   organizeStandaloneItems,
 } from '@/lib/collections';
 import { itemCountLabel } from '@/lib/human-date';
-import { mapPlanItemRow, PLAN_ITEM_SELECT, type PlanItemRow } from '@/lib/plan-item-map';
+import { ITEM_COUNT_SELECT, mapPlanItemRow, PLAN_ITEM_SELECT, type PlanItemRow } from '@/lib/plan-item-map';
 import { resolvePlanIcon, type PlanIconSpec } from '@/lib/plan-icon';
-import { isListHubTitle, isRadarEligible } from '@/lib/radar-organize';
-import { compareRadarItems, RADAR_PREVIEW, radarStatusLine, type RadarItem } from '@/lib/radar';
+import { nestedListCount, isListHubTitle } from '@/lib/radar-organize';
+import { RADAR_PREVIEW, radarStatusLine, type RadarItem } from '@/lib/radar';
+import { selectHomeActions, selectRadarWatch } from '@/lib/placement';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect, router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
@@ -63,18 +64,12 @@ type ListCard = {
   count: number;
 };
 
-type ChecklistJoin = { checklist_items: { done: boolean }[] | null };
 type ItemCountRow = {
   id: string;
   title: string | null;
   collection_id: string | null;
-  checklists: ChecklistJoin[] | ChecklistJoin | null;
+  prep_children?: { status: string | null }[] | { status: string | null } | null;
 };
-
-function unwrapChecks(raw: ChecklistJoin[] | ChecklistJoin | null): { done: boolean }[] {
-  const lists = !raw ? [] : Array.isArray(raw) ? raw : [raw];
-  return lists.flatMap((list) => list.checklist_items ?? []);
-}
 
 function listCount(members: ItemCountRow[], collectionTitle: string): number {
   if (collectionTitle === GENERAL_TODO_TITLE) {
@@ -82,9 +77,8 @@ function listCount(members: ItemCountRow[], collectionTitle: string): number {
   }
   let n = 0;
   for (const row of members) {
-    const checks = unwrapChecks(row.checklists);
-    if (checks.length) n += checks.filter((entry) => !entry.done).length;
-    else n += 1;
+    const openPrep = nestedListCount(row.prep_children);
+    n += openPrep;
   }
   return n;
 }
@@ -129,9 +123,10 @@ export default function PlanScreen() {
     if (ids.length) {
       const { data } = await supabase
         .from('items')
-        .select('id, title, collection_id, checklists(checklist_items(done))')
+        .select(ITEM_COUNT_SELECT)
         .eq('user_id', user.id)
         .eq('status', 'open')
+        .is('parent_id', null)
         .in('collection_id', ids);
       members = (data as ItemCountRow[] | null) ?? [];
     }
@@ -154,9 +149,10 @@ export default function PlanScreen() {
 
     const { data: itemData, error } = await supabase
       .from('items')
-      .select(`${PLAN_ITEM_SELECT}, created_at, source, collection_id`)
+      .select(`${PLAN_ITEM_SELECT}, created_at, source, collection_id, parent_id`)
       .eq('user_id', user.id)
-      .eq('status', 'open');
+      .eq('status', 'open')
+      .in('kind', ['hold', 'obligation', 'occurrence']);
 
     if (error) {
       console.error('Failed to load radar items:', error.message);
@@ -165,13 +161,24 @@ export default function PlanScreen() {
     }
 
     const today = new Date();
-    const later = ((itemData as (PlanItemRow & RadarItem & { source: string | null })[] | null) ?? [])
-      .filter((row) => isRadarEligible(row))
-      .sort((a, b) => compareRadarItems(a, b, today));
+    const all = (itemData as (PlanItemRow & RadarItem)[] | null) ?? [];
+    const homeIds = new Set(selectHomeActions(all, { today }).map((card) => card.item.id));
+    const later = selectRadarWatch(all, today).filter((card) => !homeIds.has(card.item.id));
     setRadar(
-      later.map((row) => ({
-        ...mapPlanItemRow(row, today),
-        context: radarStatusLine(row, today),
+      later.map((card) => ({
+        ...mapPlanItemRow(
+          {
+            ...card.item,
+            prep_children: card.children.map((child) => ({
+              id: child.id,
+              title: child.title,
+              status: child.status ?? 'open',
+              created_at: child.created_at,
+            })),
+          },
+          today,
+        ),
+        context: radarStatusLine(card.item, today),
       })),
     );
     setLoading(false);

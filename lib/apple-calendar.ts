@@ -1,4 +1,10 @@
-import { calendarExternalId, toCalendarEventDate, APPLE_CALENDAR_SYNC_TASK } from '@/lib/apple-calendar-map';
+import {
+  calendarExternalId,
+  normalizeCalendarEventDate,
+  toCalendarEventDate,
+  APPLE_CALENDAR_SYNC_TASK,
+} from '@/lib/apple-calendar-map';
+import { shouldClassifyExistingCalendarItem } from '@/lib/calendar-classified';
 import { refreshSpotlight } from '@/lib/spotlight';
 import { supabase } from '@/lib/supabase';
 import { isRunningInExpoGo } from 'expo';
@@ -38,14 +44,27 @@ type ExistingRow = {
   body: string | null;
   event_date: string | null;
   status: string | null;
-  urgency_level: string | null;
+  classified_at: string | null;
   external_id: string | null;
-  checklists: { id: string }[] | { id: string } | null;
 };
 
 type SyncResult = { changed: boolean; created: number; dismissed: number };
 
+type CalendarSyncListener = (result: SyncResult) => void;
+
 let inFlight: Promise<SyncResult> | null = null;
+const syncListeners = new Set<CalendarSyncListener>();
+
+export function subscribeAppleCalendarSync(listener: CalendarSyncListener): () => void {
+  syncListeners.add(listener);
+  return () => {
+    syncListeners.delete(listener);
+  };
+}
+
+function emitAppleCalendarSync(result: SyncResult) {
+  for (const listener of syncListeners) listener(result);
+}
 
 export function usesPreviewAppleCalendar(): boolean {
   return Platform.OS === 'web' || isRunningInExpoGo();
@@ -131,13 +150,20 @@ export async function saveAppleCalendarConnection(params: {
   return {};
 }
 
-export async function syncAppleCalendar(): Promise<SyncResult> {
+export async function syncAppleCalendar(opts?: { force?: boolean }): Promise<SyncResult> {
   const empty = { changed: false, created: 0, dismissed: 0 };
-  if (inFlight) return inFlight;
+  if (inFlight) {
+    const result = await inFlight;
+    if (!opts?.force) return result;
+  }
   inFlight = runSync()
     .catch((err) => {
       console.warn('Apple calendar sync failed:', err);
       return empty;
+    })
+    .then((result) => {
+      emitAppleCalendarSync(result);
+      return result;
     })
     .finally(() => {
       inFlight = null;
@@ -167,7 +193,7 @@ async function runSync(): Promise<SyncResult> {
   const events = await readNativeEvents(selectedIds, start, end);
   const { data: existingRows, error: existingError } = await supabase
     .from('items')
-    .select('id, title, body, event_date, status, urgency_level, external_id, checklists(id)')
+    .select('id, title, body, event_date, status, classified_at, external_id')
     .eq('user_id', user.id)
     .eq('external_source', APPLE_CALENDAR_SOURCE);
 
@@ -184,7 +210,14 @@ async function runSync(): Promise<SyncResult> {
 
   const seen = new Set<string>();
   const toInsert: Record<string, unknown>[] = [];
-  const toUpdate: { id: string; title: string; body: string | null; event_date: string; status: string }[] = [];
+  const toUpdate: {
+    id: string;
+    title: string;
+    body: string | null;
+    event_date: string;
+    status: string;
+    classified_at: string | null;
+  }[] = [];
   const classifyPayload: { id: string; title: string; location: string | null; start: string; all_day: boolean }[] = [];
 
   for (const event of events) {
@@ -211,6 +244,11 @@ async function runSync(): Promise<SyncResult> {
         external_source: APPLE_CALENDAR_SOURCE,
         calendar_provider: 'apple',
         status: 'open',
+        kind: 'occurrence',
+        occurs_at: eventDate,
+        due_at: null,
+        confidence: 'high',
+        prep_origin: 'none',
       });
       continue;
     }
@@ -219,11 +257,24 @@ async function runSync(): Promise<SyncResult> {
       existing.status === 'done' || existing.status === 'delegated' ? existing.status : 'open';
     const bodyChanged = (existing.body || null) !== location;
     const titleChanged = (existing.title || '') !== title;
-    const dateChanged = (existing.event_date || '').slice(0, 19) !== eventDate;
+    const dateChanged =
+      normalizeCalendarEventDate(existing.event_date) !== normalizeCalendarEventDate(eventDate);
+    const reclassify = shouldClassifyExistingCalendarItem({
+      classifiedAt: existing.classified_at,
+      titleChanged,
+      dateChanged,
+    });
     if (titleChanged || bodyChanged || dateChanged || existing.status === 'dismissed') {
-      toUpdate.push({ id: existing.id, title, body: location, event_date: eventDate, status });
+      toUpdate.push({
+        id: existing.id,
+        title,
+        body: location,
+        event_date: eventDate,
+        status,
+        classified_at: titleChanged || dateChanged ? null : existing.classified_at,
+      });
     }
-    if (!hasChecklist(existing.checklists) && existing.urgency_level == null) {
+    if (reclassify) {
       classifyPayload.push({
         id: existing.id,
         title,
@@ -264,7 +315,10 @@ async function runSync(): Promise<SyncResult> {
         title: row.title,
         body: row.body,
         event_date: row.event_date,
+        occurs_at: row.event_date,
+        kind: 'occurrence',
         status: row.status,
+        classified_at: row.classified_at,
       })
       .eq('id', row.id);
     if (error) console.error('Failed to update calendar item:', error.message);
@@ -373,12 +427,6 @@ async function readNativeEvents(calendarIds: string[], start: Date, end: Date): 
       allDay: Boolean(event.allDay),
       calendarId: event.calendarId,
     }));
-}
-
-function hasChecklist(raw: ExistingRow['checklists']): boolean {
-  if (!raw) return false;
-  const lists = Array.isArray(raw) ? raw : [raw];
-  return lists.some((list) => Boolean(list?.id));
 }
 
 function startOfLocalDay(d: Date): Date {

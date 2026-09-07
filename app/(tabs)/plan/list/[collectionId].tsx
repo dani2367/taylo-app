@@ -33,6 +33,7 @@ export default function CollectionScreen() {
         .select(PLAN_ITEM_SELECT)
         .eq('collection_id', collectionId)
         .eq('status', 'open')
+        .is('parent_id', null)
         .order('created_at', { ascending: true }),
     ]);
 

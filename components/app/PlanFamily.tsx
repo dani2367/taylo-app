@@ -21,27 +21,22 @@ import {
   type PersonBucket,
 } from '@/lib/plan-family';
 import { resolvePlanIcon, washColor, type Wash } from '@/lib/plan-icon';
-import { isListHubTitle } from '@/lib/radar-organize';
+import { ITEM_COUNT_SELECT } from '@/lib/plan-item-map';
+import { nestedListCount, isListHubTitle } from '@/lib/radar-organize';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect, router } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
-type ChecklistJoin = { checklist_items: { done: boolean }[] | null };
 type ItemCountRow = {
   id: string;
   title: string | null;
   collection_id: string | null;
-  checklists: ChecklistJoin[] | ChecklistJoin | null;
+  prep_children?: { status: string | null }[] | { status: string | null } | null;
 };
 
 const SELECT =
-  'id, title, body, category, icon, event_date, who_it_affects, source, collection_id, created_at';
-
-function unwrapChecks(raw: ChecklistJoin[] | ChecklistJoin | null): { done: boolean }[] {
-  const lists = !raw ? [] : Array.isArray(raw) ? raw : [raw];
-  return lists.flatMap((list) => list.checklist_items ?? []);
-}
+  'id, title, body, category, icon, event_date, due_at, occurs_at, kind, confidence, surface_from, surface_until, who_it_affects, source, collection_id, created_at, parent_id, status, parent:items!parent_id(id, title, occurs_at, event_date)';
 
 function listCount(members: ItemCountRow[], collectionTitle: string): number {
   if (collectionTitle === GENERAL_TODO_TITLE) {
@@ -49,9 +44,8 @@ function listCount(members: ItemCountRow[], collectionTitle: string): number {
   }
   let n = 0;
   for (const row of members) {
-    const checks = unwrapChecks(row.checklists);
-    if (checks.length) n += checks.filter((entry) => !entry.done).length;
-    else n += 1;
+    const openPrep = nestedListCount(row.prep_children);
+    n += openPrep;
   }
   return n;
 }
@@ -240,9 +234,10 @@ export function PlanFamily() {
       ids.length
         ? supabase
             .from('items')
-            .select('id, title, collection_id, checklists(checklist_items(done))')
+            .select(ITEM_COUNT_SELECT)
             .eq('user_id', user.id)
             .eq('status', 'open')
+            .is('parent_id', null)
             .in('collection_id', ids)
         : Promise.resolve({ data: [] as ItemCountRow[] }),
     ]);

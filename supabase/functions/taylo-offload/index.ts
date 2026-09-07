@@ -3,12 +3,20 @@ import {
   CHECKLIST_PROMPT_RULE,
   appendChecklistItems,
   cleanGroceryProductLabel,
-  insertPrepChecklist,
+  insertIntakeChildren,
   looksLikeShoppingList,
   parseChecklistLabels,
 } from '../_shared/checklists.ts';
 import { findOrCreateShoppingListItem } from '../_shared/collections.ts';
 import { householdVoiceBlock, loadHousehold, type Household } from '../_shared/household.ts';
+import {
+  eventDateFromIntake,
+  finalizeSourceItems,
+  intakeContractRules,
+  intakeRowFields,
+  splitParentAndChildren,
+  type IntakeItem,
+} from '../_shared/intake-contract.ts';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-haiku-4-5';
@@ -48,6 +56,7 @@ type Extracted = {
   who_it_affects: string | null;
   urgency_level: Urgency;
   checklist_items: string[];
+  items: IntakeItem[];
   reply: string;
 };
 
@@ -171,6 +180,7 @@ Deno.serve(async (req: Request) => {
       itemId = saved.itemId;
       reply = shoppingReply(saved.added, extracted.checklist_items);
     } else {
+      const { parent, children } = splitParentAndChildren(extracted.items, extracted.title);
       const { data: item, error: itemError } = await supabase
         .from('items')
         .insert({
@@ -185,10 +195,11 @@ Deno.serve(async (req: Request) => {
           status: 'open',
           source: 'chat',
           source_label: 'Added from Ask',
-          event_date: extracted.event_date,
+          event_date: eventDateFromIntake(parent, 'chat') ?? extracted.event_date,
           who_it_affects: extracted.who_it_affects,
           urgency_level: extracted.urgency_level,
           action_description: extracted.title,
+          ...intakeRowFields(parent),
         })
         .select('id, title')
         .single();
@@ -198,11 +209,10 @@ Deno.serve(async (req: Request) => {
         return json({ error: 'Failed to save item' }, 500);
       }
 
-      await insertPrepChecklist(supabase, {
+      await insertIntakeChildren(supabase, {
         userId: user.id,
         itemId: item.id,
-        itemTitle: item.title,
-        labels: extracted.checklist_items,
+        items: children,
       });
       itemId = item.id;
     }
@@ -345,27 +355,30 @@ async function saveShoppingItems(
 }
 
 function extractPrompt(household: Household, today: string): string {
-  return `You extract a single to-do from a parent's offload message for Taylo, a UK family assistant. Return ONLY a JSON object, nothing else:
+  return `You extract one or more items from a parent's offload message for Taylo, a UK family assistant. Return ONLY a JSON object, nothing else:
 {
-  "title": "short title for the item",
+  "title": "short title for the parent item",
   "body": "one short subtitle for the Home card, or null",
   "category": "school|medical|activity|delivery|returns|financial|errand|home",
-  "event_date": "YYYY-MM-DD or null",
+  "event_date": "YYYY-MM-DD or null — this is due_at, never occurs_at",
   "who_it_affects": "family member name or 'family' or null",
   "urgency_level": "today|this_week|upcoming|none",
-  "checklist_items": ["Present", "Card"] or null,
+  "checklist_items": ["Chicken"] or null,
+  "items": [ parent intake item first, then each separate obligation ],
   "reply": "your confirmation message to the parent"
 }
 
 Rules
-- title: the action, under 8 words, like a Home list item. First letter capital. No quotes. Do not copy their sentence verbatim — rewrite it as the thing to do. Shopping/groceries: product name only ("Turmeric"), never "Buy turmeric" or "Shopping list".
+- title: the action or hold, under 8 words, like a Home list item. First letter capital. No quotes. Do not copy their sentence verbatim. Shopping/groceries: product name only ("Turmeric"), never "Buy turmeric" or "Shopping list".
 - body: one clipped extra fact (who, when, why) under ~12 words. Not a repeat of the title. null if the title already says it all.
 - category: pick the best fit. Groceries, shopping, "I need some X", "need to get X", household staples → errand. Birthdays/gifts for a person → errand unless it is clearly a party (activity).
-- event_date: convert relative dates using today (${today}). "in three weeks" means about 21 days from today. If no date is implied, null.
+- event_date / due_at: convert relative dates using today (${today}). "in three weeks" means about 21 days from today. If no date is implied, null. Never invent a deadline for a hold.
 - who_it_affects: a known household name if it is about them; "Dad"/"Mum" if they said that; "family" if it is for everyone; null if it is just the parent's errand with no named person.
-- urgency_level: today if it is needed now/today; this_week if this week or within the next 3 days; upcoming if a date 4–21 days out is known; none if there is no time pressure (standing errand, staple to pick up). Shopping defaults to none unless they imply sooner ("for dinner tomorrow").
+- urgency_level: today if it is needed now/today; this_week if this week or within the next 3 days; upcoming if a date 4–21 days out is known; none if there is no time pressure (standing errand, staple, hold). Shopping defaults to none unless they imply sooner ("for dinner tomorrow").
 - reply: you are Taylo talking to them — a warm, organised friend. One short sentence, like a text, contractions, first person. Confirm you added it. For shopping, mention the item went on the list ("Got it — turmeric is on your shopping list."). Never say "Today" (that screen is called Home). Never say "saved" or "got your message".
 ${CHECKLIST_PROMPT_RULE}
+
+${intakeContractRules('chat')}
 
 ${householdVoiceBlock(household)}`;
 }
@@ -376,7 +389,7 @@ async function extractItem(
   household: Household,
 ): Promise<Extracted> {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
-  const raw = await callClaude(apiKey, extractPrompt(household, today), userText, 640);
+  const raw = await callClaude(apiKey, extractPrompt(household, today), userText, 1200);
   return parseExtracted(raw, userText);
 }
 
@@ -404,8 +417,16 @@ function parseExtracted(raw: string, fallbackText: string): Extracted {
       : 'none';
   const reply = cleanReply(parsed.reply, title);
   const checklist_items = parseChecklistLabels(parsed.checklist_items);
+  const items = finalizeSourceItems({
+    source: 'chat',
+    sourceText: fallbackText,
+    fallbackTitle: title,
+    date: event_date,
+    rawItems: (parsed as { items?: unknown }).items,
+    extraLabels: checklist_items,
+  });
 
-  return { title, body, category, event_date, who_it_affects, urgency_level, checklist_items, reply };
+  return { title, body, category, event_date, who_it_affects, urgency_level, checklist_items, items, reply };
 }
 
 function cleanTitle(value: string): string {

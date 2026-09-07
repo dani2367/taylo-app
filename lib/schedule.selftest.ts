@@ -25,14 +25,15 @@ function expect(name: string, got: unknown, want: unknown) {
   console.log(`ok ${name}`);
 }
 
-function row(partial: Partial<ScheduleSourceItem> & { id: string; title: string; event_date: string }): AgendaRow {
+function row(partial: Partial<ScheduleSourceItem> & { id: string; title: string; occurs_at: string }): AgendaRow {
   const mapped = mapAgendaRow(
     {
       body: null,
       category: null,
       icon: null,
       who_it_affects: null,
-      source: 'email',
+      kind: 'occurrence',
+      status: 'open',
       ...partial,
     },
     today,
@@ -41,57 +42,72 @@ function row(partial: Partial<ScheduleSourceItem> & { id: string; title: string;
   return mapped;
 }
 
-expect('calendar source is on schedule', mapAgendaRow({
+expect('occurrence is on schedule', mapAgendaRow({
   id: 'c',
   title: 'Nursery',
+  occurs_at: '2026-09-05',
+  body: null,
+  category: null,
+  icon: null,
+  who_it_affects: null,
+  kind: 'occurrence',
+  status: 'open',
+}, today)?.title, 'Nursery');
+
+expect('obligation with firm due_at stays off schedule', mapAgendaRow({
+  id: 'e',
+  title: 'Return the trip form',
+  occurs_at: null,
   event_date: '2026-09-05',
   body: null,
   category: null,
   icon: null,
   who_it_affects: null,
-  source: 'calendar',
-}, today)?.title, 'Nursery');
+  kind: 'obligation',
+  status: 'open',
+}, today), null);
 
 expect('list hub stays off schedule', mapAgendaRow({
   id: 's',
   title: 'Shopping',
-  event_date: '2026-09-05',
+  occurs_at: '2026-09-05',
   body: null,
   category: null,
   icon: null,
   who_it_affects: null,
-  source: 'manual',
+  kind: 'list_item',
+  status: 'open',
 }, today), null);
 
 const dentist = row({
   id: 'd',
   title: 'Dentist',
-  event_date: '2026-09-05',
+  occurs_at: '2026-09-05',
   body: 'Thursday 2:15pm at the practice',
   who_it_affects: 'Taya',
 });
 const form = row({
   id: 'f',
   title: 'School trip form',
-  event_date: '2026-09-05',
+  occurs_at: '2026-09-05',
   body: 'Due back to the office',
   who_it_affects: 'Taya',
 });
 const nursery = row({
   id: 'n',
   title: 'Nursery',
-  event_date: '2026-09-05T08:30:00',
+  occurs_at: '2026-09-05T08:30:00',
   who_it_affects: 'Arlo',
 });
 const later = row({
   id: 'l',
   title: 'Sleepover pack',
-  event_date: '2026-09-15',
+  occurs_at: '2026-09-15',
   who_it_affects: 'Arlo',
 });
-const oct1 = row({ id: 'o1', title: 'Inset day', event_date: '2026-10-12' });
-const oct2 = row({ id: 'o2', title: 'MOT', event_date: '2026-10-20' });
-const nov = row({ id: 'nv', title: 'Holiday booking', event_date: '2026-11-03' });
+const oct1 = row({ id: 'o1', title: 'Inset day', occurs_at: '2026-10-12' });
+const oct2 = row({ id: 'o2', title: 'MOT', occurs_at: '2026-10-20' });
+const nov = row({ id: 'nv', title: 'Holiday booking', occurs_at: '2026-11-03' });
 
 const todayItems = [form, dentist, nursery].sort(compareAgenda);
 expect(
@@ -112,7 +128,7 @@ expect(
 expect(
   'no tomorrow bucket — 6 Sep would sit in later this month',
   bucketAgenda(
-    [row({ id: 'tm', title: 'Football', event_date: '2026-09-06', who_it_affects: 'Arlo' })],
+    [row({ id: 'tm', title: 'Football', occurs_at: '2026-09-06', who_it_affects: 'Arlo' })],
     '2026-09-05',
     today,
   ).laterThisMonth.map((item) => item.title),

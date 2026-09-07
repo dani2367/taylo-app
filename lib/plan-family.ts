@@ -1,4 +1,5 @@
 import { daysUntil, humanizeEventDate, itemCountLabel, startOfWeek } from './human-date';
+import { displayItemTitle, isFamilyVisible, type PlacementParent } from './placement';
 import { isListHubTitle } from './radar-organize';
 
 const TODO_LIST_TITLE = 'General to do';
@@ -31,12 +32,20 @@ export type FamilySourceItem = {
   category: string | null;
   icon: string | null;
   event_date: string | null;
+  due_at?: string | null;
+  occurs_at?: string | null;
+  kind?: string | null;
+  confidence?: string | null;
+  surface_from?: string | null;
+  surface_until?: string | null;
+  parent_id?: string | null;
   who_it_affects: string | null;
   delegated_to: string | null;
   status: string | null;
   source: string | null;
   collection_id: string | null;
   created_at?: string | null;
+  parent?: PlacementParent | PlacementParent[] | null;
 };
 
 export type FamilyPerson = {
@@ -174,7 +183,6 @@ export function isAttributableItem(
   item: FamilySourceItem,
   collectionsById: Map<string, { type?: string | null; title?: string | null }>,
 ): boolean {
-  if (item.source === 'calendar') return false;
   if (isListHubTitle(item.title)) return false;
   if (!item.collection_id) return true;
   return !isListCollection(collectionsById.get(item.collection_id));
@@ -201,9 +209,13 @@ export function isInCurrentWeek(eventDate: string | null | undefined, today = ne
   return date.getTime() >= start.getTime() && date.getTime() <= end.getTime();
 }
 
+export function familyAnchorDate(item: FamilySourceItem): string | null {
+  return item.occurs_at || item.due_at || item.event_date || null;
+}
+
 export function compareFamilyItems(a: FamilySourceItem, b: FamilySourceItem, today = new Date()): number {
-  const da = daysUntil(a.event_date, today);
-  const db = daysUntil(b.event_date, today);
+  const da = daysUntil(familyAnchorDate(a), today);
+  const db = daysUntil(familyAnchorDate(b), today);
   const score = (days: number | null) => {
     if (days == null) return 1000;
     if (days < 0) return 400 + Math.abs(days);
@@ -219,7 +231,7 @@ export function pickPreviewItems(items: FamilySourceItem[], today = new Date(), 
 }
 
 export function itemContextLine(item: FamilySourceItem, today = new Date()): string {
-  const when = humanizeEventDate(item.event_date, today);
+  const when = humanizeEventDate(familyAnchorDate(item), today);
   if (when) return when;
   const extra = (item.body || '').replace(/\s+/g, ' ').trim();
   if (extra) {
@@ -232,11 +244,11 @@ export function itemContextLine(item: FamilySourceItem, today = new Date()): str
 function toPreview(item: FamilySourceItem, today: Date): FamilyPreviewItem {
   return {
     id: item.id,
-    title: item.title || 'Untitled',
+    title: displayItemTitle(item, today),
     context: itemContextLine(item, today),
     category: item.category,
     storedIcon: item.icon,
-    event_date: item.event_date,
+    event_date: familyAnchorDate(item),
   };
 }
 
@@ -295,7 +307,7 @@ export function buildHouseholdTiles(
     tiles.push({
       key: `item:${item.id}`,
       kind: 'item',
-      title: item.title || 'Untitled',
+      title: displayItemTitle(item, today) || 'Untitled',
       status: itemContextLine(item, today),
       category: item.category,
       storedIcon: item.icon,
@@ -315,7 +327,12 @@ export function buildFamilyPlan(
 ): FamilyPlan {
   const people = peopleFromSources(members, profile);
   const collectionsById = new Map(collections.map((row) => [row.id, row]));
-  const attributable = items.filter((item) => isAttributableItem(item, collectionsById));
+  const listIds = new Set(items.filter((item) => item.kind === 'list_item').map((item) => item.id));
+  const attributable = items.filter((item) => {
+    if (!isFamilyVisible(item) || !isAttributableItem(item, collectionsById)) return false;
+    if (item.parent_id && listIds.has(item.parent_id)) return false;
+    return true;
+  });
 
   const byPerson = new Map<string, FamilySourceItem[]>();
   for (const person of people) byPerson.set(person.key, []);
@@ -329,14 +346,14 @@ export function buildFamilyPlan(
 
   const buckets: PersonBucket[] = people.map((person) => {
     const personItems = byPerson.get(person.key) ?? [];
-    const weekItems = personItems.filter((item) => isInCurrentWeek(item.event_date, today));
+    const weekItems = personItems.filter((item) => isInCurrentWeek(familyAnchorDate(item), today));
     const previewSource = pickPreviewItems(personItems, today);
     return {
       person,
       items: personItems,
       weekItems,
       preview: previewSource.map((item) => toPreview(item, today)),
-      weekTitles: weekItems.map((item) => item.title || 'Untitled'),
+      weekTitles: weekItems.map((item) => displayItemTitle(item, today)),
     };
   });
 
