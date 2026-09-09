@@ -1,5 +1,11 @@
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { householdVoiceBlock, loadHousehold, type Household } from '../_shared/household.ts';
+import {
+  insightRepeatsCaptured,
+  isVagueNoticed,
+  looksLikeMentalLoad,
+} from '../_shared/noticed.ts';
+import { HOME_OVERFLOW_RANK_BASE } from '../_shared/placement.ts';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-sonnet-5';
@@ -9,16 +15,9 @@ const MAX_FACTS = 50;
 type ItemRow = {
   id: string;
   title: string | null;
-  body: string | null;
-  detail: string | null;
   category: string | null;
-  action_description: string | null;
   event_date: string | null;
   who_it_affects: string | null;
-  urgency_level: string | null;
-  source: string | null;
-  source_email_subject: string | null;
-  created_at: string;
   collections: { status: string | null } | { status: string | null }[] | null;
 };
 
@@ -26,6 +25,29 @@ type FactRow = { subject: string; fact: string; category: string | null };
 type ConvRow = { id: string; title: string | null; kind: string | null };
 type MsgRow = { conversation_id: string; sender: string; body: string; created_at: string };
 type SpotlightRow = { item_id: string | null; reason_text: string | null };
+type MemberRow = {
+  role: string | null;
+  first_name: string | null;
+  birthday: string | null;
+  school: string | null;
+};
+type PersonContext = {
+  name: string;
+  role: string;
+  birthday: string | null;
+  school: string | null;
+  ageLabel: string | null;
+  ageMonths: number | null;
+};
+
+const MENTAL_LOAD_THEMES = [
+  'health bookings — dentist, GP, optician, hearing',
+  'clothes, shoes, next size up, uniform that might be snug',
+  'immunisations and age-based NHS checks (including 3 years 4 months preschool jabs)',
+  'haircuts and everyday care that slips the mind',
+  'kit they may be growing out of — car seat, bike helmet, wellies, buggy',
+  'school or nursery admin — spare clothes, labels, photos, water bottle',
+] as const;
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -71,37 +93,16 @@ Deno.serve(async (req: Request) => {
     }
 
     const force = await readForce(req);
-
-    if (!force) {
-      const { data: latest } = await supabase
-        .from('home_noticed')
-        .select('generated_at, insight_text')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      const latestRow = latest as { generated_at?: string; insight_text?: string } | null;
-      const generatedAt = latestRow?.generated_at;
-      const cached = (latestRow?.insight_text || '').trim();
-      if (
-        generatedAt &&
-        Date.now() - new Date(generatedAt).getTime() < STALE_MS &&
-        cached &&
-        !isVagueNoticed(cached)
-      ) {
-        return json({ success: true, skipped: true, generated_at: generatedAt });
-      }
-    }
+    const latestRow = await loadLatestNoticed(supabase, user.id);
+    const lastInsight = cachedInsight(latestRow);
 
     const { data: itemRows, error: itemsError } = await supabase
       .from('items')
-      .select(
-        'id, title, body, detail, category, action_description, event_date, who_it_affects, urgency_level, source, source_email_subject, created_at, collections(status)',
-      )
+      .select('id, title, category, event_date, who_it_affects, collections(status)')
       .eq('user_id', user.id)
       .eq('status', 'open')
-      .is('parent_id', null)
       .order('created_at', { ascending: false })
-      .limit(50);
+      .limit(80);
 
     if (itemsError) {
       console.error('Failed to load items:', itemsError.message);
@@ -109,17 +110,44 @@ Deno.serve(async (req: Request) => {
     }
 
     const items = ((itemRows ?? []) as ItemRow[]).filter((item) => isActiveCollection(item.collections));
+    const capturedTitles = items
+      .map((item) => item.title)
+      .filter((title): title is string => !!title);
 
-    const [facts, recentChat, household, spotlight] = await Promise.all([
+    if (!force) {
+      const generatedAt = latestRow?.generated_at;
+      if (
+        generatedAt &&
+        Date.now() - new Date(generatedAt).getTime() < STALE_MS &&
+        lastInsight &&
+        !isVagueNoticed(lastInsight) &&
+        looksLikeMentalLoad(lastInsight) &&
+        !insightRepeatsCaptured(lastInsight, capturedTitles)
+      ) {
+        return json({ success: true, skipped: true, generated_at: generatedAt });
+      }
+    }
+
+    const [facts, recentChat, household, spotlight, people] = await Promise.all([
       loadFacts(supabase, user.id),
       loadRecentChat(supabase, user.id),
       loadHousehold(supabase, user.id),
       loadSpotlight(supabase, user.id),
+      loadPeople(supabase, user.id),
     ]);
 
     let insight: string | null = null;
     try {
-      insight = await observe(anthropicKey, items, facts, recentChat, household, spotlight);
+      insight = await observe(anthropicKey, {
+        items,
+        facts,
+        recentChat,
+        household,
+        spotlight,
+        people,
+        lastInsight,
+        capturedTitles,
+      });
     } catch (err) {
       console.error('Noticed generation failed:', err);
       insight = null;
@@ -172,8 +200,8 @@ async function loadSpotlight(supabase: SupabaseClient, userId: string): Promise<
     .from('home_spotlight')
     .select('item_id, reason_text')
     .eq('user_id', userId)
-    .order('rank', { ascending: true })
-    .limit(6);
+    .lt('rank', HOME_OVERFLOW_RANK_BASE)
+    .order('rank', { ascending: true });
 
   if (error) {
     console.error('Failed to load spotlight:', error.message);
@@ -250,67 +278,166 @@ async function loadRecentChat(supabase: SupabaseClient, userId: string): Promise
   return lines.join('\n');
 }
 
-async function observe(
-  apiKey: string,
-  items: ItemRow[],
-  facts: FactRow[],
-  recentChat: string,
-  household: Household,
-  spotlight: SpotlightRow[],
-): Promise<string | null> {
-  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
-  const raw = await callClaude(apiKey, systemPrompt(household, today), userPrompt(items, facts, recentChat, spotlight));
-  return parseInsight(raw);
+type ObserveInput = {
+  items: ItemRow[];
+  facts: FactRow[];
+  recentChat: string;
+  household: Household;
+  spotlight: SpotlightRow[];
+  people: PersonContext[];
+  lastInsight: string | null;
+  capturedTitles: string[];
+};
+
+type NoticedRow = { generated_at?: string; insight_text?: string };
+
+async function loadLatestNoticed(supabase: SupabaseClient, userId: string): Promise<NoticedRow | null> {
+  const { data } = await supabase
+    .from('home_noticed')
+    .select('generated_at, insight_text')
+    .eq('user_id', userId)
+    .maybeSingle();
+  return (data as NoticedRow | null) ?? null;
 }
 
-function systemPrompt(household: Household, today: string): string {
+function cachedInsight(row: NoticedRow | null): string | null {
+  const text = (row?.insight_text || '').trim();
+  return text || null;
+}
+
+async function loadPeople(supabase: SupabaseClient, userId: string): Promise<PersonContext[]> {
+  const { data, error } = await supabase
+    .from('family_members')
+    .select('role, first_name, birthday, school')
+    .eq('user_id', userId);
+
+  if (error) {
+    console.error('Failed to load family members:', error.message);
+    return [];
+  }
+
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
+  const people: PersonContext[] = [];
+  for (const row of (data ?? []) as MemberRow[]) {
+    const name = row.first_name?.trim();
+    if (!name) continue;
+    const age = ageFromBirthday(row.birthday, today);
+    people.push({
+      name,
+      role: (row.role || 'family').trim() || 'family',
+      birthday: row.birthday,
+      school: row.school?.trim() || null,
+      ageLabel: age?.label ?? null,
+      ageMonths: age?.months ?? null,
+    });
+  }
+  return people;
+}
+
+function ageFromBirthday(birthday: string | null, todayIso: string): { months: number; label: string } | null {
+  if (!birthday) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(birthday.trim());
+  if (!match) return null;
+  const born = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const todayMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(todayIso);
+  if (!todayMatch) return null;
+  const today = new Date(Number(todayMatch[1]), Number(todayMatch[2]) - 1, Number(todayMatch[3]));
+  if (Number.isNaN(born.getTime()) || born > today) return null;
+
+  let years = today.getFullYear() - born.getFullYear();
+  let months = today.getMonth() - born.getMonth();
+  if (today.getDate() < born.getDate()) months -= 1;
+  if (months < 0) {
+    years -= 1;
+    months += 12;
+  }
+  const totalMonths = years * 12 + months;
+  if (totalMonths < 0) return null;
+
+  let label: string;
+  if (totalMonths < 24) {
+    label = totalMonths === 1 ? '1 month' : `${totalMonths} months`;
+  } else if (years < 8) {
+    label = months === 0 ? `${years} years` : `${years} years ${months} months`;
+  } else {
+    label = `${years} years`;
+  }
+  return { months: totalMonths, label };
+}
+
+function themeForToday(todayIso: string): string {
+  const day = Number(todayIso.replace(/-/g, '')) || 0;
+  return MENTAL_LOAD_THEMES[day % MENTAL_LOAD_THEMES.length];
+}
+
+async function observe(apiKey: string, input: ObserveInput): Promise<string | null> {
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
+  const theme = themeForToday(today);
+  const raw = await callClaude(
+    apiKey,
+    systemPrompt(input.household, today, theme),
+    userPrompt(input, today),
+  );
+  return parseInsight(raw, input.capturedTitles);
+}
+
+function systemPrompt(household: Household, today: string, theme: string): string {
   return `You write one short observational insight for the Home screen of Taylo, a UK family assistant. You are a warm, organised friend — light, specific, on their side.
 
 Today (Europe/London) is ${today}.
 
-This is NOT a to-do ranking. Today's Actions already lists what needs doing right now. Your job is Taylo Noticed: one helpful heads-up — relevance from the week ahead, a suspected next step, a useful connection, or a specific offer of help.
+This is NOT a to-do ranking and NOT a recap of what is already on their lists. Today's Actions and Plan already cover captured items. Your job is Taylo Noticed: the kind of thing that pops into a mum or dad's head at a random moment — the life-admin that lives in their mind, not on a calendar.
+
+Sound like:
+- "Arlo is probably due a dentist check around now — want me to add booking it to your list?"
+- "Taya may be due her next clothes size if trousers are riding up."
+- "Is it time to book in Arlo's 3 years 4 months jabs soon?"
 
 Return ONLY a JSON object, nothing else:
 { "insight": "one or two short sentences" }
 
-If nothing is genuinely useful — or you would only be restating Today's Actions — return:
+If you cannot name a specific person and a concrete life-admin thought, return:
 { "insight": null }
 
 Rules for insight:
 - First person as Taylo, like a text from a friend. Maximum two sentences, about 40 words. Contractions, a little warmth. No emoji. No leading sparkle mark.
-- A calendar heads-up is on-brief when it is not already on Today's Actions: name what is coming (this weekend, Tuesday), suspect the likely prep (kit, present, form, snacks), and put it on their radar. Sound like: "Sports day is Saturday — I suspect you'll want kit, a water bottle, and a snack. Just putting it on your radar." / "If you've got the photos, I can talk you through the passport form tonight."
-- Prefer an upcoming family event (source=calendar, or a dated school/medical/activity item) that is not already listed under Today's Actions. Skip standups, commute, generic meetings, and regular lessons.
-- Make it suggestive, not a nag: a concrete suspected step or an offer. Never "don't forget", "you need to", "urgent", "overdue", or "make sure".
-- Do not restate, reword, or summarise items already listed under Today's Actions.
-- Prefer a connection when you have one: a family fact plus an event, something implied by a recent chat, a detail from an email that is not already the action.
-- Never invent facts, people, dates, or commitments that are not in the context.
-- Empty watching language with no event and no suspected step is not allowed ("I'll keep an eye", "busy week"). If you cannot name the thing and the help, return null.
+- Ground it in this household: use children's names and ages. Prefer age-based UK family cadence over anything already captured as an item.
+- Typical thoughts: dentist ~every 6 months; next clothes or shoe size; NHS immunisations (8/12/16 weeks, 1 year, 3 years 4 months preschool booster, teenage boosters); haircuts; car seat / helmet / wellies they've grown out of; nursery spare clothes; optician; birthday coming up from their date of birth.
+- Frame as a gentle question or a "might be due" — never invent a booked appointment, a deadline, or that something is overdue. You do not know their last dentist visit unless a family fact says so.
+- Today's theme to lean toward (unless ages strongly point elsewhere): ${theme}.
+- Do not restate, reword, or summarise Today's Actions or open items. Those lists are only so you do not repeat something they already captured.
+- Never "don't forget", "you need to", "urgent", "overdue", or "make sure".
+- Do not invent extra children, schools, or medical conditions. Using a child's age to suspect a typical UK check or size change is allowed.
+- Empty watching language is not allowed ("I'll keep an eye", "busy week"). If you cannot name the person and the thought, return null.
 
 ${householdVoiceBlock(household)}`;
 }
 
-function userPrompt(
-  items: ItemRow[],
-  facts: FactRow[],
-  recentChat: string,
-  spotlight: SpotlightRow[],
-): string {
+function userPrompt(input: ObserveInput, today: string): string {
+  const { items, facts, recentChat, spotlight, people, lastInsight } = input;
   const already = spotlight.length
     ? spotlight.map((row) => {
         const item = items.find((entry) => entry.id === row.item_id);
         const title = item?.title || 'Untitled';
         return `- ${title}${row.reason_text ? ` — ${row.reason_text}` : ''}`;
       })
-    : ['(none yet)'];
+    : ['(none)'];
 
-  const itemLines = items.length
+  const captured = items.length
     ? items.map((item) => {
-        const email = item.source_email_subject ? `email="${item.source_email_subject}"` : 'email=none';
-        const source = item.source ? `source=${item.source}` : 'source=none';
-        const help = item.action_description?.trim()
-          ? `help="${item.action_description.trim()}"`
-          : 'help=none';
-        return `- ${item.id} | ${item.title ?? 'Untitled'} | ${item.body ?? ''} | category=${item.category ?? 'none'} | date=${item.event_date ?? 'none'} | urgency=${item.urgency_level ?? 'none'} | who=${item.who_it_affects ?? 'none'} | ${source} | ${help} | ${email}`;
+        const who = item.who_it_affects ? ` who=${item.who_it_affects}` : '';
+        const date = item.event_date ? ` date=${item.event_date}` : '';
+        return `- ${item.title ?? 'Untitled'} (${item.category ?? 'none'}${who}${date})`;
+      })
+    : ['(none)'];
+
+  const peopleLines = people.length
+    ? people.map((person) => {
+        const bits = [`${person.name} (${person.role})`];
+        if (person.ageLabel) bits.push(`age ${person.ageLabel}`);
+        if (person.birthday) bits.push(`DOB ${person.birthday}`);
+        if (person.school) bits.push(person.school);
+        return `- ${bits.join(' · ')}`;
       })
     : ['(none)'];
 
@@ -318,50 +445,46 @@ function userPrompt(
     ? facts.map((row) => `- ${(row.subject || 'family').trim()}${row.category ? ` [${row.category}]` : ''}: ${row.fact.trim()}`)
     : ['(none)'];
 
-  return `Already on Today's Actions (do not restate these):
+  return `Family (use names and ages — this is the source of the thought):
+${peopleLines.join('\n')}
+
+Already on Today's Actions (do not mention these):
 ${already.join('\n')}
 
-Open items (including undated):
-${itemLines.join('\n')}
+Already captured on their lists (do not suggest these as if they forgot):
+${captured.join('\n')}
 
-Family facts:
+Family facts (use if relevant; do not invent extra medical history):
 ${factLines.join('\n')}
 
-Recent conversation snippets:
-${recentChat.trim() || '(none)'}`;
+Recent conversation snippets (optional colour only):
+${recentChat.trim() || '(none)'}
+
+Last Taylo noticed (pick a different topic):
+${lastInsight || '(none)'}
+
+Today is ${today}. Write one mental-load thought that is not already on their lists.`;
 }
 
-function isVagueNoticed(text: string): boolean {
-  if (/busy (week|day)|nothing (much )?to (report|flag)|all (looks )?good|here's what|today's actions/i.test(text)) {
-    return true;
-  }
-  const watching = /keep(ing)? (an )?eye|worth (keeping|watching)/i.test(text);
-  const specific =
-    /\b(saturday|sunday|weekend|monday|tuesday|wednesday|thursday|friday|pack|kit|present|form|snack|appointment|birthday|party|trip|school)\b/i.test(
-      text,
-    );
-  if (watching && !specific) return true;
-  if (/on the radar/i.test(text) && !specific) return true;
-  return false;
-}
-
-function parseInsight(raw: string): string | null {
+function parseInsight(raw: string, capturedTitles: string[]): string | null {
   const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   let parsed: { insight?: unknown } = {};
   try {
     parsed = JSON.parse(trimmed) as { insight?: unknown };
   } catch {
-    return cleanInsight(trimmed);
+    return cleanInsight(trimmed, capturedTitles);
   }
   if (parsed.insight == null || parsed.insight === false) return null;
-  return cleanInsight(parsed.insight);
+  return cleanInsight(parsed.insight, capturedTitles);
 }
 
-function cleanInsight(value: unknown): string | null {
+function cleanInsight(value: unknown, capturedTitles: string[]): string | null {
   if (typeof value !== 'string') return null;
   const text = value.replace(/\s+/g, ' ').replace(/^✦\s*/, '').trim();
   if (!text || text.toLowerCase() === 'null' || text.length < 24) return null;
   if (isVagueNoticed(text)) return null;
+  if (!looksLikeMentalLoad(text)) return null;
+  if (insightRepeatsCaptured(text, capturedTitles)) return null;
   return text.slice(0, 280);
 }
 

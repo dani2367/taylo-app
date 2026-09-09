@@ -55,7 +55,7 @@ export function intakeContractRules(source: IntakeSource): string {
   const occursRule =
     source === 'calendar'
       ? `occurs_at: REQUIRED on the occurrence (the calendar event start). Child obligations must set occurs_at to null. Never copy a due date onto occurs_at.`
-      : `occurs_at: ALWAYS null. This source is ${source}, not a calendar event. A date in the text is due_at on an obligation — never occurs_at. Schedule only shows occurs_at, so setting it here would put email/chat on the calendar. This is a hard rule. Never use kind=occurrence for ${source}; use context_only (informational event), obligation (action due), hold (undated awareness), or list_item (shopping/list product).`;
+      : `occurs_at: null for obligations, holds, and list_items. Never use kind=occurrence for ${source}. A date that is an action deadline is due_at on an obligation — never occurs_at. Narrow exception: context_only MAY set occurs_at only when the source states an unambiguous calendar day as fact (e.g. "nursery is closed on the 19th", "19 September") AND confidence is high. Never for inferred, hedged, or estimated dates ("might", "sometime next week", "Tuesday-ish"). Code will strip occurs_at unless that bar is met.`;
 
   return `Intake contract — every item you return must fill these fields. ${INTAKE_ITEM_JSON}
 
@@ -80,6 +80,8 @@ Prep discipline — do NOT invent prep:
 - When an occurrence or heads-up implies several obligations (birthday → card; school trip → packed lunch AND waterproof coat), return each as its own item. Do not bundle them into one record or a checklist blob.
 - "Bring packed lunch and a waterproof coat" → exactly two high-confidence stated obligations, titles like "Packed lunch" and "Waterproof coat".
 - "Taya's trainers are getting small" → one hold, due_at null, occurs_at null. Not an obligation with a fabricated deadline.
+- "Nursery is closed on the 19th for staff training" → one context_only, high confidence, occurs_at = that day, no prep obligations.
+- "Might need to pop in sometime next week" → hold or context_only with occurs_at null. Do not invent a calendar day.
 
 Surface windows (you may set surface_from / surface_until as YYYY-MM-DD; code will fill defaults if null):
 - birthday/party: about 7 days before until the day
@@ -88,6 +90,12 @@ Surface windows (you may set surface_from / surface_until as YYYY-MM-DD; code wi
 - holidays / passports: weeks to months before (about 60–90 days)`;
 }
 
+const KIT_TITLE_RE =
+  /\b(packed lunch|waterproof|wellies|wellingtons|water bottle|named (towel|bottle)|towel|goggles|costume|swimsuit|swim suit|bobble|hair (band|tie)|socks|sun cream|sunhat|sun hat)\b/i;
+const RSVP_ASK_RE =
+  /\b(rsvp|reply so we know|please reply|let us know (if you can|numbers|if a grown-up|if you(?:'re| are) coming))\b/i;
+const RSVP_TITLE_RE = /\b(rsvp|confirm (numbers|attendance)|reply)\b/i;
+const DONATION_RE = /\b(donat(?:e|ion)|sanctuary|charity|in lieu)\b/i;
 const GIFT_TITLE_RE = /\b(presents?|gifts?|goody\s*bags?)\b/i;
 const CARD_TITLE_RE = /\b(cards?)\b/i;
 const GIFT_EXCLUSION_RE = /\bno\s+(?:need\s+for\s+)?(?:presents?|gifts?)|please\s+no\s+(?:presents?|gifts?)|no\s+(?:presents?|gifts?)\s+please|don'?t\s+bring\s+(?:a\s+)?(?:present|gift)|without\s+(?:presents?|gifts?)/i;
@@ -116,6 +124,62 @@ export function parseIsoDateTime(value: unknown): string | null {
 export function dateOnly(value: string | null): string | null {
   if (!value) return null;
   return value.slice(0, 10);
+}
+
+const MONTH_NAME =
+  'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';
+const ORDINAL_DAY = '\\d{1,2}(?:st|nd|rd|th)?';
+const WEEKDAY = 'monday|tuesday|wednesday|thursday|friday|saturday|sunday';
+
+/** A specific calendar day named as fact — not "Friday" or "next week" alone. */
+export function hasUnambiguousStatedDate(text: string): boolean {
+  const t = text.replace(/\s+/g, ' ');
+  if (new RegExp(`\\b(?:on|from|until|closed(?:\\s+on)?)\\s+(?:the\\s+)?${ORDINAL_DAY}\\b`, 'i').test(t)) return true;
+  if (new RegExp(`\\b${ORDINAL_DAY}\\s+(?:of\\s+)?(?:${MONTH_NAME})\\b`, 'i').test(t)) return true;
+  if (new RegExp(`\\b(?:${MONTH_NAME})\\s+${ORDINAL_DAY}\\b`, 'i').test(t)) return true;
+  if (/\b20\d{2}-\d{2}-\d{2}\b/.test(t)) return true;
+  return false;
+}
+
+/** Hedged / estimated timing — blocks the Schedule carve-out even if the model invented a day. */
+export function hasSoftOrInferredDateLanguage(text: string): boolean {
+  const t = text.replace(/\s+/g, ' ');
+  if (/\b(sometime|some\s+time)\b/i.test(t)) return true;
+  if (/\b\w+-ish\b/i.test(t)) return true;
+  if (new RegExp(`\\blate\\s+(?:on\\s+)?(?:${WEEKDAY})\\b`, 'i').test(t)) return true;
+  if (new RegExp(`\\b(?:might|maybe|perhaps|possibly)\\b.{0,48}\\b(?:next\\s+week|this\\s+week|pop\\s+in|be\\s+back|come\\s+by|come\\s+in)\\b`, 'i').test(t)) {
+    return true;
+  }
+  if (new RegExp(`\\b(?:next\\s+week|this\\s+week|pop\\s+in|be\\s+back)\\b.{0,48}\\b(?:might|maybe|perhaps|possibly)\\b`, 'i').test(t)) {
+    return true;
+  }
+  if (/\b(?:next|this)\s+week\b/i.test(t) && !hasUnambiguousStatedDate(t)) return true;
+  return false;
+}
+
+/**
+ * Email/chat may write occurs_at only for high-confidence context_only whose
+ * source names a calendar day as fact. Obligations and inferred dates never qualify.
+ */
+export function informationalScheduleOccursAt(params: {
+  kind: IntakeKind;
+  confidence: Confidence;
+  source: IntakeSource;
+  sourceText: string;
+  candidate: string | null;
+}): string | null {
+  if (params.source === 'calendar') return null;
+  if (params.kind !== 'context_only') return null;
+  if (params.confidence !== 'high') return null;
+  const date = dateOnly(params.candidate);
+  if (!date) return null;
+  if (hasSoftOrInferredDateLanguage(params.sourceText)) return null;
+  if (!hasUnambiguousStatedDate(params.sourceText)) return null;
+  return date;
+}
+
+export function hasPersistableKind(items: IntakeItem[]): boolean {
+  return items.some((item) => KINDS.includes(item.kind) && !!item.title);
 }
 
 export function addDays(ymd: string, days: number): string {
@@ -201,10 +265,23 @@ export function sourceHasCardExclusion(sourceText: string): boolean {
   return CARD_EXCLUSION_RE.test(sourceText);
 }
 
+export function isEventKitTitle(title?: string | null): boolean {
+  return KIT_TITLE_RE.test(title || '');
+}
+
+export function sourceAsksForRsvp(sourceText: string): boolean {
+  return RSVP_ASK_RE.test(sourceText);
+}
+
 export function isExcludedPrep(title: string, sourceText: string): boolean {
   if (GIFT_TITLE_RE.test(title) && sourceHasGiftExclusion(sourceText)) return true;
   if (CARD_TITLE_RE.test(title) && sourceHasCardExclusion(sourceText)) return true;
   return false;
+}
+
+export function titlesAlreadyCoverPrep(titles: string[], kind: 'gift' | 'card'): boolean {
+  const re = kind === 'gift' ? GIFT_TITLE_RE : CARD_TITLE_RE;
+  return titles.some((title) => re.test(title));
 }
 
 /** Drop low-confidence invented prep; keep stated items and high-confidence type defaults. */
@@ -224,8 +301,6 @@ export function normalizeIntakeItem(
 
   let kind = asKind(raw.kind, opts.source) ?? (opts.source === 'calendar' ? 'occurrence' : 'obligation');
   let occurs_at = opts.source === 'calendar' ? parseIsoDateTime(raw.occurs_at) : null;
-  if (opts.source !== 'calendar') occurs_at = null;
-
   let due_at = parseIsoDateTime(raw.due_at);
   if (opts.source !== 'calendar' && !due_at) {
     due_at = parseIsoDateTime(raw.occurs_at);
@@ -243,7 +318,20 @@ export function normalizeIntakeItem(
   const actionable = asEnum(raw.actionable, ACTIONABLE, kind === 'obligation' ? 'yes' : 'no');
   const evidence = cleanEvidence(raw.evidence);
 
+  if (opts.source !== 'calendar') {
+    occurs_at = informationalScheduleOccursAt({
+      kind,
+      confidence,
+      source: opts.source,
+      sourceText: opts.sourceText,
+      candidate: parseIsoDateTime(raw.occurs_at) || due_at,
+    });
+  }
+
   if (isExcludedPrep(title, opts.sourceText)) return null;
+  if (kind === 'obligation' && isEventKitTitle(title)) {
+    due_at = null;
+  }
 
   const item: IntakeItem = {
     title,
@@ -322,7 +410,7 @@ export function intakeRowFields(item: IntakeItem): Record<string, unknown> {
 
 export function eventDateFromIntake(item: IntakeItem, source: IntakeSource): string | null {
   if (source === 'calendar') return item.occurs_at;
-  return item.due_at;
+  return item.occurs_at || item.due_at;
 }
 
 export function finalizeSourceItems(params: {
@@ -340,20 +428,24 @@ export function finalizeSourceItems(params: {
   });
 
   if (!items.length && params.fallbackTitle) {
+    const statedFact =
+      !!params.date &&
+      hasUnambiguousStatedDate(params.sourceText) &&
+      !hasSoftOrInferredDateLanguage(params.sourceText);
     const kind = params.extraLabels?.length
       ? 'context_only'
-      : params.date
-        ? 'obligation'
+      : statedFact
+        ? 'context_only'
         : 'hold';
     items = normalizeIntakeItems(
       [{
         title: params.fallbackTitle,
         kind,
-        occurs_at: null,
-        due_at: params.date ?? null,
+        occurs_at: statedFact ? params.date ?? null : null,
+        due_at: kind === 'hold' ? null : params.date ?? null,
         actionable: kind === 'obligation' ? 'yes' : 'no',
         prep_implied: 'none',
-        confidence: 'medium',
+        confidence: statedFact ? 'high' : 'medium',
         evidence: '',
       }],
       { source: params.source, sourceText: params.sourceText },
@@ -384,12 +476,56 @@ export function finalizeSourceItems(params: {
     existingTitles: items.map((item) => item.title),
     due_at: due,
   });
+  const existingTitles = items.map((item) => item.title);
   for (const extra of defaults) {
     if (items.some((item) => item.title.toLowerCase() === extra.title.toLowerCase())) continue;
+    if (GIFT_TITLE_RE.test(extra.title) && titlesAlreadyCoverPrep(existingTitles, 'gift')) continue;
+    if (CARD_TITLE_RE.test(extra.title) && titlesAlreadyCoverPrep(existingTitles, 'card')) continue;
     items.push(extra);
   }
 
-  return items.map((item) => ({ ...item, occurs_at: null }));
+  items = applyPartyRsvp(items, params.sourceText, due);
+  if (sourceHasGiftExclusion(params.sourceText)) {
+    items = items.filter((item) => !DONATION_RE.test(item.title));
+  }
+
+  return items;
+}
+
+function applyPartyRsvp(items: IntakeItem[], sourceText: string, due: string | null): IntakeItem[] {
+  if (!sourceAsksForRsvp(sourceText)) return items;
+  if (items.some((item) => RSVP_TITLE_RE.test(item.title))) {
+    return demotePartyObligation(items);
+  }
+  const rsvp = normalizeIntakeItem(
+    {
+      title: 'RSVP',
+      kind: 'obligation',
+      due_at: due,
+      actionable: 'yes',
+      prep_implied: 'stated',
+      confidence: 'high',
+      evidence: 'reply',
+    },
+    { source: 'email', sourceText },
+  );
+  if (!rsvp) return items;
+  return demotePartyObligation([...items, rsvp]);
+}
+
+function demotePartyObligation(items: IntakeItem[]): IntakeItem[] {
+  if (!items.length) return items;
+  const head = items[0];
+  if (head.kind !== 'obligation') return items;
+  if (!BIRTHDAY_RE.test(head.title)) return items;
+  return [
+    {
+      ...head,
+      kind: 'context_only',
+      actionable: 'no',
+    },
+    ...items.slice(1),
+  ];
 }
 
 export function splitParentAndChildren(
@@ -433,8 +569,12 @@ export function splitParentAndChildren(
     return { parent, children: allObligations };
   }
 
-  if (head.kind === 'hold' && !rest.length) {
-    return { parent: head, children: [] };
+  if (head.kind === 'hold') {
+    // Awareness stays one Radar card. Do not also emit "buy a new X" unless it has its own deadline.
+    return {
+      parent: head,
+      children: restObligations.filter((item) => item.kind === 'obligation' && !!item.due_at),
+    };
   }
 
   return { parent: head, children: restObligations.length ? restObligations : rest };
@@ -447,9 +587,8 @@ export function birthdayTypeDefaults(params: {
   due_at: string | null;
 }): IntakeItem[] {
   if (!BIRTHDAY_DEFAULT_RE.test(params.sourceText)) return [];
-  const have = new Set(params.existingTitles.map((t) => t.toLowerCase()));
   const raw: RawIntakeItem[] = [];
-  if (!sourceHasGiftExclusion(params.sourceText) && !have.has('present')) {
+  if (!sourceHasGiftExclusion(params.sourceText) && !titlesAlreadyCoverPrep(params.existingTitles, 'gift')) {
     raw.push({
       title: 'Present',
       kind: 'obligation',
@@ -460,7 +599,7 @@ export function birthdayTypeDefaults(params: {
       evidence: '',
     });
   }
-  if (!sourceHasCardExclusion(params.sourceText) && !have.has('card')) {
+  if (!sourceHasCardExclusion(params.sourceText) && !titlesAlreadyCoverPrep(params.existingTitles, 'card')) {
     raw.push({
       title: 'Card',
       kind: 'obligation',

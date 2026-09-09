@@ -345,7 +345,7 @@ export const appStyles = StyleSheet.create({
     flexWrap: 'nowrap',
     width: '100%',
     gap: 12,
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   nicon: {
     width: 36,
@@ -1673,13 +1673,15 @@ export const appStyles = StyleSheet.create({
     fontFamily: fonts.sansMedium,
     color: colors.text,
     marginBottom: 1,
-    lineHeight: 20,
+    lineHeight: 22,
+    flexShrink: 1,
   },
   homeItemSub: {
     fontSize: fontSizes.caption,
     fontFamily: fonts.sansRegular,
     color: colors.textMuted,
     lineHeight: 17,
+    flexShrink: 1,
   },
   homeExpandDetail: {
     marginTop: 8,
@@ -1791,6 +1793,17 @@ export const appStyles = StyleSheet.create({
     fontSize: fontSizes.caption,
     fontFamily: fonts.sansMedium,
     color: colors.navy,
+  },
+  homeDayRowInfo: {
+    opacity: 0.78,
+  },
+  homeDayTimeInfo: {
+    color: colors.textMuted,
+    fontFamily: fonts.sansRegular,
+  },
+  homeDayNameInfo: {
+    fontFamily: fonts.sansRegular,
+    color: colors.textMuted,
   },
   homeDayName: {
     fontSize: fontSizes.label,
@@ -2198,6 +2211,14 @@ export const appStyles = StyleSheet.create({
     marginBottom: 1,
     lineHeight: 20,
   },
+  scheduleItemTitleInfo: {
+    fontFamily: fonts.sansRegular,
+    color: colors.textMuted,
+  },
+  scheduleTimeInfo: {
+    color: colors.textMuted,
+    fontFamily: fonts.sansRegular,
+  },
   schedulePickRow: {
     paddingVertical: 12,
     paddingHorizontal: 4,
@@ -2299,6 +2320,21 @@ export const appStyles = StyleSheet.create({
   },
   familyItemRowLast: {
     paddingBottom: 4,
+  },
+  familyInfoDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginLeft: 14,
+    marginRight: 14,
+    backgroundColor: colors.border,
+  },
+  familyInfoTitle: {
+    fontSize: fontSizes.card,
+    fontFamily: fonts.sansRegular,
+    color: colors.textMuted,
+    marginBottom: 1,
+    lineHeight: 20,
   },
   familyEmptyLine: {
     paddingVertical: 8,

@@ -1,13 +1,14 @@
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
-import { insertIntakeChildren, parseChecklistLabels } from '../_shared/checklists.ts';
+import { insertIntakeChildren } from '../_shared/checklists.ts';
 import { householdVoiceBlock, loadHousehold, type Household } from '../_shared/household.ts';
 import {
+  buildEmailIntakePrompt,
+  parseEmailIntake,
+} from '../_shared/email-ingest.ts';
+import {
   eventDateFromIntake,
-  finalizeSourceItems,
-  intakeContractRules,
   intakeRowFields,
   splitParentAndChildren,
-  type IntakeItem,
 } from '../_shared/intake-contract.ts';
 import { getFreshMicrosoftAccessToken, type MicrosoftConnection } from '../_shared/microsoft.ts';
 import { outlookPrefilterReason } from '../_shared/outlook-email-filter.ts';
@@ -16,75 +17,13 @@ const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-haiku-4-5';
 const SENDER_BLOCKLIST = ['noreply', 'no-reply', 'donotreply', 'marketing', 'newsletter'];
 const SUBJECT_BLOCKLIST = ['unsubscribe', '% off', 'sale', 'offer', 'deal', 'discount'];
-const CLASSIFY_PROMPT = `You are Taylo, a family assistant. Classify this email into exactly one of these categories and reply with only the category name, nothing else: school, medical, activity, delivery, returns, financial, ignore.
-
-Category definitions:
-- school: school, nursery, childcare, or a parent email about a child's school life (trips, sports day, forms, term dates)
-- medical: appointments, prescriptions, NHS, GP, hospital, dental
-- activity: sports clubs, after-school activities, classes, parties, playdates, community groups
-- delivery: order confirmations, parcel tracking, courier notifications
-- returns: return confirmations, refund notifications, exchange requests, return labels
-- financial: bills, renewals, subscriptions, invoices, deadlines to pay
-- ignore: marketing, promotions, social media, receipts with nothing to do, newsletters with no dated family event or implied prep`;
-const EXTRACT_PROMPT = `You are Taylo, a family assistant. Pull helpful relevance from this email — not a summary of the inbox. Return ONLY a JSON object, nothing else:
-{
-  "category": "school|medical|activity|delivery|returns|financial",
-  "action_required": true or false,
-  "action_description": "a helpful heads-up in plain English, or null",
-  "date": "YYYY-MM-DD or null — this is due_at, never occurs_at",
-  "who_it_affects": "which family member or whole family",
-  "urgency": "today|this_week|upcoming|none",
-  "nudge_title": "short title under 8 words, or null",
-  "nudge_body": "one short subtitle under the title, maximum ~12 words, a single extra fact — or null",
-  "nudge_detail": "1-2 conversational sentences for the expanded card — or null",
-  "suggestion": "the helpful next step or radar line, no label — or null",
-  "items": [ parent intake item first, then each separate obligation ]
-}
-
-action_required is true when the email is worth putting on the parent's radar: a real admin step (form, RSVP, payment, print a label), OR a family-life heads-up you can be specific about (sports day, trip, party, named appointment, birthday) even if nothing is due today. It is false for noise: tracking that is fine, statements, generic newsletters, "your order has been placed" with no date they must be in for.
-
-If action_required is false, set action_description, nudge_title, nudge_body, nudge_detail, suggestion, and items to null/empty.
-
-If action_required is true:
-- items[0] is the parent heads-up (kind is never occurrence). Dates in the email go on due_at.
-- Further items are separate obligations (packed lunch, waterproof coat) — never a checklist blob.
-- nudge_title: the thing, short. A hard action ("Sign Arlo's trip form") or the event ("Arlo's sports day").
-- nudge_body: one clipped extra fact (when, where, whose). No subordinate clauses.
-- suggestion and action_description: required. One or two short sentences like a friend putting it on their radar. Mention prep only when stated or a high-confidence type default. Offer help, don't instruct.
-- nudge_detail: the same helpful voice when the card expands — not a recap of the subject line.
-
-Voice (this copy is shown on Home and Plan, not as an email summary):
-- Calm, capable-friend register. Never alarmed. No exclamation marks. Never "don't forget", "you need to", "make sure", or "urgent".
-- Don't use emoji. Address the parent as "you". Never write the parent's name in the third person.
-- If the email is about a child, use the child's name.
-
-Sound like this:
-- "Sports day is Saturday. Kit is on the list if you want to pack tonight."
-- "Arlo's birthday is Saturday. You might want to pick up a card."
-- "The dentist is booked for the 19th. Tell me if you want help with what to take."
-
-Not like this: "Don't forget Arlo's birthday!" / "You need to buy a birthday card!" / "This email is about sports day."
-
-Category guidance:
-- school / medical / activity: prefer a heads-up over dropping the email, if you can name the event and the likely help. Skip only if there is no date, no prep, and no admin.
-- delivery: action_required true only if someone needs to be home, or delivery failed
-- returns: action_required true if a label needs printing, an item needs dropping off, or a deadline is approaching
-- financial: action_required true if a payment, renewal, or deadline is actually coming — not a statement or receipt`;
 
 function extractPrompt(household: Household): string {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
-  return `${EXTRACT_PROMPT}
-
-${intakeContractRules('email')}
-
-Date rules:
-- Today is ${today} (Europe/London).
-- If the email gives a day and month with no year, use this year or the next occurrence — never last year just because the weekday matches.
-- A school trip on "9 September" extracted in September ${today.slice(0, 4)} is ${today.slice(0, 4)}-09-09, not last year.
-- Put that date on due_at / the "date" field. occurs_at must be null.
-
-Who you are talking to:
-${householdVoiceBlock(household)}`;
+  return buildEmailIntakePrompt({
+    today,
+    voiceBlock: householdVoiceBlock(household),
+  });
 }
 
 type Connection = MicrosoftConnection;
@@ -102,20 +41,6 @@ type GraphEmail = {
   body?: { contentType?: string; content?: string };
   receivedDateTime?: string;
   parentFolderId?: string;
-};
-
-type ExtractedNudge = {
-  category: string;
-  action_required: boolean;
-  action_description: string | null;
-  date: string | null;
-  who_it_affects: string | null;
-  urgency: string;
-  nudge_title: string | null;
-  nudge_body: string | null;
-  nudge_detail: string | null;
-  suggestion: string | null;
-  items: IntakeItem[];
 };
 
 Deno.serve(async (req: Request) => {
@@ -351,39 +276,49 @@ async function processEmail(
 
   const userMessage = `Sender: ${sender}\nSubject: ${subject}\nBody: ${bodyPreview}`;
 
-  const category = (await callClaude(anthropicKey, CLASSIFY_PROMPT, userMessage, 32))
-    .trim()
-    .toLowerCase();
-
-  console.log('Classification:', subject, '->', category);
-
-  if (category === 'ignore') {
-    await markEmailSeen(supabase, userId, email, 'ignored');
-    return false;
-  }
-
   const extractedRaw = await callClaude(
     anthropicKey,
     extractPrompt(household),
     userMessage,
     2200,
   );
-  const extracted = parseExtracted(extractedRaw, userMessage);
+  const extracted = parseEmailIntake(extractedRaw, userMessage);
 
-  console.log('Extraction:', subject, '-> action_required:', extracted.action_required);
+  console.log(
+    'Email intake:',
+    subject,
+    '-> capture:',
+    extracted.capture,
+    'action_required:',
+    extracted.action_required,
+    'kinds:',
+    extracted.items.map((item) => item.kind).join(',') || 'none',
+  );
 
   const help = (extracted.suggestion || extracted.action_description || '').trim() || null;
-  if (!extracted.action_required || !extracted.nudge_title || (!extracted.nudge_body && !help)) {
+  if (extracted.capture === 'nothing_here') {
+    await markEmailSeen(supabase, userId, email, 'ignored');
+    return false;
+  }
+  if (!extracted.items.length) {
     await markEmailSeen(supabase, userId, email, 'no_action');
     return false;
   }
 
-  const { parent, children } = splitParentAndChildren(extracted.items, extracted.nudge_title);
+  const { parent, children } = splitParentAndChildren(
+    extracted.items,
+    extracted.nudge_title || extracted.items[0]?.title || subject,
+  );
+  if (!parent.title) {
+    await markEmailSeen(supabase, userId, email, 'no_action');
+    return false;
+  }
+
   const { data: inserted, error: insertError } = await supabase
     .from('items')
     .insert({
       user_id: userId,
-      title: extracted.nudge_title,
+      title: extracted.nudge_title || parent.title,
       body: extracted.nudge_body,
       detail: extracted.nudge_detail || help,
       suggestion: extracted.suggestion || help,
@@ -633,36 +568,6 @@ async function callClaude(
     content?: Array<{ type?: string; text?: string }>;
   };
   return data.content?.find((block) => block.type === 'text')?.text ?? '';
-}
-
-function parseExtracted(raw: string, sourceText: string): ExtractedNudge {
-  const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  const parsed = JSON.parse(trimmed) as ExtractedNudge & {
-    date?: string | null;
-    items?: unknown;
-    checklist_items?: unknown;
-  };
-  const date = typeof parsed.date === 'string' ? parsed.date : null;
-  return {
-    category: parsed.category,
-    action_required: Boolean(parsed.action_required),
-    action_description: parsed.action_description ?? null,
-    date,
-    who_it_affects: parsed.who_it_affects ?? null,
-    urgency: parsed.urgency,
-    nudge_title: parsed.nudge_title ?? null,
-    nudge_body: parsed.nudge_body ?? null,
-    nudge_detail: parsed.nudge_detail ?? null,
-    suggestion: parsed.suggestion ?? null,
-    items: finalizeSourceItems({
-      source: 'email',
-      sourceText,
-      fallbackTitle: parsed.nudge_title,
-      date,
-      rawItems: parsed.items,
-      extraLabels: parseChecklistLabels(parsed.checklist_items),
-    }),
-  };
 }
 
 function json(body: unknown, status = 200): Response {

@@ -1,0 +1,28 @@
+---
+description: Email, Offload, and calendar capture — what to persist, not how one row looks today
+globs: "{supabase/functions/taylo-offload/**,supabase/functions/_shared/intake-contract.ts,supabase/functions/_shared/email-ingest.ts,supabase/functions/_shared/calendar-classify.ts,supabase/functions/_shared/checklists.ts,supabase/functions/_shared/shopping.ts,lib/shopping.ts,lib/radar-organize.ts,lib/collections.ts,lib/intake-contract.selftest.ts,lib/shopping.selftest.ts,lib/radar-organize.selftest.ts}"
+alwaysApply: false
+---
+
+# Ingest
+
+Capture the kind, then let placement put it on a surface. Do not invent a third inbox.
+
+## Offload (chat / manual)
+
+- Groceries → Shopping. Everything else → **General to do** (`collection_id`). Never skip the to-do list because there are 2+ children.
+- “Book the eye test” is a todo, even with the word book. Radar is not for undated chat.
+- Mixed line (“out of oat milk and email Taya’s teacher”) **splits**. `isGroceryOffload` is false when the text also has email/teacher/call/book. Do not let the model title (`Oat milk`) swallow the task.
+
+## Email / calendar
+
+- Hold: one heads-up, `due_at` null. Drop undated “buy a new X” children (`splitParentAndChildren`).
+- Stated kit: persist each line, **`due_at` null** (`isEventKitTitle`). Do not copy the event day onto goggles/towel so they look like Home deadlines.
+- Form / RSVP / payment: dated obligations. Party with “reply so we know numbers” → parent **context_only**, child **RSVP**. Not the party as a Home to-do.
+- “No presents/gifts” → drop Present, Card, and donation/charity leftovers.
+- Interviews, 1:1s, standups: `obligations: []`. Never invent research / examples / JD.
+- Junk titles (`New`, Untitled) are not items.
+
+## Lists
+
+Never `createCustomCollection` from checklist count. Shopping and General to do only, unless the user created the list on Plan.

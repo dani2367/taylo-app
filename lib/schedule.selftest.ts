@@ -170,4 +170,42 @@ expect('this week label', weekSectionLabel(0), 'This week');
 expect('next week label', weekSectionLabel(1), 'Next week');
 expect('two weeks label', weekSectionLabel(2), 'In two weeks');
 
+const closed = mapAgendaRow({
+  id: 'closed',
+  title: 'Nursery closed',
+  occurs_at: '2026-09-05',
+  body: 'Staff training',
+  category: 'school',
+  icon: null,
+  who_it_affects: 'Arlo',
+  kind: 'context_only',
+  status: 'open',
+  confidence: 'high',
+}, today);
+expect('stated-fact context_only maps to agenda', closed?.informational, true);
+expect(
+  'informational rows do not create a busy day on their own',
+  findBusyDay([closed!, dentist], weekDays, today),
+  null,
+);
+const busyWithInfo = findBusyDay([dentist, form, closed!], weekDays, today);
+expect('density ignores informational when a day is busy', busyWithInfo?.titles, ['School trip form', 'Dentist']);
+
+expect(
+  'medium-confidence context_only stays off schedule',
+  mapAgendaRow({
+    id: 'soft',
+    title: 'Maybe closed',
+    occurs_at: '2026-09-19',
+    body: null,
+    category: null,
+    icon: null,
+    who_it_affects: null,
+    kind: 'context_only',
+    status: 'open',
+    confidence: 'medium',
+  }, today),
+  null,
+);
+
 if (!process.exitCode) console.log('schedule self-test passed');

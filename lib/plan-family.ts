@@ -1,5 +1,5 @@
 import { daysUntil, humanizeEventDate, itemCountLabel, startOfWeek } from './human-date';
-import { displayItemTitle, isFamilyVisible, type PlacementParent } from './placement';
+import { displayItemTitle, isFamilyVisible, unwrapParent, type PlacementParent } from './placement';
 import { isListHubTitle } from './radar-organize';
 
 const TODO_LIST_TITLE = 'General to do';
@@ -15,7 +15,7 @@ export type FamilyCollection = {
 export const HOUSEHOLD_KEY = 'household';
 export const PREVIEW_ITEM_COUNT = 3;
 
-const HOUSEHOLD_WHO = new Set(['family', 'everyone', 'household', 'all', 'shared', 'both', 'us']);
+const HOUSEHOLD_WHO = new Set(['family', 'whole family', 'everyone', 'household', 'all', 'shared', 'both', 'us']);
 const SELF_WHO = new Set(['you', 'me', 'mum', 'mom', 'dad', 'parent']);
 
 export type FamilyMemberSource = {
@@ -63,6 +63,7 @@ export type FamilyPreviewItem = {
   category: string | null;
   storedIcon: string | null;
   event_date: string | null;
+  informational: boolean;
 };
 
 export type HouseholdTile = {
@@ -188,12 +189,20 @@ export function isAttributableItem(
   return !isListCollection(collectionsById.get(item.collection_id));
 }
 
+function namedPeopleInText(raw: string | null | undefined, people: FamilyPerson[]): FamilyPerson[] {
+  return matchingPeople(raw, people);
+}
+
+/** Prefer an explicit who tag; otherwise a unique name in the title or parent title. */
 export function assignItem(
   item: FamilySourceItem,
   people: FamilyPerson[],
 ): { kind: 'person'; key: string } | { kind: 'household' } {
-  const matches = matchingPeople(item.who_it_affects, people);
-  if (matches.length === 1) return { kind: 'person', key: matches[0].key };
+  const whoMatches = namedPeopleInText(item.who_it_affects, people);
+  if (whoMatches.length === 1) return { kind: 'person', key: whoMatches[0].key };
+  const parent = unwrapParent(item.parent);
+  const titleMatches = namedPeopleInText([item.title, parent?.title].filter(Boolean).join(' '), people);
+  if (titleMatches.length === 1) return { kind: 'person', key: titleMatches[0].key };
   return { kind: 'household' };
 }
 
@@ -241,14 +250,20 @@ export function itemContextLine(item: FamilySourceItem, today = new Date()): str
   return 'On your radar';
 }
 
+export function isInformationalFamilyItem(item: { kind?: string | null }): boolean {
+  return item.kind === 'context_only';
+}
+
 function toPreview(item: FamilySourceItem, today: Date): FamilyPreviewItem {
+  const informational = isInformationalFamilyItem(item);
   return {
     id: item.id,
-    title: displayItemTitle(item, today),
+    title: informational ? (item.title || '').trim() || 'Untitled' : displayItemTitle(item, today),
     context: itemContextLine(item, today),
     category: item.category,
     storedIcon: item.icon,
     event_date: familyAnchorDate(item),
+    informational,
   };
 }
 
@@ -329,7 +344,7 @@ export function buildFamilyPlan(
   const collectionsById = new Map(collections.map((row) => [row.id, row]));
   const listIds = new Set(items.filter((item) => item.kind === 'list_item').map((item) => item.id));
   const attributable = items.filter((item) => {
-    if (!isFamilyVisible(item) || !isAttributableItem(item, collectionsById)) return false;
+    if (!isFamilyVisible(item, today) || !isAttributableItem(item, collectionsById)) return false;
     if (item.parent_id && listIds.has(item.parent_id)) return false;
     return true;
   });

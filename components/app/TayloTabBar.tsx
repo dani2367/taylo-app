@@ -40,6 +40,8 @@ export function TayloTabBar({ state, navigation }: BottomTabBarProps) {
                 navigation.navigate(route.name);
               } else if (isFocused && route.name === 'plan') {
                 navigation.navigate('plan', { screen: 'index' });
+              } else if (isFocused && route.name === 'home') {
+                navigation.navigate('home', { screen: 'index' });
               }
             }}
             accessibilityRole="button"

@@ -36,6 +36,7 @@ export type ScheduleSourceItem = {
   who_it_affects: string | null;
   kind?: string | null;
   status?: string | null;
+  confidence?: string | null;
 };
 
 export type AgendaRow = {
@@ -49,6 +50,7 @@ export type AgendaRow = {
   sub: string | null;
   category: string | null;
   storedIcon: string | null;
+  informational: boolean;
 };
 
 export type MonthGroup = {
@@ -180,7 +182,10 @@ export function mapAgendaRow(row: ScheduleSourceItem, today = new Date()): Agend
   const date = resolvePlanDate(row.occurs_at, today);
   if (!date) return null;
   const title = (row.title || 'Untitled').trim() || 'Untitled';
-  const time = extractEventTime(row.occurs_at, `${row.title || ''} ${row.body || ''}`);
+  const informational = (row.kind || '').toLowerCase() === 'context_only';
+  const time = informational
+    ? { minutes: null as number | null, label: null as string | null }
+    : extractEventTime(row.occurs_at, `${row.title || ''} ${row.body || ''}`);
   return {
     id: row.id,
     title,
@@ -192,6 +197,7 @@ export function mapAgendaRow(row: ScheduleSourceItem, today = new Date()): Agend
     sub: scheduleSub(title, row.who_it_affects, row.body),
     category: row.category,
     storedIcon: row.icon,
+    informational,
   };
 }
 
@@ -250,6 +256,7 @@ export function findBusyDay(rows: AgendaRow[], week: Date[], today = new Date())
   const byDay = new Map<string, AgendaRow[]>();
   for (const ymd of weekYmds) byDay.set(ymd, []);
   for (const row of rows) {
+    if (row.informational) continue;
     const list = byDay.get(row.ymd);
     if (list) list.push(row);
   }

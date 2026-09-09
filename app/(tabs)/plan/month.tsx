@@ -31,10 +31,10 @@ export default function ScheduleMonthScreen() {
 
     const { data, error } = await supabase
       .from('items')
-      .select('id, title, body, category, icon, occurs_at, who_it_affects, kind, status')
+      .select('id, title, body, category, icon, occurs_at, who_it_affects, kind, status, confidence')
       .eq('user_id', user.id)
       .eq('status', 'open')
-      .eq('kind', 'occurrence')
+      .in('kind', ['occurrence', 'context_only'])
       .not('occurs_at', 'is', null);
 
     if (error) console.error('Failed to load month items:', error.message);

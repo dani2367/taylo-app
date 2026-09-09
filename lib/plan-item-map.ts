@@ -1,6 +1,7 @@
 import { planContextLine, thingsToSortLabel } from './human-date';
-import { displayItemTitle, type PlacementParent } from './placement';
+import { displayItemTitle, shortEventTitle, type PlacementCard, type PlacementParent } from './placement';
 import { resolvePlanIcon } from './plan-icon';
+import { radarGroupedContext, radarStatusLine } from './radar';
 import { helpfulSuggestion } from './suggestion';
 import type { PlanItemCardModel } from '@/components/app/PlanItemCard';
 import type { PrepCheckItem } from '@/components/app/ItemPrepChecklist';
@@ -75,12 +76,50 @@ export function mapPlanItemRow(row: PlanItemRow, today = new Date()): PlanItemCa
     prepLabel: incomplete ? thingsToSortLabel(incomplete) : null,
     checklistId: null,
     checklist: entries,
+    informational: row.kind === 'context_only',
+  };
+}
+
+export function mapRadarWatchCard(
+  card: PlacementCard<PlanItemRow>,
+  today = new Date(),
+): PlanItemCardModel {
+  if (card.children.length >= 2) {
+    const countLabel = thingsToSortLabel(card.children.length);
+    const childTitles = card.children.map((row) => (row.title || '').trim() || 'Untitled');
+    return {
+      ...mapPlanItemRow(card.item, today),
+      id: `radar-group:${card.item.id}`,
+      title: shortEventTitle(card.item.title) || (card.item.title || '').trim() || 'Untitled',
+      context: radarGroupedContext(
+        card.children.length,
+        card.item.occurs_at || card.item.event_date,
+        today,
+        childTitles,
+      ),
+      informational: false,
+      suggestion: null,
+      checklist: card.children.map((row) => ({
+        id: row.id,
+        text: (row.title || '').trim() || 'Untitled',
+        done: false,
+      })),
+      checklistRowsAreItems: true,
+      prepLabel: countLabel,
+    };
+  }
+
+  const row = card.item;
+  return {
+    ...mapPlanItemRow(row, today),
+    title: displayItemTitle(row, today),
+    context: radarStatusLine(row, today),
   };
 }
 
 export const PREP_CHILDREN_EMBED = 'prep_children:items!parent_id(id, title, status, created_at)';
 
-export const PARENT_EMBED = 'parent:items!parent_id(id, title, occurs_at, event_date)';
+export const PARENT_EMBED = 'parent:items!parent_id(id, title, kind, status, collection_id, occurs_at, event_date, due_at)';
 
 export const PLAN_ITEM_SELECT =
   `id, title, body, detail, suggestion, category, icon, action_description, event_date, due_at, occurs_at, kind, confidence, surface_from, surface_until, parent_id, status, urgency_level, source_label, source_email_subject, ${PARENT_EMBED}, ${PREP_CHILDREN_EMBED}`;

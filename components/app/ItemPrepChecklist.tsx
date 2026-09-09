@@ -72,9 +72,9 @@ export function ItemPrepChecklist({
           </Pressable>
         ) : null}
       </View>
-      {items.map((item) => (
+      {items.map((item, index) => (
         <PrepRow
-          key={item.id}
+          key={`${item.id}:${index}`}
           item={item}
           editing={!!editing && !!onChangeText}
           onToggle={onToggle}

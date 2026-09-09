@@ -6,6 +6,7 @@ export type HappenItem = {
   time: string;
   sub: string | null;
   icon: PlanIconSpec;
+  informational?: boolean;
 };
 
 export function dayMood(count: number) {

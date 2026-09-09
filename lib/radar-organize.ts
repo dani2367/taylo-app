@@ -1,8 +1,6 @@
 import { looksLikeGroceryProduct, looksLikeShoppingList } from './shopping';
 
-export const LIST_FROM_CHECKLIST_MIN = 2;
-
-export type StandaloneKind = 'shopping' | 'list' | 'todo' | 'radar';
+export type StandaloneKind = 'shopping' | 'todo' | 'radar';
 
 const USER_SOURCES = new Set(['chat', 'manual']);
 
@@ -26,9 +24,7 @@ export function isSimpleUserTodo(item: {
   const title = item.title || '';
   if (isPersonalPurchase(title, item.category)) return true;
   const source = (item.source || '').toLowerCase();
-  if (!USER_SOURCES.has(source)) return false;
-  if (ADMIN_RE.test(title) && !/\b(call|text|phone)\b/i.test(title)) return false;
-  return true;
+  return USER_SOURCES.has(source);
 }
 
 export function isListHubTitle(title?: string | null): boolean {
@@ -57,7 +53,7 @@ export function nestedListCount(
   children: PrepChildStatus[] | PrepChildStatus | null | undefined,
 ): number {
   const rows = unwrapPrepChildren(children).filter((row) => row.status !== 'dismissed');
-  if (!rows.length) return 1;
+  if (!rows.length) return 0;
   return rows.filter((row) => row.status !== 'done' && row.status !== 'delegated').length;
 }
 
@@ -76,6 +72,11 @@ export function simpleListTitle(raw: string): string {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
+function isInboxSource(source?: string | null): boolean {
+  const s = (source || '').toLowerCase();
+  return s === 'email' || s === 'calendar';
+}
+
 export function classifyStandaloneItem(item: {
   title?: string | null;
   event_date?: string | null;
@@ -84,8 +85,10 @@ export function classifyStandaloneItem(item: {
   category?: string | null;
 }): StandaloneKind {
   const title = item.title || '';
-  if (looksLikeShoppingList(title) || looksLikeGroceryProduct(title, item.category)) return 'shopping';
-  if ((item.checklistCount ?? 0) >= LIST_FROM_CHECKLIST_MIN) return 'list';
+  if (looksLikeShoppingList(title)) return 'shopping';
+  // Email/calendar keep nested prep on Home/Radar. Named lists are user-created only.
+  if (isInboxSource(item.source)) return 'radar';
+  if (looksLikeGroceryProduct(title, item.category)) return 'shopping';
   if (isSimpleUserTodo(item)) return 'todo';
   return 'radar';
 }

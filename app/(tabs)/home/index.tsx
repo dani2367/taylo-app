@@ -10,17 +10,19 @@ import { isActiveCollection, organizeStandaloneItems } from '@/lib/collections';
 import { memberPalette } from '@/lib/demo-data';
 import { happenSortKey, type HappenItem } from '@/lib/happening';
 import { daysUntil, humanizeEventDate } from '@/lib/human-date';
+import { closeItems } from '@/lib/item-status';
 import {
   displayItemTitle,
-  HOME_ACTION_LIMIT,
+  HOME_OVERFLOW_RANK_BASE,
+  HOME_RADAR_LOAD_KINDS,
   HOME_SURFACED_COOLDOWN_MS,
   isFamilyVisible,
-  isScheduleItem,
+  isOccurrenceOnSchedule,
   selectHomeActions,
   type HomeSurfaced,
   type PlacementParent,
 } from '@/lib/placement';
-import { isUsableInsight, refreshNoticed } from '@/lib/noticed';
+import { isUsableInsight, insightRepeatsCaptured, looksLikeMentalLoad, refreshNoticed } from '@/lib/noticed';
 import {
   persistChecklistAdd,
   persistChecklistDelete,
@@ -29,7 +31,7 @@ import {
 } from '@/lib/prep-checklists';
 import { resolvePlanIcon, type PlanIconSpec } from '@/lib/plan-icon';
 import { actionSupportLine, extraEventContext, firstCompleteSentence, helpfulSuggestion } from '@/lib/suggestion';
-import { refreshSpotlight } from '@/lib/spotlight';
+import { latestSpotlightRows, refreshSpotlight } from '@/lib/spotlight';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from 'expo-router';
 import { router } from 'expo-router';
@@ -272,7 +274,7 @@ function happenSub(item: ItemRow): string | null {
 }
 
 function isHappeningOccasion(item: ItemRow): boolean {
-  if (!isScheduleItem(item)) return false;
+  if (!isOccurrenceOnSchedule(item)) return false;
   return daysUntil(item.occurs_at) === 0;
 }
 
@@ -350,11 +352,11 @@ export default function HomeScreen() {
         supabase
           .from('items')
           .select(
-            'id, title, body, detail, suggestion, category, action_description, event_date, due_at, occurs_at, kind, confidence, surface_from, surface_until, parent_id, created_at, who_it_affects, urgency_level, status, source_email_subject, source_label, source, parent:items!parent_id(id, title, occurs_at, event_date), collections(status)',
+            'id, title, body, detail, suggestion, category, action_description, event_date, due_at, occurs_at, kind, confidence, surface_from, surface_until, parent_id, created_at, who_it_affects, urgency_level, status, source_email_subject, source_label, source, parent:items!parent_id(id, title, kind, status, collection_id, occurs_at, event_date, due_at), collections(status)',
           )
           .eq('user_id', user.id)
           .eq('status', 'open')
-          .in('kind', ['obligation', 'occurrence', 'hold']),
+          .in('kind', [...HOME_RADAR_LOAD_KINDS]),
         supabase.from('family_members').select('id, role, first_name, last_name').eq('user_id', user.id),
         supabase.from('home_noticed').select('insight_text').eq('user_id', user.id).maybeSingle(),
       ]);
@@ -362,16 +364,12 @@ export default function HomeScreen() {
     if (profile?.first_name) setFirstName(profile.first_name);
 
     const today = new Date();
-    const spotlightRows = (spotlightData as SpotlightJoin[] | null) ?? [];
+    const spotlightRows = latestSpotlightRows((spotlightData as SpotlightJoin[] | null) ?? []);
     const generatedAt = spotlightRows[0]?.generated_at ? new Date(spotlightRows[0].generated_at) : null;
-    const freshPin =
-      generatedAt && today.getTime() - generatedAt.getTime() < HOME_SURFACED_COOLDOWN_MS
-        ? spotlightRows.map((row) => row.item_id).filter((id): id is string => !!id)
-        : [];
     const previouslySurfaced: HomeSurfaced[] =
-      generatedAt && !freshPin.length
+      generatedAt && today.getTime() - generatedAt.getTime() < HOME_SURFACED_COOLDOWN_MS
         ? spotlightRows
-            .filter((row): row is SpotlightJoin & { item_id: string } => !!row.item_id)
+            .filter((row): row is SpotlightJoin & { item_id: string } => !!row.item_id && (row.rank ?? 0) < HOME_OVERFLOW_RANK_BASE)
             .map((row) => ({ id: row.item_id, at: generatedAt }))
         : [];
     const reasonById = new Map(spotlightRows.map((row) => [row.item_id || '', row.reason_text || '']));
@@ -380,8 +378,6 @@ export default function HomeScreen() {
     const openItems = ((itemData as ItemRow[] | null) ?? []).filter((item) => isActiveCollection(item.collections));
     const selected = selectHomeActions(openItems, {
       today,
-      limit: HOME_ACTION_LIMIT,
-      pinnedIds: freshPin,
       previouslySurfaced,
     });
     const actionCards = selected
@@ -448,7 +444,15 @@ export default function HomeScreen() {
     }
 
     const rawInsight = (noticedRow as { insight_text?: string } | null)?.insight_text?.trim() || null;
-    setNoticed(rawInsight && isUsableInsight(rawInsight) ? rawInsight : null);
+    const capturedTitles = openItems
+      .map((item) => item.title)
+      .filter((title): title is string => !!title);
+    const showInsight =
+      !!rawInsight &&
+      isUsableInsight(rawInsight) &&
+      looksLikeMentalLoad(rawInsight) &&
+      !insightRepeatsCaptured(rawInsight, capturedTitles);
+    setNoticed(showInsight ? rawInsight : null);
 
     setLoading(false);
   }, []);
@@ -494,7 +498,7 @@ export default function HomeScreen() {
 
   async function setStatus(nudge: NudgeCard, status: Exclude<NudgeStatus, 'open'>) {
     removeCard(nudge);
-    const { error } = await supabase.from('items').update({ status }).eq('id', nudge.id);
+    const { error } = await closeItems([nudge.id], status);
     if (error) restoreCard(nudge);
   }
 
@@ -628,7 +632,7 @@ export default function HomeScreen() {
               <BrandIconDisc name={n.icon.name} wash={n.icon.wash} size={36} />
             </View>
             <View style={s.ncopy}>
-              <Text style={s.homeItemTitle} numberOfLines={1}>
+              <Text style={s.homeItemTitle}>
                 {n.title}
               </Text>
               {support ? <Text style={s.homeItemSub}>{support}</Text> : null}
@@ -675,7 +679,7 @@ export default function HomeScreen() {
 
         <View style={s.homeSectionHead}>
           <Text style={s.homeSectionLabel}>Today's actions</Text>
-          <Pressable onPress={() => router.push('/plan')}>
+          <Pressable onPress={() => router.push('/home/today')}>
             <Text style={s.homeSeeAll}>See all</Text>
           </Pressable>
         </View>

@@ -72,12 +72,14 @@ export default function CollectionScreen() {
       setItems(
         mapped.map((card) => ({
           ...card,
+          collectionId,
           listMode: true,
           context: null,
           detail: '',
           suggestion: null,
           hideTitle: hideEveryTitle || sameTitle(card.title, listTitle),
           checklistHeading: meta?.type === 'shopping' ? 'To pick up' : undefined,
+          checklistRowsAreItems: meta?.type === 'shopping',
         })),
       );
     }

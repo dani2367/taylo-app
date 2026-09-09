@@ -1,6 +1,7 @@
 import { appStyles as s } from '@/components/app/styles';
 import { TayloWordmark } from '@/components/app/TayloWordmark';
 import { colors } from '@/constants/theme';
+import { HOME_OVERFLOW_RANK_BASE } from '@/lib/placement';
 import { supabase } from '@/lib/supabase';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
@@ -44,7 +45,8 @@ export function AppHeader() {
         supabase
           .from('home_spotlight')
           .select('id', { count: 'exact', head: true })
-          .eq('user_id', user.id),
+          .eq('user_id', user.id)
+          .lt('rank', HOME_OVERFLOW_RANK_BASE),
       ]);
 
       if (profile?.first_name) setFirstName(profile.first_name);

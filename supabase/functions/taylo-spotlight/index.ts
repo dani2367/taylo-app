@@ -1,12 +1,17 @@
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { belongsToCompletedCollection } from '../_shared/collections.ts';
 import { householdVoiceBlock, loadHousehold, type Household } from '../_shared/household.ts';
-import { selectHomeActions, HOME_ACTION_MAX } from '../_shared/placement.ts';
+import {
+  HOME_OVERFLOW_RANK_BASE,
+  HOME_RADAR_LOAD_KINDS,
+  HOME_SURFACED_COOLDOWN_MS,
+  orderHomeSpotlightQueue,
+  shouldRegenerateSpotlight,
+  type HomeSurfaced,
+} from '../_shared/placement.ts';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-sonnet-5';
-const STALE_MS = 4 * 60 * 60 * 1000;
-const MAX_SPOTLIGHT = HOME_ACTION_MAX;
 const MAX_FACTS = 50;
 
 type ItemRow = {
@@ -24,6 +29,19 @@ type ItemRow = {
   surface_from: string | null;
   surface_until: string | null;
   parent_id: string | null;
+  parent?: {
+    title?: string | null;
+    kind?: string | null;
+    occurs_at?: string | null;
+    event_date?: string | null;
+    due_at?: string | null;
+  } | {
+    title?: string | null;
+    kind?: string | null;
+    occurs_at?: string | null;
+    event_date?: string | null;
+    due_at?: string | null;
+  }[] | null;
   who_it_affects: string | null;
   urgency_level: string | null;
   source: string | null;
@@ -100,31 +118,50 @@ Deno.serve(async (req: Request) => {
 
     if (!userId) return json({ error: 'Missing user' }, 401);
 
-    if (!force) {
-      const { data: latest } = await supabase
-        .from('home_spotlight')
-        .select('generated_at')
-        .eq('user_id', userId)
-        .order('generated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    const { data: existingRows } = await supabase
+      .from('home_spotlight')
+      .select('item_id, generated_at, rank')
+      .eq('user_id', userId)
+      .order('rank', { ascending: true });
 
-      const generatedAt = (latest as { generated_at?: string } | null)?.generated_at;
-      if (generatedAt && Date.now() - new Date(generatedAt).getTime() < STALE_MS) {
-        return json({ success: true, skipped: true, generated_at: generatedAt });
-      }
+    const cache = (existingRows ?? []) as {
+      item_id: string | null;
+      generated_at?: string | null;
+      rank?: number | null;
+    }[];
+    let latestAt = '';
+    for (const row of cache) {
+      const at = row.generated_at || '';
+      if (at > latestAt) latestAt = at;
     }
+    const latest = latestAt ? cache.filter((row) => (row.generated_at || '') === latestAt) : [];
+    const generatedAtRaw = latest[0]?.generated_at;
+    const generatedAt = generatedAtRaw ? new Date(generatedAtRaw) : null;
+    const cachedHomeIds = latest
+      .filter((row) => (row.rank ?? 0) < HOME_OVERFLOW_RANK_BASE)
+      .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
+      .map((row) => row.item_id)
+      .filter((id): id is string => !!id);
+    const cachedOverflowIds = latest
+      .filter((row) => (row.rank ?? 0) >= HOME_OVERFLOW_RANK_BASE)
+      .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
+      .map((row) => row.item_id)
+      .filter((id): id is string => !!id);
+    const now = new Date();
+    const previouslySurfaced: HomeSurfaced[] =
+      generatedAt && now.getTime() - generatedAt.getTime() < HOME_SURFACED_COOLDOWN_MS
+        ? cachedHomeIds.map((id) => ({ id, at: generatedAt }))
+        : [];
 
     const { data: itemRows, error: itemsError } = await supabase
       .from('items')
       .select(
-        'id, title, body, detail, category, action_description, event_date, due_at, occurs_at, kind, confidence, surface_from, surface_until, parent_id, who_it_affects, urgency_level, source, created_at, collection_id, collections(status, type)',
+        'id, title, body, detail, category, action_description, event_date, due_at, occurs_at, kind, confidence, surface_from, surface_until, parent_id, who_it_affects, urgency_level, source, created_at, collection_id, status, collections(status, type), parent:items!parent_id(id, title, kind, status, collection_id, occurs_at, event_date, due_at)',
       )
       .eq('user_id', userId)
       .eq('status', 'open')
-      .in('kind', ['obligation', 'occurrence', 'hold'])
-      .order('created_at', { ascending: false })
-      .limit(80);
+      .in('kind', [...HOME_RADAR_LOAD_KINDS])
+      .order('created_at', { ascending: false });
 
     if (itemsError) {
       console.error('Failed to load items:', itemsError.message);
@@ -134,8 +171,27 @@ Deno.serve(async (req: Request) => {
     const items = ((itemRows ?? []) as ItemRow[]).filter(
       (item) => !belongsToCompletedCollection(item.collections),
     );
-    const cards = selectHomeActions(items, { limit: MAX_SPOTLIGHT });
-    const rankable = cards.map((card) => card.item);
+    const { home, overflow } = orderHomeSpotlightQueue(items, {
+      previouslySurfaced,
+      today: now,
+    });
+    const rankedIds = home.map((card) => card.item.id);
+    const overflowIds = overflow.map((card) => card.item.id);
+    if (
+      !force &&
+      !shouldRegenerateSpotlight({
+        generatedAt,
+        cachedIds: cachedHomeIds,
+        rankedIds,
+        cachedOverflowIds,
+        overflowIds,
+        now,
+      })
+    ) {
+      return json({ success: true, skipped: true, generated_at: generatedAtRaw });
+    }
+
+    const rankable = [...home, ...overflow].map((card) => card.item);
     if (!rankable.length) {
       await supabase.from('home_spotlight').delete().eq('user_id', userId);
       return json({ success: true, spotlight: 0 });
@@ -151,19 +207,29 @@ Deno.serve(async (req: Request) => {
 
     let ranked: Ranked[];
     try {
-      ranked = await rankItems(anthropicKey, rankable, checklists, facts, recentChat, household);
+      ranked = await writeReasons(anthropicKey, rankable, checklists, facts, recentChat, household);
     } catch (err) {
-      console.error('Spotlight ranking failed, using fallback:', err);
+      console.error('Spotlight copy failed, using fallback:', err);
       ranked = fallbackRank(rankable, checklists);
     }
-    const generatedAt = new Date().toISOString();
-    const rows = ranked.map((entry, index) => ({
-      user_id: userId,
-      item_id: entry.item_id,
-      reason_text: entry.reason_text,
-      rank: index,
-      generated_at: generatedAt,
-    }));
+    const reasonById = new Map(ranked.map((entry) => [entry.item_id, entry.reason_text]));
+    const generatedAtIso = new Date().toISOString();
+    const rows = [
+      ...home.map((card, index) => ({
+        user_id: userId,
+        item_id: card.item.id,
+        reason_text: reasonById.get(card.item.id) || fallbackReason(card.item, checklists.get(card.item.id) ?? []),
+        rank: index,
+        generated_at: generatedAtIso,
+      })),
+      ...overflow.map((card, index) => ({
+        user_id: userId,
+        item_id: card.item.id,
+        reason_text: reasonById.get(card.item.id) || fallbackReason(card.item, checklists.get(card.item.id) ?? []),
+        rank: HOME_OVERFLOW_RANK_BASE + index,
+        generated_at: generatedAtIso,
+      })),
+    ];
 
     const { error: deleteError } = await supabase
       .from('home_spotlight')
@@ -185,8 +251,8 @@ Deno.serve(async (req: Request) => {
     return json({
       success: true,
       skipped: false,
-      generated_at: generatedAt,
-      spotlight: ranked.length,
+      generated_at: generatedAtIso,
+      spotlight: rows.length,
     });
   } catch (err) {
     console.error('Unhandled error:', err);
@@ -307,7 +373,7 @@ async function loadRecentChat(
   return lines.join('\n');
 }
 
-async function rankItems(
+async function writeReasons(
   apiKey: string,
   items: ItemRow[],
   checklists: Map<string, ChecklistEntry[]>,
@@ -315,15 +381,26 @@ async function rankItems(
   recentChat: string,
   household: Household,
 ): Promise<Ranked[]> {
+  if (!items.length) return [];
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
-  const raw = await callClaude(apiKey, systemPrompt(household, today), userPrompt(items, checklists, facts, recentChat));
+  const raw = await callClaude(
+    apiKey,
+    copyPrompt(household, today, items.length),
+    userPrompt(items, checklists, facts, recentChat),
+  );
   const parsed = parseRanked(raw, items);
-  if (parsed.length) return parsed;
-  return fallbackRank(items, checklists);
+  const got = new Map(parsed.map((entry) => [entry.item_id, entry.reason_text]));
+  const fallback = fallbackRank(items, checklists);
+  const fallbackById = new Map(fallback.map((entry) => [entry.item_id, entry.reason_text]));
+  return items.map((item) => ({
+    item_id: item.id,
+    reason_text:
+      got.get(item.id) || fallbackById.get(item.id) || fallbackReason(item, checklists.get(item.id) ?? []),
+  }));
 }
 
-function systemPrompt(household: Household, today: string): string {
-  return `You rank a parent's open items for the Home screen of Taylo, a UK family assistant. You are a warm, organised friend — light, specific, on their side. Not a productivity app, not a nag.
+function copyPrompt(household: Household, today: string, count: number): string {
+  return `You write short Home-screen lines for Taylo, a UK family assistant. You are a warm, organised friend — light, specific, on their side. Not a productivity app, not a nag.
 
 Today (Europe/London) is ${today}.
 
@@ -332,8 +409,7 @@ Return ONLY a JSON object, nothing else:
   "spotlight": [{ "item_id": "uuid", "reason": "why this matters now" }]
 }
 
-spotlight: 2–4 items that deserve attention right now. Fewer is fine if there aren't that many genuine ones. Never more than 4.
-Only use item_id values from the provided list. Every row is already a high-confidence obligation whose surface window is open — including child obligations that stand on their own. Do not pick occurrences or calendar blocks; those belong on Schedule.
+Write exactly one row for every provided item (${count} total). Ranking is already decided — do not drop items, do not add extras, do not reorder. Only use item_id values from the provided list.
 
 reason: first person as Taylo, like a text from a friend. Maximum ~15 words. Contractions, a little warmth. One specific detail — a date, a name, leftover prep, something from family context or a recent chat. No emoji.
 
@@ -341,8 +417,6 @@ Sound like: "If you're near a shop, carrots are still on the list." / "Sports da
 Not like: "This is on your list." / "You added this recently." / "This needs doing." / "Urgent: complete this task." / "I'll keep an eye on this."
 
 Never guilt them. Never name the Home screen "Today".
-
-Rank by genuine now-ness among the given obligations only. Child prep like "buy a card" is its own action — do not hide it behind a parent event.
 
 ${householdVoiceBlock(household)}`;
 }
@@ -389,7 +463,7 @@ function parseRanked(raw: string, items: ItemRow[]): Ranked[] {
     parsed = {};
   }
 
-  return takeRanked(parsed.spotlight, known, new Set<string>(), MAX_SPOTLIGHT);
+  return takeRanked(parsed.spotlight, known, new Set<string>(), items.length);
 }
 
 function takeRanked(
@@ -425,20 +499,7 @@ function fallbackRank(
   items: ItemRow[],
   checklists: Map<string, ChecklistEntry[]>,
 ): Ranked[] {
-  const urgencyScore: Record<string, number> = {
-    today: 4,
-    this_week: 3,
-    upcoming: 2,
-    none: 1,
-  };
-  const sorted = [...items].sort((a, b) => {
-    const ua = urgencyScore[a.urgency_level ?? ''] ?? 0;
-    const ub = urgencyScore[b.urgency_level ?? ''] ?? 0;
-    if (ub !== ua) return ub - ua;
-    return (a.event_date ?? '9999').localeCompare(b.event_date ?? '9999');
-  });
-
-  return sorted.slice(0, Math.min(MAX_SPOTLIGHT, sorted.length)).map((item) => ({
+  return items.map((item) => ({
     item_id: item.id,
     reason_text: fallbackReason(item, checklists.get(item.id) ?? []),
   }));
@@ -464,7 +525,7 @@ async function callClaude(apiKey: string, system: string, user: string): Promise
     },
     body: JSON.stringify({
       model: CLAUDE_MODEL,
-      max_tokens: 1200,
+      max_tokens: 2500,
       output_config: { effort: 'low' },
       system,
       messages: [{ role: 'user', content: user }],

@@ -1,4 +1,4 @@
-import { compareRadarItems, radarStatusLine, type RadarItem } from './radar';
+import { compareRadarItems, radarGroupedContext, radarStatusLine, type RadarItem } from './radar';
 
 const today = new Date(2026, 8, 5); // 5 Sep 2026
 
@@ -37,6 +37,37 @@ expect(
   'far dated',
   radarStatusLine(item({ event_date: ymd(80) }), today),
   "No rush — I'll keep this on your radar",
+);
+expect(
+  'undated child uses parent timing, not no-date',
+  radarStatusLine(
+    item({
+      kind: 'obligation',
+      due_at: null,
+      parent_id: 'party',
+      parent: { title: "Arlo's party", occurs_at: '2026-09-12', event_date: null },
+    }),
+    today,
+  ),
+  "I'll bring this up closer to next week",
+);
+expect(
+  'past parent is still-to-sort, not no-date or yesterday',
+  radarStatusLine(
+    item({
+      kind: 'obligation',
+      due_at: null,
+      parent_id: 'bday',
+      parent: { title: "Frank's birthday", occurs_at: '2026-09-04', event_date: null },
+    }),
+    today,
+  ),
+  'Still to sort — this has already happened',
+);
+expect(
+  'grouped summary does not truncate',
+  radarGroupedContext(2, '2026-09-12', today),
+  'Next week · 2 things to sort',
 );
 
 const ordered = [

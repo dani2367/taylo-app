@@ -112,9 +112,15 @@ function PersonCard({
                   key={item.id}
                   style={[s.familyItemRow, index === bucket.preview.length - 1 && s.familyItemRowLast]}
                   onPress={() => router.push({ pathname: '/plan/item/[itemId]', params: { itemId: item.id } })}>
-                  <BrandIconDisc name={icon.name} wash={icon.wash} size={36} />
+                  {item.informational ? (
+                    <View style={s.familyInfoDot} />
+                  ) : (
+                    <BrandIconDisc name={icon.name} wash={icon.wash} size={36} />
+                  )}
                   <View style={s.ncopy}>
-                    <Text style={s.homeItemTitle} numberOfLines={1}>
+                    <Text
+                      style={item.informational ? s.familyInfoTitle : s.homeItemTitle}
+                      numberOfLines={1}>
                       {item.title}
                     </Text>
                     <Text style={s.homeItemSub} numberOfLines={1}>

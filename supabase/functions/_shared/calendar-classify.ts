@@ -46,6 +46,13 @@ export function shouldClassifyExistingCalendarItem(opts: {
   return opts.titleChanged || opts.dateChanged || !opts.classifiedAt;
 }
 
+/** User close actions stay closed even if the calendar event still exists. */
+export function syncedCalendarItemStatus(existingStatus: string | null | undefined): string {
+  const value = (existingStatus || 'open').toLowerCase();
+  if (value === 'done' || value === 'delegated' || value === 'dismissed') return value;
+  return 'open';
+}
+
 export async function classifyCalendarEvents(
   apiKey: string,
   events: CalendarIncoming[],
@@ -168,6 +175,7 @@ The parent row is always kind=occurrence. occurs_at must equal the event start f
 action_description: required when actionable is yes or maybe, otherwise null. Write one or two short sentences like a friend putting it on their radar — not a nag and not a calendar echo.
 - Name the event and when it is in human terms (this weekend, Tuesday, the 23rd).
 - Mention prep only if stated or a high-confidence type default. Never invent kit/gifts for a vague lunch or a generic meeting.
+- Interviews, 1:1s, standups, and generic work meetings: obligations must be []. Never invent "research the company", "prepare examples", or "review the job description".
 - Offer help, don't instruct. Never "don't forget", "you need to", "make sure", or exclamation marks.
 
 urgency: today if it is today; this_week if it falls in the next 7 days (including this weekend); upcoming if later; none when actionable is no.

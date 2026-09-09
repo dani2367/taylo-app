@@ -1,4 +1,4 @@
-import { shouldClassifyExistingCalendarItem } from './calendar-classified.ts';
+import { shouldClassifyExistingCalendarItem, syncedCalendarItemStatus } from './calendar-classified.ts';
 
 function expect(name: string, got: unknown, want: unknown) {
   if (got !== want) {
@@ -41,5 +41,10 @@ expect(
   }),
   true,
 );
+
+expect('done stays done on calendar sync', syncedCalendarItemStatus('done'), 'done');
+expect('dismissed stays dismissed on calendar sync', syncedCalendarItemStatus('dismissed'), 'dismissed');
+expect('delegated stays delegated on calendar sync', syncedCalendarItemStatus('delegated'), 'delegated');
+expect('open stays open', syncedCalendarItemStatus('open'), 'open');
 
 if (!process.exitCode) console.log('calendar-classified self-test passed');

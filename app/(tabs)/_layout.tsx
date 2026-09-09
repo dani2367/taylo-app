@@ -20,8 +20,8 @@ export const unstable_settings = {
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
-  const onHome = pathname === '/home' || pathname.endsWith('/home');
-  const onPlan = pathname === '/plan' || pathname.includes('/plan');
+  const onHome = pathname === '/home' || pathname === '/home/today';
+  const onPlan = pathname === '/plan' || (pathname.includes('/plan') && !pathname.includes('/home'));
   const showBrandHeader = !pathname.includes('/chat') && !onHome && !onPlan;
 
   useEffect(() => {
@@ -40,7 +40,7 @@ export default function TabsLayout() {
     <ChatProvider>
       <View style={s.shell}>
         <View style={[s.headerWrap, { paddingTop: insets.top }]}>
-          {onHome ? <HomeBrandBar /> : null}
+          {onHome && pathname !== '/home/today' ? <HomeBrandBar /> : null}
           {showBrandHeader ? <AppHeader /> : null}
         </View>
         <Tabs

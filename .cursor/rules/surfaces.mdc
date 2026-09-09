@@ -1,0 +1,34 @@
+---
+description: Where things live — Home, Radar, lists. Fix the rule, not one live row.
+alwaysApply: true
+---
+
+# Surfaces
+
+Do not tune one card. Change placement/ingest so the next email, Offload, and calendar event behave the same way.
+
+## Home
+
+Dated **admin** due today, overdue, or within 7 days: form, RSVP, payment, named errand with a deadline. This-week events with open work (gala + form + kit) are **one** Home card. Cap **5**, order **stable by due day**. Visiting Home must not swap two valid cards. See all is the rest of that same pool — not Radar leftovers.
+
+## Radar
+
+Holds, far-dated admin, and leftover packing grouped under the parent. A this-week cluster already on Home is not also on Radar. Not the Offload inbox.
+
+## Lists
+
+- **Shopping**: groceries only.
+- **General to do**: every other chat/manual todo (book the eye test, email the teacher, accommodation).
+- **Named lists**: only if the user taps Add a list. Never because an item has children.
+
+## One thing, one card
+
+- Hold = one Radar card. No extra “buy a new X”.
+- This-week event with open work (gala + medical form + kit; farm slip + packed lunch) → **one Home card**, parent title, children as the checklist. Not a second form card and a Radar kit group.
+- Informational context with no children (INSET, nursery closed) stays off Today's Actions.
+- Far RSVP / far admin can stay a standalone Home card. Invented interview prep is not Home.
+- “No gifts” → no Present/Card/donation. Party is context; **RSVP** is the action.
+- Children of a dismissed/done parent stay off Home and Radar.
+- Mixed Offload (“oat milk and email the teacher”) splits: shopping + to-do, never grocery-only.
+
+Typed fields only. `source` is provenance, never a switch. Keep tests in `lib/placement.selftest.ts`, `lib/intake-contract.selftest.ts`, `lib/radar-organize.selftest.ts`, `lib/shopping.selftest.ts`.

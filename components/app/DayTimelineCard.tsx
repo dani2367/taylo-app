@@ -20,20 +20,24 @@ export function DayTimelineCard({
   emptyTitle?: string;
 }) {
   if (!items.length && !emptyTitle) return null;
+  const liveCount = items.filter((item) => !item.informational).length;
 
   return (
     <View style={s.homeDayCard}>
       <View style={s.homeDayHead}>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={s.homeDayKicker}>{kicker}</Text>
-          <Text style={s.homeDayTitle}>{items.length ? dayMood(items.length) : emptyTitle}</Text>
-          {items.length ? <Text style={s.homeDayCount}>{happenCountLabel(items.length)}</Text> : null}
+          <Text style={s.homeDayTitle}>
+            {items.length ? (liveCount ? dayMood(liveCount) : 'Worth knowing') : emptyTitle}
+          </Text>
+          {liveCount ? <Text style={s.homeDayCount}>{happenCountLabel(liveCount)}</Text> : null}
         </View>
         <BrandGlyph name="sunny-outline" size={22} color={colors.terracotta} />
       </View>
       {items.map((item, index) => {
+        const muted = !!item.informational;
         const row = (
-          <View style={s.homeDayRow}>
+          <View style={[s.homeDayRow, muted && s.homeDayRowInfo]}>
             <View style={s.homeDayRailCol}>
               {index > 0 ? (
                 <View style={s.homeDayRailUp} pointerEvents="none">
@@ -51,9 +55,9 @@ export function DayTimelineCard({
                 </View>
               ) : null}
             </View>
-            <Text style={s.homeDayTime}>{item.time}</Text>
+            <Text style={[s.homeDayTime, muted && s.homeDayTimeInfo]}>{item.time}</Text>
             <View style={s.ncopy}>
-              <Text style={s.homeDayName} numberOfLines={1}>
+              <Text style={[s.homeDayName, muted && s.homeDayNameInfo]} numberOfLines={1}>
                 {item.title}
               </Text>
               {item.sub ? <Text style={s.homeDaySub}>{item.sub}</Text> : null}

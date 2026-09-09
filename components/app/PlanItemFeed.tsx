@@ -2,6 +2,8 @@ import { useChat } from '@/components/app/ChatProvider';
 import { PlanItemCard, type PlanItemCardModel } from '@/components/app/PlanItemCard';
 import { appStyles as s } from '@/components/app/styles';
 import { thingsToSortLabel } from '@/lib/human-date';
+import { closeItems } from '@/lib/item-status';
+import { retireEmptyCollections } from '@/lib/collections';
 import {
   persistChecklistAdd,
   persistChecklistDelete,
@@ -52,12 +54,28 @@ export function PlanItemFeed({
   async function setStatus(card: PlanItemCardModel, status: 'done' | 'delegated' | 'dismissed') {
     const remaining = items.filter((row) => row.id !== card.id);
     setItems(() => remaining);
-    const { error } = await supabase.from('items').update({ status }).eq('id', card.id);
+    const extraIds = card.checklist.map((entry) => entry.id);
+    const { error } = await closeItems([card.id, ...extraIds], status);
     if (error) {
       setItems((prev) => [...prev, card]);
       return;
     }
-    if (remaining.length === 0) onBecameEmpty?.();
+    await retireListIfEmpty(card, []);
+    if (!card.listMode && remaining.length === 0) onBecameEmpty?.();
+  }
+
+  async function retireListIfEmpty(card: PlanItemCardModel, remainingChecklist: { id: string }[]) {
+    if (!card.listMode || remainingChecklist.length > 0) return;
+    const isSynthetic = !!card.collectionId && card.id === card.collectionId;
+    if (!isSynthetic) {
+      await closeItems([card.id], 'done');
+    }
+    setItems((prev) => prev.filter((row) => row.id !== card.id));
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) await retireEmptyCollections(user.id);
+    onBecameEmpty?.();
   }
 
   async function toggleChecklist(itemId: string, entryId: string, done: boolean) {
@@ -68,16 +86,19 @@ export function PlanItemFeed({
         ...row,
         checklist: row.checklist.filter((entry) => entry.id !== entryId || !done),
         prepLabel: remaining.length ? thingsToSortLabel(remaining.length) : null,
+        context: remaining.length ? thingsToSortLabel(remaining.length) : row.context,
       }));
-      const { error } = await supabase
-        .from('items')
-        .update({ status: done ? 'done' : 'open' })
-        .eq('id', entryId);
+      let error: { message: string } | null = null;
+      if (done) {
+        ({ error } = await closeItems([entryId], 'done'));
+      } else {
+        error = (await supabase.from('items').update({ status: 'open' }).eq('id', entryId)).error;
+      }
       if (error) {
         patchItem(itemId, () => card);
         return;
       }
-      if (remaining.length === 0) onBecameEmpty?.();
+      if (done) await retireListIfEmpty(card, remaining);
       return;
     }
 
@@ -95,6 +116,10 @@ export function PlanItemFeed({
       });
       return;
     }
+    if (done) {
+      const remaining = card?.checklist.filter((entry) => (entry.id === entryId ? false : !entry.done)) ?? [];
+      if (card) await retireListIfEmpty(card, remaining);
+    }
   }
 
   function renameChecklist(itemId: string, entryId: string, text: string) {
@@ -109,6 +134,7 @@ export function PlanItemFeed({
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
+    if (card.checklistRowsAreItems && !card.collectionId) return;
     if (card.checklistRowsAreItems && card.collectionId) {
       const { data: created, error } = await supabase
         .from('items')
@@ -163,11 +189,12 @@ export function PlanItemFeed({
       return { ...row, checklist, prepLabel: incomplete ? thingsToSortLabel(incomplete) : null };
     });
     if (card?.checklistRowsAreItems) {
-      const { error } = await supabase.from('items').update({ status: 'dismissed' }).eq('id', entryId);
+      const leftover = snapshot.filter((entry) => entry.id !== entryId);
+      const { error } = await closeItems([entryId], 'dismissed');
       if (error) {
         patchItem(itemId, () => ({ ...card, checklist: snapshot }));
-      } else if (snapshot.length <= 1) {
-        onBecameEmpty?.();
+      } else {
+        await retireListIfEmpty(card, leftover);
       }
       return;
     }
@@ -217,7 +244,7 @@ export function PlanItemFeed({
 
   const list = shown.map((card, index) => (
     <PlanItemCard
-      key={card.id}
+      key={`${card.id}:${index}`}
       card={card}
       variant={variant}
       last={index === shown.length - 1}

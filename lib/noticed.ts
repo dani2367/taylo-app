@@ -1,22 +1,17 @@
 import { supabase } from '@/lib/supabase';
+import {
+  insightRepeatsCaptured,
+  isUsableInsight,
+  looksLikeMentalLoad,
+} from '../supabase/functions/_shared/noticed.ts';
+
+export { insightRepeatsCaptured, isUsableInsight, looksLikeMentalLoad };
 
 const STALE_MS = 4 * 60 * 60 * 1000;
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
 let inFlight: Promise<{ regenerated: boolean }> | null = null;
-
-export function isUsableInsight(raw: string | null | undefined): boolean {
-  const text = (raw || '').replace(/\s+/g, ' ').trim();
-  if (!text) return false;
-  const watching = /keep(ing)? (an )?eye|worth (keeping|watching)\b/i.test(text);
-  const practical =
-    /\b(confirm|add|start|book|pack|kit|present|snack|send|call|reply|form|photo|order|check|talk you through|if you want|tonight|this week|weekend|saturday|sunday|radar|suspect)\b/i.test(
-      text,
-    );
-  if (watching && !practical) return false;
-  return true;
-}
 
 export async function refreshNoticed(opts?: { force?: boolean }): Promise<{ regenerated: boolean }> {
   const force = Boolean(opts?.force);
@@ -36,23 +31,35 @@ async function doRefresh(force: boolean): Promise<{ regenerated: boolean }> {
   const {
     data: { session },
   } = await supabase.auth.getSession();
-  if (!session?.access_token || !supabaseUrl || !supabaseAnonKey) {
+  if (!session?.access_token || !session.user?.id || !supabaseUrl || !supabaseAnonKey) {
     return { regenerated: false };
   }
 
-  if (!force) {
-    const { data } = await supabase
-      .from('home_noticed')
-      .select('generated_at, insight_text')
-      .order('generated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+  let shouldForce = force;
+  if (!shouldForce) {
+    const [{ data }, { data: openRows }] = await Promise.all([
+      supabase
+        .from('home_noticed')
+        .select('generated_at, insight_text')
+        .eq('user_id', session.user.id)
+        .order('generated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase.from('items').select('title').eq('user_id', session.user.id).eq('status', 'open').limit(80),
+    ]);
     const row = data as { generated_at?: string; insight_text?: string } | null;
     const generatedAt = row?.generated_at;
-    if (
+    const titles = ((openRows as { title?: string | null }[] | null) ?? [])
+      .map((item) => item.title)
+      .filter((title): title is string => !!title);
+    const insight = row?.insight_text;
+    if (insightRepeatsCaptured(insight, titles)) {
+      shouldForce = true;
+    } else if (
       generatedAt &&
       Date.now() - new Date(generatedAt).getTime() < STALE_MS &&
-      isUsableInsight(row?.insight_text)
+      isUsableInsight(insight) &&
+      looksLikeMentalLoad(insight)
     ) {
       return { regenerated: false };
     }
@@ -65,7 +72,7 @@ async function doRefresh(force: boolean): Promise<{ regenerated: boolean }> {
       apikey: supabaseAnonKey,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ force }),
+    body: JSON.stringify({ force: shouldForce }),
   });
 
   const payload = (await res.json().catch(() => ({}))) as {

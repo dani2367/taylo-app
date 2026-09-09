@@ -31,7 +31,7 @@ import { useFocusEffect, router } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, Text, View } from 'react-native';
 
-const SELECT = 'id, title, body, category, icon, occurs_at, who_it_affects, kind, status';
+const SELECT = 'id, title, body, category, icon, occurs_at, who_it_affects, kind, status, confidence';
 
 export function AgendaItemRow({
   item,
@@ -42,17 +42,18 @@ export function AgendaItemRow({
   when: 'time' | 'date';
   last?: boolean;
 }) {
-  const left = when === 'time' ? item.timeLabel || '' : item.dateLabel;
+  const left = when === 'time' ? (item.informational ? 'Note' : item.timeLabel || '') : item.dateLabel;
   const icon = resolvePlanIcon({ title: item.title, category: item.category, stored: item.storedIcon });
+  const muted = item.informational;
   return (
     <Pressable
-      style={[s.homeHeroRow, last && s.homeHeroRowLast]}
+      style={[s.homeHeroRow, last && s.homeHeroRowLast, muted && s.homeDayRowInfo]}
       onPress={() => router.push({ pathname: '/plan/item/[itemId]', params: { itemId: item.id } })}>
       <View style={s.nrow}>
-        <Text style={when === 'time' ? s.scheduleTime : s.scheduleDate}>{left}</Text>
+        <Text style={[when === 'time' ? s.scheduleTime : s.scheduleDate, muted && s.scheduleTimeInfo]}>{left}</Text>
         <BrandIconDisc name={icon.name} wash={icon.wash} size={36} />
         <View style={s.ncopy}>
-          <Text style={s.scheduleItemTitle} numberOfLines={1}>
+          <Text style={[s.scheduleItemTitle, muted && s.scheduleItemTitleInfo]} numberOfLines={1}>
             {item.title}
           </Text>
           {item.sub ? <Text style={s.homeItemSub}>{item.sub}</Text> : null}
@@ -88,8 +89,9 @@ export function PlanSchedule() {
     const real = buckets.selected.map((item) => ({
       id: item.id,
       title: item.title,
-      time: happenClockLabel(item.timeLabel),
+      time: item.informational ? 'Note' : happenClockLabel(item.timeLabel),
       sub: item.sub,
+      informational: item.informational,
       icon: resolvePlanIcon({ title: item.title, category: item.category, stored: item.storedIcon }),
     }));
     return real.sort((a, b) => happenSortKey(a) - happenSortKey(b));
@@ -112,7 +114,7 @@ export function PlanSchedule() {
       .select(SELECT)
       .eq('user_id', user.id)
       .eq('status', 'open')
-      .eq('kind', 'occurrence')
+      .in('kind', ['occurrence', 'context_only'])
       .not('occurs_at', 'is', null);
 
     if (error) {

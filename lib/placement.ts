@@ -1,40 +1,73 @@
 export {
   HOME_ACTION_LIMIT,
   HOME_ACTION_MAX,
+  HOME_VISIBLE_MAX,
+  HOME_OVERFLOW_RANK_BASE,
+  isHomeSpotlightItem,
+  HOME_NEAR_TERM_DAYS,
+  HOME_RADAR_LOAD_KINDS,
   HOME_SURFACED_COOLDOWN_MS,
+  SPOTLIGHT_STALE_MS,
+  asRadarWatchCards,
+  asStandaloneCards,
+  asHomeNeededNowCards,
   childStandaloneTitle,
   compareHomeActions,
   compareRadarWatch,
-  groupUnderParents,
+  exceptHomeActions,
   isFamilyVisible,
   isHomeEligible,
+  isBarePrepTitle,
+  isBarePrepChild,
+  isChildOfClosedParent,
   isListBound,
+  isObligationOverdueAgainstParent,
   isRadarWatchItem,
+  isInformationalOnSchedule,
+  isOccurrenceOnSchedule,
   isScheduleItem,
   isSurfaceFromPending,
   isSurfaceWindowOpen,
+  lookupParent,
+  isHomeOverflowCandidate,
+  isNearTermDue,
+  isDueTodayOrOverdue,
+  actionDueDay,
   recentlySurfacedIds,
+  sameIdSet,
+  selectAllHomeActions,
+  orderHomeSpotlightQueue,
   selectHomeActions,
   selectRadarWatch,
+  shouldRegenerateSpotlight,
+  shortEventTitle,
+  unwrapPlacementParent,
   type HomeSurfaced,
   type PlacementCard,
   type PlacementItem,
+  type PlacementParentRef,
 } from '../supabase/functions/_shared/placement.ts';
 
 import { humanizeEventDate } from './human-date';
-import { childStandaloneTitle as formatChildTitle } from '../supabase/functions/_shared/placement.ts';
+import {
+  childStandaloneTitle as formatChildTitle,
+  unwrapPlacementParent,
+} from '../supabase/functions/_shared/placement.ts';
 
 export type PlacementParent = {
   title?: string | null;
+  kind?: string | null;
+  status?: string | null;
+  collection_id?: string | null;
   occurs_at?: string | null;
   event_date?: string | null;
+  due_at?: string | null;
 };
 
 export function unwrapParent(
   raw: PlacementParent | PlacementParent[] | null | undefined,
 ): PlacementParent | null {
-  if (!raw) return null;
-  return Array.isArray(raw) ? raw[0] ?? null : raw;
+  return unwrapPlacementParent(raw);
 }
 
 export function displayItemTitle(

@@ -1,6 +1,58 @@
 import type { SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { appendChecklistItems, looksLikeShoppingList } from './checklists.ts';
 
+const GENERAL_TODO_TITLE = 'General to do';
+
+async function lookupTodoCollection(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<string | null> {
+  const { data: byTitle } = await supabase
+    .from('collections')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .eq('title', GENERAL_TODO_TITLE)
+    .maybeSingle();
+  if (byTitle?.id) return byTitle.id as string;
+
+  const { data: byType } = await supabase
+    .from('collections')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .eq('type', 'todo')
+    .maybeSingle();
+  return (byType?.id as string | undefined) ?? null;
+}
+
+export async function findOrCreateTodoCollection(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<string | null> {
+  const existing = await lookupTodoCollection(supabase, userId);
+  if (existing) return existing;
+
+  const { data, error } = await supabase
+    .from('collections')
+    .insert({
+      user_id: userId,
+      title: GENERAL_TODO_TITLE,
+      emoji: '📝',
+      type: 'custom',
+      status: 'active',
+    })
+    .select('id')
+    .single();
+  if (data?.id) return data.id as string;
+
+  const raced = await lookupTodoCollection(supabase, userId);
+  if (raced) return raced;
+
+  console.error('Failed to find to-do collection:', error?.message);
+  return null;
+}
+
 export async function findOrCreateShoppingCollection(
   supabase: SupabaseClient,
   userId: string,

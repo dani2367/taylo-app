@@ -4,28 +4,11 @@ import { intakeRowFields, type IntakeItem } from './intake-contract.ts';
 const MAX_ITEMS = 24;
 const MAX_LABEL_LEN = 40;
 
-const SHOPPING_TITLE_RE =
-  /\b(shop(?:ping)?(?:\s+list)?|grocer(?:y|ies)?|tesco|sainsbury'?s?|waitrose|asda|aldi|lidl|morrisons|iceland|co-?op)\b/i;
+export { cleanGroceryProductLabel, looksLikeShoppingList } from './shopping.ts';
 
-export function looksLikeShoppingList(title: string): boolean {
-  return SHOPPING_TITLE_RE.test(title);
-}
-
-/** Product name only: "Chicken", not "To buy some chicken". */
-export function cleanGroceryProductLabel(raw: string): string {
-  let label = raw.replace(/\s+/g, ' ').trim().replace(/^[.!?]+|[.!?]+$/g, '');
-  for (let i = 0; i < 3; i += 1) {
-    const next = label
-      .replace(/^(?:i\s+)?(?:just\s+)?(?:need to |need |want to |want |gotta |have to |must )\s*/i, '')
-      .replace(/^(?:to\s+)?(?:buy|get|grab|pick\s*up)\s+/i, '')
-      .replace(/^(?:some|a|an|the)\s+/i, '')
-      .trim();
-    if (next === label) break;
-    label = next;
-  }
-  label = label.replace(/\s+for\s+.+$/i, '').trim();
-  if (!label || looksLikeShoppingList(label)) return '';
-  return label.charAt(0).toUpperCase() + label.slice(1);
+export function isJunkPrepTitle(title?: string | null): boolean {
+  const value = (title || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  return /^(new|untitled|item|task|todo|none|n\/a|n a|tbd|unknown)$/.test(value);
 }
 
 export function parseChecklistLabels(value: unknown): string[] {
@@ -36,6 +19,7 @@ export function parseChecklistLabels(value: unknown): string[] {
     if (typeof raw !== 'string') continue;
     const label = raw.replace(/\s+/g, ' ').trim();
     if (!label || label.toLowerCase() === 'null') continue;
+    if (isJunkPrepTitle(label)) continue;
     const key = label.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -56,7 +40,7 @@ export async function insertIntakeChildren(
   supabase: SupabaseClient,
   params: { userId: string; itemId: string; items: IntakeItem[]; listItem?: boolean },
 ): Promise<string[]> {
-  const items = params.items.filter((item) => item.title.trim()).slice(0, MAX_ITEMS);
+  const items = params.items.filter((item) => item.title.trim() && !isJunkPrepTitle(item.title)).slice(0, MAX_ITEMS);
   if (!items.length) return [];
 
   const [{ data: parent }, { data: existing, error: existingError }] = await Promise.all([

@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
-import { classifyStandaloneItem, isListHubTitle, simpleListTitle } from '@/lib/radar-organize';
-import { groceryLabelsFromText, looksLikeGroceryProduct, looksLikeShoppingList } from '@/lib/shopping';
+import { classifyStandaloneItem, isListHubTitle } from '@/lib/radar-organize';
+import { looksLikeGroceryProduct, looksLikeShoppingList } from '@/lib/shopping';
 import { narrativeFromSourceEmail } from '@/lib/email-narrative';
 
 export type CollectionType = 'shopping' | 'event' | 'trip' | 'other' | 'custom' | 'todo';
@@ -18,22 +18,48 @@ export type CollectionRow = {
 export const DEFAULT_LIST_EMOJI = '📝';
 export const GENERAL_TODO_TITLE = 'General to do';
 
-export async function findOrCreateTodoCollection(userId: string): Promise<string | null> {
-  const { data: existing } = await supabase
+async function lookupTodoCollection(userId: string): Promise<string | null> {
+  const { data: byTitle } = await supabase
     .from('collections')
     .select('id')
     .eq('user_id', userId)
     .eq('status', 'active')
     .eq('title', GENERAL_TODO_TITLE)
     .maybeSingle();
-  if (existing?.id) return existing.id as string;
+  if (byTitle?.id) return byTitle.id as string;
 
-  const { collection, error } = await createCustomCollection(userId, GENERAL_TODO_TITLE, DEFAULT_LIST_EMOJI);
-  if (error || !collection) {
-    console.error('Failed to find to-do collection:', error);
-    return null;
-  }
-  return collection.id;
+  const { data: byType } = await supabase
+    .from('collections')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .eq('type', 'todo')
+    .maybeSingle();
+  return (byType?.id as string | undefined) ?? null;
+}
+
+export async function findOrCreateTodoCollection(userId: string): Promise<string | null> {
+  const existing = await lookupTodoCollection(userId);
+  if (existing) return existing;
+
+  const { data, error } = await supabase
+    .from('collections')
+    .insert({
+      user_id: userId,
+      title: GENERAL_TODO_TITLE,
+      emoji: DEFAULT_LIST_EMOJI,
+      type: 'custom',
+      status: 'active',
+    })
+    .select('id')
+    .single();
+  if (data?.id) return data.id as string;
+
+  const raced = await lookupTodoCollection(userId);
+  if (raced) return raced;
+
+  console.error('Failed to find to-do collection:', error?.message);
+  return null;
 }
 
 export async function createCustomCollection(
@@ -73,10 +99,16 @@ export async function addTasksToTodoList(userId: string, itemIds: string[]): Pro
   const collectionId = await findOrCreateTodoCollection(userId);
   if (!collectionId) return 'Failed to save to-do list';
   if (!itemIds.length) return null;
+  const { data: children } = await supabase.from('items').select('id').in('parent_id', itemIds);
+  const childIds = ((children as { id: string }[] | null) ?? []).map((row) => row.id);
+  const ids = [...new Set([...itemIds, ...childIds])];
+  // collection_id is what keeps these off Home/Radar (`isListBound`). Kind stays obligation.
+  // Do not force status open — Done / Dismissed must stick.
   const { error } = await supabase
     .from('items')
-    .update({ collection_id: collectionId, status: 'open' })
-    .in('id', itemIds);
+    .update({ collection_id: collectionId, kind: 'obligation' })
+    .in('id', ids)
+    .eq('status', 'open');
   return error?.message ?? null;
 }
 
@@ -205,6 +237,53 @@ export async function listActiveCollections(userId: string): Promise<CollectionR
   return sortPlanLists((data ?? []) as CollectionRow[]);
 }
 
+function isAutoList(row: CollectionRow): boolean {
+  return row.type === 'shopping' || row.type === 'todo' || row.title === GENERAL_TODO_TITLE;
+}
+
+async function collectionHasOpenWork(col: CollectionRow): Promise<boolean> {
+  if (col.type === 'shopping') {
+    const { data: hubs } = await supabase
+      .from('items')
+      .select('id')
+      .eq('collection_id', col.id)
+      .eq('status', 'open');
+    const hubIds = ((hubs as { id: string }[] | null) ?? []).map((row) => row.id);
+    if (!hubIds.length) return false;
+    const { data: kids } = await supabase.from('items').select('id').in('parent_id', hubIds).eq('status', 'open');
+    return ((kids as { id: string }[] | null) ?? []).length > 0;
+  }
+
+  const { data } = await supabase
+    .from('items')
+    .select('id, title')
+    .eq('collection_id', col.id)
+    .eq('status', 'open')
+    .is('parent_id', null);
+  return ((data as { id: string; title: string | null }[] | null) ?? []).some((row) => !isListHubTitle(row.title));
+}
+
+async function completeCollection(collectionId: string): Promise<void> {
+  const { data: members } = await supabase.from('items').select('id').eq('collection_id', collectionId);
+  const memberIds = ((members as { id: string }[] | null) ?? []).map((row) => row.id);
+  if (memberIds.length) {
+    const { data: children } = await supabase.from('items').select('id').in('parent_id', memberIds);
+    const ids = [...new Set([...memberIds, ...((children as { id: string }[] | null) ?? []).map((row) => row.id)])];
+    await supabase.from('items').update({ status: 'done' }).in('id', ids).eq('status', 'open');
+  }
+  await supabase.from('collections').update({ status: 'completed' }).eq('id', collectionId);
+}
+
+/** Drop Shopping / General to do when nothing open is left on them. */
+export async function retireEmptyCollections(userId: string): Promise<void> {
+  const collections = await listActiveCollections(userId);
+  for (const col of collections) {
+    if (!isAutoList(col)) continue;
+    if (await collectionHasOpenWork(col)) continue;
+    await completeCollection(col.id);
+  }
+}
+
 function sortPlanLists(rows: CollectionRow[]): CollectionRow[] {
   const rank = (row: CollectionRow) => {
     if (row.type === 'shopping') return 0;
@@ -243,47 +322,32 @@ function isHubItem(title: string | null): boolean {
   return isListHubTitle(title);
 }
 
-async function removeShoppingChecklistCopies(collectionId: string, titles: string[]): Promise<void> {
-  const needles = new Set<string>();
-  for (const title of titles) {
-    const t = title.replace(/\s+/g, ' ').trim().toLowerCase();
-    if (t) needles.add(t);
-    for (const label of groceryLabelsFromText(title)) {
-      needles.add(label.toLowerCase());
-    }
-  }
-  if (!needles.size) return;
-
-  const { data: hubs } = await supabase
+/** Prep lines stay open after the parent event is dismissed — they must not return to Home. */
+async function closeChildrenOfClosedParents(userId: string): Promise<void> {
+  const { data: closedParents, error } = await supabase
     .from('items')
     .select('id')
-    .eq('collection_id', collectionId)
-    .eq('status', 'open');
-  const hubIds = ((hubs as { id: string }[] | null) ?? []).map((row) => row.id);
-  if (!hubIds.length) return;
-
-  const { data: children } = await supabase
+    .eq('user_id', userId)
+    .in('status', ['done', 'dismissed', 'delegated']);
+  if (error) {
+    console.error('Failed to load closed parents:', error.message);
+    return;
+  }
+  const parentIds = ((closedParents as { id: string }[] | null) ?? []).map((row) => row.id);
+  if (!parentIds.length) return;
+  const { error: childError } = await supabase
     .from('items')
-    .select('id, title')
-    .in('parent_id', hubIds)
-    .neq('status', 'dismissed');
-
-  const drop: string[] = [];
-  for (const entry of (children as { id: string; title: string | null }[] | null) ?? []) {
-    const text = (entry.title || '').replace(/\s+/g, ' ').trim().toLowerCase();
-    if (!text) continue;
-    if (text.length < 4) continue;
-    if (needles.has(text) || [...needles].some((needle) => needle.length >= 4 && (needle.includes(text) || text.includes(needle)))) {
-      drop.push(entry.id);
-    }
-  }
-  if (drop.length) {
-    await supabase.from('items').update({ status: 'dismissed' }).in('id', drop);
-  }
+    .update({ status: 'dismissed' })
+    .eq('user_id', userId)
+    .eq('status', 'open')
+    .in('parent_id', parentIds);
+  if (childError) console.error('Failed to close leftover children:', childError.message);
 }
 
 /** Put loose to-dos and nested checklists onto list collections. */
 export async function organizeStandaloneItems(userId: string): Promise<void> {
+  await closeChildrenOfClosedParents(userId);
+
   const { data, error } = await supabase
     .from('items')
     .select('id, title, body, detail, suggestion, action_description, event_date, source, category, collection_id, collections(title, type), prep_children:items!parent_id(id)')
@@ -298,7 +362,10 @@ export async function organizeStandaloneItems(userId: string): Promise<void> {
   }
 
   const rows = (data as StandaloneRow[] | null) ?? [];
-  if (!rows.length) return;
+  if (!rows.length) {
+    await retireEmptyCollections(userId);
+    return;
+  }
 
   const missingCopy = rows.filter((row) => !isHubItem(row.title) && (!row.body || !row.detail));
   if (missingCopy.length) {
@@ -337,7 +404,6 @@ export async function organizeStandaloneItems(userId: string): Promise<void> {
   const shoppingDone: string[] = [];
   const todoIds: string[] = [];
   const unassign: string[] = [];
-  const listRows: StandaloneRow[] = [];
 
   for (const row of rows) {
     if (isHubItem(row.title)) continue;
@@ -354,17 +420,16 @@ export async function organizeStandaloneItems(userId: string): Promise<void> {
       shoppingDone.push(row.id);
     } else if (kind === 'todo') {
       todoIds.push(row.id);
-    } else if (kind === 'list') {
-      listRows.push(row);
     } else if (row.collection_id) {
-      const meta = unwrapCollection(row.collections);
-      if (meta?.title === GENERAL_TODO_TITLE || meta?.type === 'todo') unassign.push(row.id);
+      unassign.push(row.id);
     }
   }
 
   if (unassign.length) {
     await supabase.from('items').update({ collection_id: null }).in('id', unassign);
   }
+
+  await completeEmptyCustomCollections(userId);
 
   if (shoppingLabels.length || shoppingDone.length) {
     const err = await addProductsToShoppingList(userId, shoppingLabels);
@@ -379,28 +444,6 @@ export async function organizeStandaloneItems(userId: string): Promise<void> {
     if (err) console.error('Failed to fold to-dos:', err);
   }
 
-  const { data: todoCol } = await supabase
-    .from('collections')
-    .select('id')
-    .eq('user_id', userId)
-    .eq('status', 'active')
-    .eq('title', GENERAL_TODO_TITLE)
-    .maybeSingle();
-  if (todoCol?.id) {
-    const { data: closed } = await supabase
-      .from('items')
-      .select('id, title, category')
-      .eq('user_id', userId)
-      .eq('collection_id', todoCol.id)
-      .eq('status', 'done');
-    const reopen = ((closed as { id: string; title: string | null; category: string | null }[] | null) ?? [])
-      .filter((row) => !isHubItem(row.title) && !looksLikeGroceryProduct(row.title || '', row.category))
-      .map((row) => row.id);
-    if (reopen.length) {
-      await supabase.from('items').update({ status: 'open' }).in('id', reopen);
-    }
-  }
-
   const { data: shopCol } = await supabase
     .from('collections')
     .select('id')
@@ -409,80 +452,79 @@ export async function organizeStandaloneItems(userId: string): Promise<void> {
     .eq('type', 'shopping')
     .maybeSingle();
   if (shopCol?.id) {
-    const { data: closedShop } = await supabase
-      .from('items')
-      .select('id, title, category, source, collection_id, parent_id')
-      .eq('user_id', userId)
-      .eq('status', 'done');
     const { data: hubs } = await supabase
       .from('items')
       .select('id')
       .eq('collection_id', shopCol.id)
       .eq('status', 'open');
     const hubIds = ((hubs as { id: string }[] | null) ?? []).map((row) => row.id);
-    let shopLabels = new Set<string>();
     if (hubIds.length) {
       const { data: children } = await supabase
         .from('items')
-        .select('title')
+        .select('id, title, source, category')
         .in('parent_id', hubIds)
-        .neq('status', 'dismissed');
-      shopLabels = new Set(
-        ((children as { title: string | null }[] | null) ?? [])
-          .map((entry) => (entry.title || '').replace(/\s+/g, ' ').trim().toLowerCase())
-          .filter(Boolean),
+        .eq('status', 'open');
+      const childRows =
+        (children as { id: string; title: string | null; source: string | null; category: string | null }[] | null) ??
+        [];
+      const strayChildren = childRows.filter(
+        (row) =>
+          !looksLikeGroceryProduct(row.title || '', row.category) &&
+          classifyStandaloneItem({ title: row.title, source: row.source || 'chat', category: row.category }) !==
+            'shopping',
       );
+      if (strayChildren.length) {
+        const strayIds = strayChildren.map((row) => row.id);
+        await supabase
+          .from('items')
+          .update({ parent_id: null, kind: 'obligation', collection_id: null })
+          .in('id', strayIds);
+        await addTasksToTodoList(userId, strayIds);
+      }
     }
+  }
 
-    const rescue = ((closedShop as { id: string; title: string | null; category: string | null; source: string | null; collection_id: string | null; parent_id: string | null }[] | null) ?? []).filter(
-      (row) => {
-        if (row.parent_id) return false;
-        if (isHubItem(row.title) || looksLikeGroceryProduct(row.title || '', row.category)) return false;
-        if (row.collection_id === shopCol.id) return true;
-        const labels = [row.title || '', ...groceryLabelsFromText(row.title || '')].map((value) =>
-          value.replace(/\s+/g, ' ').trim().toLowerCase(),
-        );
-        return labels.some(
-          (label) =>
-            label.length >= 4 &&
-            (shopLabels.has(label) || [...shopLabels].some((entry) => entry.length >= 4 && (entry.includes(label) || label.includes(entry)))),
-        );
-      },
+  await retireEmptyCollections(userId);
+}
+
+async function completeEmptyCustomCollections(userId: string): Promise<void> {
+  const { data, error } = await supabase
+    .from('collections')
+    .select('id, title, type, created_at')
+    .eq('user_id', userId)
+    .eq('status', 'active');
+  if (error) {
+    console.error('Failed to load collections to prune:', error.message);
+    return;
+  }
+
+  const graceMs = 15 * 60 * 1000;
+  const cutoff = Date.now() - graceMs;
+  const candidates = ((data as CollectionRow[] | null) ?? []).filter((row) => {
+    if (row.type !== 'custom' || row.title === GENERAL_TODO_TITLE) return false;
+    return new Date(row.created_at).getTime() < cutoff;
+  });
+  if (!candidates.length) return;
+
+  const { data: members } = await supabase
+    .from('items')
+    .select('collection_id')
+    .eq('user_id', userId)
+    .eq('status', 'open')
+    .is('parent_id', null)
+    .in(
+      'collection_id',
+      candidates.map((row) => row.id),
     );
-    if (rescue.length) {
-      const rescueIds = rescue.map((row) => row.id);
-      await supabase.from('items').update({ status: 'open' }).in('id', rescueIds);
-      const todoRescue = rescue
-        .filter(
-          (row) =>
-            classifyStandaloneItem({ title: row.title, source: row.source, category: row.category }) === 'todo',
-        )
-        .map((row) => row.id);
-      if (todoRescue.length) {
-        await addTasksToTodoList(userId, todoRescue);
-      }
-      await removeShoppingChecklistCopies(
-        shopCol.id,
-        rescue.map((row) => row.title || ''),
-      );
-    }
-  }
+  const occupied = new Set(
+    ((members as { collection_id: string | null }[] | null) ?? [])
+      .map((row) => row.collection_id)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const drop = candidates.filter((row) => !occupied.has(row.id)).map((row) => row.id);
+  if (!drop.length) return;
 
-  for (const row of listRows) {
-    const name = simpleListTitle(row.title || 'List');
-    let collectionId = row.collection_id;
-    if (!collectionId) {
-      const { collection } = await createCustomCollection(userId, name, DEFAULT_LIST_EMOJI);
-      collectionId = collection?.id ?? null;
-    } else {
-      const meta = unwrapCollection(row.collections);
-      if (meta?.title && meta.title !== name) {
-        await supabase.from('collections').update({ title: name }).eq('id', collectionId);
-      }
-    }
-    if (!collectionId) continue;
-    await supabase.from('items').update({ collection_id: collectionId }).eq('id', row.id);
-  }
+  await supabase.from('collections').update({ status: 'completed' }).in('id', drop);
 }
 
 export function unwrapCollection<T extends { status?: string | null }>(

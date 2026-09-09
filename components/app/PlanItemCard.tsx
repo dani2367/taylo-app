@@ -24,6 +24,7 @@ export type PlanItemCardModel = {
   hideTitle?: boolean;
   checklistRowsAreItems?: boolean;
   collectionId?: string;
+  informational?: boolean;
 };
 
 export function PlanItemCard({
@@ -62,12 +63,17 @@ export function PlanItemCard({
   onDeleteChecklist: (id: string) => void;
 }) {
   const hero = variant === 'hero';
+  const informational = !!card.informational;
   const alwaysOpen = !!card.hideTitle;
-  const isOpen = expanded || alwaysOpen;
+  const isOpen = !informational && (expanded || alwaysOpen);
   const eventContext = extraEventContext(card.title, card.detail);
-  const showDetail = !card.listMode && !!eventContext;
+  const showDetail = !informational && !card.listMode && !!eventContext;
   const showSuggest =
-    !card.listMode && !!card.suggestion && card.suggestion !== eventContext && card.suggestion !== card.title;
+    !informational &&
+    !card.listMode &&
+    !!card.suggestion &&
+    card.suggestion !== eventContext &&
+    card.suggestion !== card.title;
   const support = card.context && !card.listMode ? card.context : !isOpen && card.prepLabel ? card.prepLabel : null;
 
   const body = (
@@ -80,7 +86,7 @@ export function PlanItemCard({
           <View style={s.ncopy}>
             {hero ? (
               <>
-                <Text style={s.homeItemTitle} numberOfLines={1}>
+                <Text style={s.homeItemTitle} numberOfLines={2}>
                   {card.title}
                 </Text>
                 {support ? <Text style={s.homeItemSub}>{support}</Text> : null}
@@ -119,7 +125,7 @@ export function PlanItemCard({
             onAdd={onAddChecklist}
             onDelete={onDeleteChecklist}
           />
-          {card.listMode ? null : (
+          {card.listMode || informational ? null : (
             <View style={hero ? s.nactions : s.uactions}>
               <Pressable
                 style={[s.pill, s.pillTeal]}
@@ -151,6 +157,22 @@ export function PlanItemCard({
       ) : null}
     </>
   );
+
+  if (informational) {
+    return (
+      <View style={hero ? [s.homeHeroRow, last && s.homeHeroRowLast] : s.planCard}>
+        <View style={s.nrow}>
+          <View style={s.familyInfoDot} />
+          <View style={s.ncopy}>
+            <Text style={s.familyInfoTitle} numberOfLines={2}>
+              {card.title}
+            </Text>
+            {support ? <Text style={s.homeItemSub}>{support}</Text> : null}
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <Swipeable

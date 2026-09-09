@@ -1,8 +1,11 @@
 import {
   defaultSurfaceWindow,
   finalizeSourceItems,
+  hasSoftOrInferredDateLanguage,
+  hasUnambiguousStatedDate,
   intakeContractRules,
   isExcludedPrep,
+  informationalScheduleOccursAt,
   normalizeIntakeItem,
   shouldPersistObligation,
   splitParentAndChildren,
@@ -18,8 +21,13 @@ function expect(name: string, got: unknown, want: unknown) {
 }
 
 expect(
-  'email contract forbids occurs_at',
-  intakeContractRules('email').includes('occurs_at: ALWAYS null'),
+  'email contract still forbids occurrence kind',
+  intakeContractRules('email').includes('Never use kind=occurrence'),
+  true,
+);
+expect(
+  'email contract names the stated-fact exception',
+  intakeContractRules('email').includes('context_only MAY set occurs_at'),
   true,
 );
 expect(
@@ -71,9 +79,14 @@ const noPresents = finalizeSourceItems({
 });
 
 expect(
-  'no-presents email never sets occurs_at',
-  noPresents.every((item) => item.occurs_at === null),
+  'no-presents obligations never set occurs_at',
+  noPresents.filter((item) => item.kind !== 'context_only').every((item) => item.occurs_at === null),
   true,
+);
+expect(
+  'stated-fact birthday context_only may sit on schedule',
+  noPresents.find((item) => item.kind === 'context_only')?.occurs_at,
+  '2026-09-20',
 );
 expect(
   'no-presents email drops present even if the model invented it',
@@ -137,8 +150,8 @@ expect(
   true,
 );
 expect(
-  'packed lunch dates are due_at not occurs_at',
-  packedSplit.children.every((item) => item.due_at === '2026-09-11' && item.occurs_at === null),
+  'packed lunch kit is not given a form deadline',
+  packedSplit.children.every((item) => item.due_at === null && item.occurs_at === null),
   true,
 );
 
@@ -219,6 +232,102 @@ expect('trainers split has no child obligations', splitParentAndChildren(trainer
 
 expect('email occurrence kind is coerced', trainers[0]?.kind !== 'occurrence', true);
 
+const nurseryText = 'Nursery is closed on the 19th for staff training. No need to bring anything.';
+const nurseryClosed = finalizeSourceItems({
+  source: 'email',
+  sourceText: nurseryText,
+  fallbackTitle: 'Nursery closed',
+  date: '2026-09-19',
+  rawItems: [
+    {
+      title: 'Nursery closed',
+      kind: 'context_only',
+      occurs_at: '2026-09-19',
+      due_at: null,
+      actionable: 'no',
+      prep_implied: 'none',
+      confidence: 'high',
+      evidence: 'Nursery is closed on the 19th',
+    },
+    {
+      title: 'Packed lunch',
+      kind: 'obligation',
+      occurs_at: '2026-09-19',
+      due_at: '2026-09-19',
+      actionable: 'yes',
+      prep_implied: 'inferred',
+      confidence: 'low',
+      evidence: '',
+    },
+  ],
+});
+expect('nursery closure is context_only', nurseryClosed[0]?.kind, 'context_only');
+expect('nursery closure occurs_at is the stated day', nurseryClosed[0]?.occurs_at, '2026-09-19');
+expect(
+  'nursery closure invents no prep',
+  nurseryClosed.filter((item) => item.kind === 'obligation'),
+  [],
+);
+
+const vaguePopIn = finalizeSourceItems({
+  source: 'email',
+  sourceText: 'Might need to pop in sometime next week',
+  fallbackTitle: 'Pop in',
+  date: '2026-09-15',
+  rawItems: [
+    {
+      title: 'Pop in',
+      kind: 'context_only',
+      occurs_at: '2026-09-15',
+      due_at: '2026-09-15',
+      actionable: 'no',
+      prep_implied: 'none',
+      confidence: 'high',
+      evidence: 'sometime next week',
+    },
+  ],
+});
+expect('vague next-week email never gets occurs_at', vaguePopIn[0]?.occurs_at, null);
+
+const lateIsh = informationalScheduleOccursAt({
+  kind: 'context_only',
+  confidence: 'high',
+  source: 'email',
+  sourceText: 'might be back late Tuesday-ish',
+  candidate: '2026-09-15',
+});
+expect('Tuesday-ish is not a stated fact', lateIsh, null);
+expect('on the 19th is a stated fact', hasUnambiguousStatedDate(nurseryText), true);
+expect('sometime next week is soft', hasSoftOrInferredDateLanguage('Might need to pop in sometime next week'), true);
+
+const mediumClosure = normalizeIntakeItem(
+  {
+    title: 'Nursery closed',
+    kind: 'context_only',
+    occurs_at: '2026-09-19',
+    confidence: 'medium',
+    actionable: 'no',
+    prep_implied: 'none',
+    evidence: 'closed on the 19th',
+  },
+  { source: 'email', sourceText: nurseryText },
+);
+expect('medium-confidence stated date stays off schedule', mediumClosure?.occurs_at, null);
+
+const formDue = normalizeIntakeItem(
+  {
+    title: 'Return the trip form',
+    kind: 'obligation',
+    due_at: '2026-09-19',
+    confidence: 'high',
+    actionable: 'yes',
+    prep_implied: 'stated',
+    evidence: 'return by the 19th',
+  },
+  { source: 'email', sourceText: 'Please return the trip form by the 19th.' },
+);
+expect('obligation with a firm date still has no occurs_at', formDue?.occurs_at, null);
+
 const birthdayWindow = defaultSurfaceWindow({
   title: "Maya's birthday",
   kind: 'occurrence',
@@ -262,5 +371,149 @@ expect('passport surfaces months before', passportWindow, {
   surface_from: '2026-09-02',
   surface_until: '2026-12-01',
 });
+
+const softCardText =
+  "Teddy's birthday party is this Saturday. No presents please. A card would be lovely if you're passing a shop, but honestly don't stress about it.";
+const softCard = finalizeSourceItems({
+  source: 'email',
+  sourceText: softCardText,
+  fallbackTitle: "Teddy's birthday party",
+  date: '2026-09-12',
+  rawItems: [
+    {
+      title: "Teddy's birthday party",
+      kind: 'context_only',
+      due_at: '2026-09-12',
+      actionable: 'no',
+      prep_implied: 'none',
+      confidence: 'high',
+      evidence: "Teddy's birthday party is this Saturday",
+    },
+    {
+      title: 'Birthday card for Teddy',
+      kind: 'obligation',
+      due_at: '2026-09-12',
+      actionable: 'maybe',
+      prep_implied: 'inferred',
+      confidence: 'medium',
+      evidence: 'A card would be lovely if you\'re passing a shop',
+    },
+  ],
+});
+expect(
+  'soft card keeps the model row only',
+  softCard.filter((item) => /\bcard/i.test(item.title)).map((item) => item.title),
+  ['Birthday card for Teddy'],
+);
+expect(
+  'soft card does not add a default Card',
+  softCard.some((item) => item.title.toLowerCase() === 'card'),
+  false,
+);
+
+const birthdayNoPrep = finalizeSourceItems({
+  source: 'email',
+  sourceText: "You're invited to Maya's birthday on 20 September.",
+  fallbackTitle: "Maya's birthday",
+  date: '2026-09-20',
+  rawItems: [
+    {
+      title: "Maya's birthday",
+      kind: 'context_only',
+      due_at: '2026-09-20',
+      actionable: 'no',
+      prep_implied: 'none',
+      confidence: 'high',
+      evidence: "Maya's birthday",
+    },
+  ],
+});
+expect(
+  'birthday with no prep still gets type-default card and present',
+  birthdayNoPrep.filter((item) => item.kind === 'obligation').map((item) => item.title).sort(),
+  ['Card', 'Present'],
+);
+
+const helmet = splitParentAndChildren(
+  [
+    {
+      title: "Taya's bike helmet cracked",
+      kind: 'hold',
+      occurs_at: null,
+      due_at: null,
+      actionable: 'no',
+      prep_implied: 'none',
+      confidence: 'high',
+      evidence: 'helmet is cracked',
+      surface_from: null,
+      surface_until: null,
+    },
+    {
+      title: 'Buy new bike helmet for Taya',
+      kind: 'obligation',
+      occurs_at: null,
+      due_at: null,
+      actionable: 'yes',
+      prep_implied: 'inferred',
+      confidence: 'high',
+      evidence: 'need a new one',
+      surface_from: null,
+      surface_until: null,
+    },
+  ],
+  "Taya's bike helmet cracked",
+);
+expect('helmet stay a single hold', helmet.parent.kind, 'hold');
+expect('helmet does not also create a buy-child', helmet.children.length, 0);
+
+const kitDue = normalizeIntakeItem(
+  {
+    title: 'Goggles',
+    kind: 'obligation',
+    due_at: '2026-09-11',
+    actionable: 'yes',
+    prep_implied: 'stated',
+    confidence: 'high',
+  },
+  { source: 'email', sourceText: 'She needs goggles for the gala on Thursday.' },
+);
+expect('kit due date is not treated as a deadline', kitDue?.due_at, null);
+
+const marleyText =
+  "Marley's party is Sunday 14th, 11am-1pm at the soft play. Please no gifts — he's asked for donations to the hedgehog sanctuary instead. Reply so we know numbers.";
+const marley = finalizeSourceItems({
+  source: 'email',
+  sourceText: marleyText,
+  fallbackTitle: "Marley's 6th birthday party",
+  date: '2026-09-14',
+  rawItems: [
+    {
+      title: "Marley's 6th birthday party",
+      kind: 'obligation',
+      due_at: '2026-09-14',
+      actionable: 'yes',
+      prep_implied: 'none',
+      confidence: 'high',
+      evidence: "Marley's party is Sunday",
+    },
+    {
+      title: 'Hedgehog sanctuary donation',
+      kind: 'list_item',
+      due_at: '2026-09-14',
+      actionable: 'yes',
+      prep_implied: 'inferred',
+      confidence: 'medium',
+      evidence: 'donations to the hedgehog sanctuary',
+    },
+  ],
+});
+expect('marley party is context not a home to-do', marley[0]?.kind, 'context_only');
+expect('marley keeps an RSVP', marley.some((item) => item.kind === 'obligation' && /rsvp/i.test(item.title)), true);
+expect(
+  'marley does not keep a donation leftover',
+  marley.some((item) => /donat|sanctuary/i.test(item.title)),
+  false,
+);
+expect('marley does not invent a present', marley.some((item) => item.title.toLowerCase() === 'present'), false);
 
 if (!process.exitCode) console.log('intake-contract self-test passed');

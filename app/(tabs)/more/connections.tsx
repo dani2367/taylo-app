@@ -12,17 +12,20 @@ import {
   type DeviceCalendar,
 } from '@/lib/apple-calendar';
 import { supabase } from '@/lib/supabase';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as AuthSession from 'expo-auth-session';
 import { makeRedirectUri, useAuthRequest } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { router } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 
 WebBrowser.maybeCompleteAuthSession();
 
 const MICROSOFT_CLIENT_ID = 'f976566d-39c1-48bc-b140-e7a5a727afd5';
 const OUTLOOK_AUTH_URL = 'https://fbffbenebwgmmtmnumux.supabase.co/functions/v1/outlook-auth';
+const NATIVE_REDIRECT_URI = 'tayloapp://outlook-auth';
+const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 const MICROSOFT_SCOPES = [
   'openid',
   'offline_access',
@@ -34,6 +37,21 @@ const discovery = {
   authorizationEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
   tokenEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
 };
+
+function outlookRedirectUri(): string {
+  // Expo Go cannot use the production scheme. Use the current LAN URL, but
+  // strip query params — Microsoft rejects redirect URIs that include them.
+  const computed =
+    Constants.executionEnvironment === ExecutionEnvironment.StoreClient
+      ? makeRedirectUri()
+      : makeRedirectUri({
+          scheme: 'tayloapp',
+          path: 'outlook-auth',
+          native: NATIVE_REDIRECT_URI,
+        });
+  const q = computed.indexOf('?');
+  return q === -1 ? computed : computed.slice(0, q);
+}
 
 function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   return (
@@ -55,9 +73,7 @@ export default function ConnectionsScreen() {
   const [deviceCals, setDeviceCals] = useState<DeviceCalendar[]>([]);
   const [selectedCalIds, setSelectedCalIds] = useState<string[]>([]);
 
-  const redirectUri = __DEV__
-    ? 'exp://192.168.0.120:8081'
-    : makeRedirectUri({ scheme: 'tayloapp' });
+  const redirectUri = useMemo(outlookRedirectUri, []);
 
   const [request, response, promptAsync] = useAuthRequest(
     {
@@ -67,7 +83,7 @@ export default function ConnectionsScreen() {
       responseType: AuthSession.ResponseType.Code,
       codeChallengeMethod: AuthSession.CodeChallengeMethod.S256,
       usePKCE: true,
-      prompt: AuthSession.Prompt.Consent,
+      extraParams: { response_mode: 'query' },
     },
     discovery,
   );
@@ -90,6 +106,16 @@ export default function ConnectionsScreen() {
   }, [hydrateApple]);
 
   useEffect(() => {
+    if (response?.type === 'error') {
+      const description =
+        response.params?.error_description ??
+        response.params?.error ??
+        response.error?.message ??
+        'Microsoft returned an error.';
+      Alert.alert('Connection failed', `${description}\n\nRedirect URI: ${redirectUri}`);
+      return;
+    }
+
     if (response?.type !== 'success') return;
 
     const { code } = response.params;
@@ -122,6 +148,7 @@ export default function ConnectionsScreen() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            apikey: SUPABASE_ANON_KEY,
             ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}),
           },
           body: JSON.stringify(requestBody),

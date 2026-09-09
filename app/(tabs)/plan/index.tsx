@@ -13,11 +13,11 @@ import {
   organizeStandaloneItems,
 } from '@/lib/collections';
 import { itemCountLabel } from '@/lib/human-date';
-import { ITEM_COUNT_SELECT, mapPlanItemRow, PLAN_ITEM_SELECT, type PlanItemRow } from '@/lib/plan-item-map';
+import { ITEM_COUNT_SELECT, PLAN_ITEM_SELECT, mapRadarWatchCard, type PlanItemRow } from '@/lib/plan-item-map';
 import { resolvePlanIcon, type PlanIconSpec } from '@/lib/plan-icon';
 import { nestedListCount, isListHubTitle } from '@/lib/radar-organize';
-import { RADAR_PREVIEW, radarStatusLine, type RadarItem } from '@/lib/radar';
-import { selectHomeActions, selectRadarWatch } from '@/lib/placement';
+import { RADAR_PREVIEW, type RadarItem } from '@/lib/radar';
+import { exceptHomeActions, HOME_RADAR_LOAD_KINDS, selectHomeActions, selectRadarWatch } from '@/lib/placement';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect, router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
@@ -62,6 +62,7 @@ type ListCard = {
   emoji: string | null;
   icon: PlanIconSpec;
   count: number;
+  type: string;
 };
 
 type ItemCountRow = {
@@ -138,13 +139,20 @@ export default function PlanScreen() {
       byCollection.set(row.collection_id, list);
     }
     setLists(
-      collections.map((row) => ({
-        id: row.id,
-        title: row.title,
-        emoji: row.emoji,
-        icon: resolvePlanIcon({ title: row.title, collectionType: row.type, stored: row.emoji }),
-        count: listCount(byCollection.get(row.id) ?? [], row.title),
-      })),
+      collections
+        .map((row) => ({
+          id: row.id,
+          title: row.title,
+          emoji: row.emoji,
+          icon: resolvePlanIcon({ title: row.title, collectionType: row.type, stored: row.emoji }),
+          count: listCount(byCollection.get(row.id) ?? [], row.title),
+          type: row.type,
+        }))
+        .filter(
+          (row) =>
+            row.count > 0 ||
+            (row.type !== 'shopping' && row.type !== 'todo' && row.title !== GENERAL_TODO_TITLE),
+        ),
     );
 
     const { data: itemData, error } = await supabase
@@ -152,7 +160,7 @@ export default function PlanScreen() {
       .select(`${PLAN_ITEM_SELECT}, created_at, source, collection_id, parent_id`)
       .eq('user_id', user.id)
       .eq('status', 'open')
-      .in('kind', ['hold', 'obligation', 'occurrence']);
+      .in('kind', [...HOME_RADAR_LOAD_KINDS]);
 
     if (error) {
       console.error('Failed to load radar items:', error.message);
@@ -162,25 +170,9 @@ export default function PlanScreen() {
 
     const today = new Date();
     const all = (itemData as (PlanItemRow & RadarItem)[] | null) ?? [];
-    const homeIds = new Set(selectHomeActions(all, { today }).map((card) => card.item.id));
-    const later = selectRadarWatch(all, today).filter((card) => !homeIds.has(card.item.id));
-    setRadar(
-      later.map((card) => ({
-        ...mapPlanItemRow(
-          {
-            ...card.item,
-            prep_children: card.children.map((child) => ({
-              id: child.id,
-              title: child.title,
-              status: child.status ?? 'open',
-              created_at: child.created_at,
-            })),
-          },
-          today,
-        ),
-        context: radarStatusLine(card.item, today),
-      })),
-    );
+    const home = selectHomeActions(all, { today });
+    const later = exceptHomeActions(selectRadarWatch(all, today), home);
+    setRadar(later.map((card) => mapRadarWatchCard(card, today)));
     setLoading(false);
   }, []);
 
@@ -219,6 +211,7 @@ export default function PlanScreen() {
           stored: collection.emoji,
         }),
         count: 0,
+        type: collection.type,
       },
     ]);
     setCreating(false);

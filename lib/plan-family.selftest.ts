@@ -4,6 +4,7 @@ import {
   buildFamilyPlan,
   fallbackWeeklySummary,
   isAttributableItem,
+  isInformationalFamilyItem,
   matchingPeople,
   peopleFromSources,
   whoMatchesPerson,
@@ -270,6 +271,56 @@ expect(
   'appointment-only siblings stay empty',
   appointmentOnly.buckets.filter((b) => b.person.key !== 'taya').every((b) => b.items.length === 0),
   true,
+);
+
+const withTeddy = buildFamilyPlan(
+  [...members, { id: 'teddy', role: 'child', first_name: 'Teddy', last_name: null }],
+  { first_name: 'Sophie' },
+  [
+    item({
+      id: 'teddy-party',
+      title: "Teddy's birthday party",
+      who_it_affects: 'whole family',
+      kind: 'context_only',
+      event_date: '2026-09-12',
+      due_at: '2026-09-12',
+    }),
+    item({
+      id: 'teddy-card',
+      title: 'Birthday card for Teddy',
+      who_it_affects: 'whole family',
+      kind: 'obligation',
+      due_at: '2026-09-12',
+      parent_id: 'teddy-party',
+      parent: { title: "Teddy's birthday party", event_date: '2026-09-12' },
+    }),
+  ],
+  [],
+  new Map(),
+  today,
+);
+const teddy = withTeddy.buckets.find((b) => b.person.key === 'teddy')!;
+expect(
+  'email party lands on teddy not household',
+  teddy.items.map((i) => i.id).sort(),
+  ['teddy-card', 'teddy-party'],
+);
+expect('email party is informational on family', isInformationalFamilyItem(teddy.items.find((i) => i.id === 'teddy-party')!), true);
+expect('buy-card obligation is not informational', isInformationalFamilyItem(teddy.items.find((i) => i.id === 'teddy-card')!), false);
+expect(
+  'teddy preview includes party and card',
+  teddy.preview.map((i) => i.id).sort(),
+  ['teddy-card', 'teddy-party'],
+);
+expect(
+  'teddy party preview is informational not an action line',
+  teddy.preview.find((i) => i.id === 'teddy-party')?.informational,
+  true,
+);
+expect(
+  'teddy party stays off household',
+  withTeddy.householdItems.some((i) => i.id === 'teddy-party' || i.id === 'teddy-card'),
+  false,
 );
 
 if (!process.exitCode) console.log('plan-family self-test passed');

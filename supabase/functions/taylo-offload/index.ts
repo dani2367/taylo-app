@@ -7,7 +7,8 @@ import {
   looksLikeShoppingList,
   parseChecklistLabels,
 } from '../_shared/checklists.ts';
-import { findOrCreateShoppingListItem } from '../_shared/collections.ts';
+import { findOrCreateShoppingListItem, findOrCreateTodoCollection } from '../_shared/collections.ts';
+import { groceryLabelsFromText, isGroceryCapture, looksLikeGroceryProduct } from '../_shared/shopping.ts';
 import { householdVoiceBlock, loadHousehold, type Household } from '../_shared/household.ts';
 import {
   eventDateFromIntake,
@@ -180,11 +181,52 @@ Deno.serve(async (req: Request) => {
       itemId = saved.itemId;
       reply = shoppingReply(saved.added, extracted.checklist_items);
     } else {
+      const productLabels = groceryLabelsFromText(userText).filter((label) =>
+        looksLikeGroceryProduct(label),
+      );
+      let shoppingItemId: string | null = null;
+      if (productLabels.length) {
+        extracted.checklist_items = productLabels;
+        const saved = await saveShoppingItems(supabase, user.id, extracted);
+        if (saved) {
+          shoppingItemId = saved.itemId;
+          reply = shoppingReply(saved.added, productLabels);
+        }
+      }
+      extracted.items = extracted.items.filter((row) => !looksLikeGroceryProduct(row.title, extracted.category));
+      if (hasNonGroceryTask(userText) && !extracted.items.some((row) => row.kind === 'obligation')) {
+        const taskTitle = taskTitleFromMixedText(userText);
+        if (taskTitle) {
+          extracted.title = taskTitle;
+          extracted.items = [
+            {
+              title: taskTitle,
+              kind: 'obligation',
+              occurs_at: null,
+              due_at: null,
+              actionable: 'yes',
+              prep_implied: 'stated',
+              confidence: 'high',
+              evidence: userText,
+              surface_from: null,
+              surface_until: null,
+            },
+          ];
+        }
+      }
+      if (!extracted.items.length) {
+        if (!shoppingItemId) {
+          return json({ error: 'Failed to save item' }, 500);
+        }
+        itemId = shoppingItemId;
+      } else {
       const { parent, children } = splitParentAndChildren(extracted.items, extracted.title);
+      const todoCollectionId = await findOrCreateTodoCollection(supabase, user.id);
       const { data: item, error: itemError } = await supabase
         .from('items')
         .insert({
           user_id: user.id,
+          collection_id: todoCollectionId,
           title: extracted.title,
           body: extracted.body,
           detail: extracted.body,
@@ -215,6 +257,7 @@ Deno.serve(async (req: Request) => {
         items: children,
       });
       itemId = item.id;
+      }
     }
     const nextTitle = titleFromUserText(userText);
 
@@ -279,24 +322,26 @@ function shoppingReply(added: string[], requested: string[]): string {
 }
 
 function isGroceryOffload(userText: string, extracted: Extracted): boolean {
-  const blob = `${extracted.title} ${userText}`;
+  if (hasNonGroceryTask(userText)) return false;
   if (looksLikeShoppingList(extracted.title) || looksLikeShoppingList(userText)) return true;
-  if (/\b(present|gift|birthday|party)\b/i.test(blob)) return false;
-  if (/\b(?:need to |need |gotta |have to |must )?(?:buy|pick\s*up)\b/i.test(userText)) return true;
-  if (/\bneed to\b/i.test(userText) ||
-    /\b(appointment|dentist|doctor|teacher|email|call|book|haircut|babysitter)\b/i.test(userText)) {
-    return false;
-  }
-  return /\b(?:i\s+)?(?:need|want|get|grab)\s+(?:some\s+|a\s+|an\s+)?(?!to\b|help\b)/i.test(userText);
+  return isGroceryCapture(userText) || isGroceryCapture(extracted.title);
+}
+
+function hasNonGroceryTask(text: string): boolean {
+  return /\b(email|teacher|call|text|book|sign|rsvp|form|appointment)\b/i.test(text);
+}
+
+function taskTitleFromMixedText(text: string): string | null {
+  const parts = text.split(/\s+and\s+(?:i\s+)?(?:still\s+)?/i).map((part) => part.trim()).filter(Boolean);
+  const task = parts.find((part) => hasNonGroceryTask(part) && !isGroceryCapture(part));
+  if (!task) return null;
+  const cleaned = task.replace(/^(i\s+)?(still\s+)?(need to |need |want to |gotta )/i, '').trim();
+  if (!cleaned) return null;
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
 function productsFromBuyText(text: string): string[] {
-  const match = text.match(/(?:buy|pick\s*up|get|grab)\s+(?:some\s+)?(.+)/i) ||
-    text.match(/\bneed\s+(?:some\s+)?(?!to\b)(.+)/i);
-  const chunk = (match?.[1] || text).replace(/[.!?]+$/, '').replace(/\s+for\s+.+$/i, '').trim();
-  return parseChecklistLabels(
-    chunk.split(/\s*(?:,|&| and )\s*/i).map((part) => cleanGroceryProductLabel(part)),
-  ).filter(Boolean);
+  return groceryLabelsFromText(text).filter(Boolean);
 }
 
 function shoppingUrgency(extracted: Extracted): Urgency {
@@ -371,11 +416,12 @@ function extractPrompt(household: Household, today: string): string {
 Rules
 - title: the action or hold, under 8 words, like a Home list item. First letter capital. No quotes. Do not copy their sentence verbatim. Shopping/groceries: product name only ("Turmeric"), never "Buy turmeric" or "Shopping list".
 - body: one clipped extra fact (who, when, why) under ~12 words. Not a repeat of the title. null if the title already says it all.
-- category: pick the best fit. Groceries, shopping, "I need some X", "need to get X", household staples → errand. Birthdays/gifts for a person → errand unless it is clearly a party (activity).
+- category: pick the best fit. Groceries and supermarket runs → errand. Bookings, accommodation, forms, calls, admin → the matching category (activity/school/home), not shopping.
 - event_date / due_at: convert relative dates using today (${today}). "in three weeks" means about 21 days from today. If no date is implied, null. Never invent a deadline for a hold.
 - who_it_affects: a known household name if it is about them; "Dad"/"Mum" if they said that; "family" if it is for everyone; null if it is just the parent's errand with no named person.
 - urgency_level: today if it is needed now/today; this_week if this week or within the next 3 days; upcoming if a date 4–21 days out is known; none if there is no time pressure (standing errand, staple, hold). Shopping defaults to none unless they imply sooner ("for dinner tomorrow").
-- reply: you are Taylo talking to them — a warm, organised friend. One short sentence, like a text, contractions, first person. Confirm you added it. For shopping, mention the item went on the list ("Got it — turmeric is on your shopping list."). Never say "Today" (that screen is called Home). Never say "saved" or "got your message".
+- Lists: only supermarket products go on the shopping list. Tasks ("accommodation for bootcamp", "call school", "book dentist") go on General to do. Never treat a booking, stay, form, or arrangement as shopping because they said "need".
+- reply: you are Taylo talking to them — a warm, organised friend. One short sentence, like a text, contractions, first person. Confirm you added it. Shopping: "Got it — turmeric is on your shopping list." To-dos: "Got it — that's on your to-do list." Never say "Today" (that screen is called Home). Never say "saved" or "got your message".
 ${CHECKLIST_PROMPT_RULE}
 
 ${intakeContractRules('chat')}
@@ -463,7 +509,7 @@ function cleanReply(value: unknown, title: string): string {
     const reply = value.replace(/\s+/g, ' ').trim();
     if (reply) return reply;
   }
-  return `Got it — I've added ${title} to your list.`;
+  return `Got it — ${title} is on your to-do list.`;
 }
 
 function titleFromUserText(text: string): string {

@@ -1,0 +1,27 @@
+---
+description: Radar groups kit under the event; do not flatten packing onto Home
+globs: "{lib/placement.ts,lib/placement.selftest.ts,lib/radar.ts,lib/plan-item-map.ts,supabase/functions/_shared/placement.ts,app/(tabs)/plan/index.tsx,app/(tabs)/plan/later.tsx}"
+alwaysApply: false
+---
+
+# Radar parent grouping
+
+Home and Radar may present the same rows differently. Do not “fix” Radar by copying Home’s standalone cards.
+
+## Grouping
+
+- **2+** open watch children → one parent card (`asRadarWatchCards`) when that cluster is **not** already on Home. Far-week packing still groups this way.
+- Parent may be obligation, hold, context_only, or occurrence — not only calendar events.
+- If Home already shows the needed-now cluster (gala + form + kit), Radar must **not** repeat it. `exceptHomeActions` drops that parent group.
+- Single watch child may stay its own card. Undated buy-child of a **hold** must not — hide it; the hold is the card.
+- Never children of a dismissed/done parent (including when the parent is missing from the open query). Never a Card/Present/Gift title as its own card.
+
+## Home vs kit
+
+- This-week event + form/RSVP + kit → one Home card. Kit is not a second Radar group of the same event.
+- Far event: form/RSVP may still be a standalone Home card; leftover packing can group on Radar.
+- Invented interview prep (research / examples / JD) is not Home. If the occurrence is dismissed, it is not Radar either.
+
+## Tests
+
+`lib/placement.selftest.ts`: this-week gala and farm slip are one Home card each, packing not competing as extra Home cards, Radar does not duplicate the cluster. Do not delete those assertions.

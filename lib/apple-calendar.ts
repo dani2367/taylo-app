@@ -4,8 +4,8 @@ import {
   toCalendarEventDate,
   APPLE_CALENDAR_SYNC_TASK,
 } from '@/lib/apple-calendar-map';
-import { shouldClassifyExistingCalendarItem } from '@/lib/calendar-classified';
-import { refreshSpotlight } from '@/lib/spotlight';
+import { shouldClassifyExistingCalendarItem, syncedCalendarItemStatus } from '@/lib/calendar-classified';
+import { closeItems } from '@/lib/item-status';
 import { supabase } from '@/lib/supabase';
 import { isRunningInExpoGo } from 'expo';
 import * as Calendar from 'expo-calendar/legacy';
@@ -253,8 +253,7 @@ async function runSync(): Promise<SyncResult> {
       continue;
     }
 
-    const status =
-      existing.status === 'done' || existing.status === 'delegated' ? existing.status : 'open';
+    const status = syncedCalendarItemStatus(existing.status);
     const bodyChanged = (existing.body || null) !== location;
     const titleChanged = (existing.title || '') !== title;
     const dateChanged =
@@ -264,7 +263,7 @@ async function runSync(): Promise<SyncResult> {
       titleChanged,
       dateChanged,
     });
-    if (titleChanged || bodyChanged || dateChanged || existing.status === 'dismissed') {
+    if (titleChanged || bodyChanged || dateChanged) {
       toUpdate.push({
         id: existing.id,
         title,
@@ -332,15 +331,10 @@ async function runSync(): Promise<SyncResult> {
     return false;
   });
   if (missing.length) {
-    const { error } = await supabase
-      .from('items')
-      .update({ status: 'dismissed' })
-      .in(
-        'id',
-        missing.map((row) => row.id),
-      );
+    const ids = missing.map((row) => row.id);
+    const { error } = await closeItems(ids, 'dismissed');
     if (error) console.error('Failed to dismiss removed calendar items:', error.message);
-    else dismissed = missing.length;
+    else dismissed = ids.length;
   }
 
   let checklists = 0;
@@ -349,9 +343,6 @@ async function runSync(): Promise<SyncResult> {
   }
 
   const changed = created > 0 || dismissed > 0 || toUpdate.length > 0 || checklists > 0;
-  if (changed && (created > 0 || checklists > 0)) {
-    await refreshSpotlight({ force: true });
-  }
   return { changed, created, dismissed };
 }
 

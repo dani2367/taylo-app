@@ -1,0 +1,31 @@
+---
+description: Home / Radar / See all placement implementation
+globs: "{lib/placement.ts,lib/placement.selftest.ts,lib/item-status.ts,lib/spotlight.ts,lib/plan-item-map.ts,lib/collections.ts,lib/radar-organize.ts,supabase/functions/_shared/placement.ts,supabase/functions/taylo-spotlight/index.ts,app/(tabs)/home/**/*.tsx,app/(tabs)/plan/**/*.tsx,components/app/AppHeader.tsx}"
+alwaysApply: false
+---
+
+# Placement implementation
+
+Typed fields only. `source` is provenance, never a switch.
+
+## Home
+
+- `isHomeSpotlightItem`: dated obligation, this week. Cap `HOME_VISIBLE_MAX` (5).
+- Rank with `compareHomeActions` only. Do not put See-all ids first because they were off Home last visit (`rankHomeSpotlightCards`).
+- `isAdminActionTitle` (form / RSVP / payment) can be Home. `isEventKitTitle` is packing — not a standalone Home card, even if dated.
+- `asHomeNeededNowCards`: this-week event with a Home-due child, or a Home-due parent with packing, is **one Home card**. Kit folds into that checklist. Do not also Radar-group the same cluster.
+
+## Radar
+
+- Holds; packing kit under a live parent; far-dated Home overflow (`selectRadarWatch`).
+- Packing under a **hold** does not get its own card — the hold is enough.
+- List-bound if `collection_id`, `kind=list_item`, or the parent has a collection.
+- Never bare Card/Present/Gift, never children of a closed or missing parent.
+
+## Lists
+
+`organizeStandaloneItems`: chat/manual → General to do or Shopping. Never a custom list from child count.
+
+## Tests
+
+Stable Home vs See all; this-week gala is one Home card with form + kit; helmet hold without buy-child; list-bound todos off Radar. Do not delete those assertions.

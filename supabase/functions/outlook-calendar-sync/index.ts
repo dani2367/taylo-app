@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import {
   classifyAndApplyCalendarItems,
   shouldClassifyExistingCalendarItem,
+  syncedCalendarItemStatus,
   type CalendarIncoming,
 } from '../_shared/calendar-classify.ts';
 import { loadHousehold } from '../_shared/household.ts';
@@ -98,7 +99,6 @@ Deno.serve(async (req: Request) => {
       updated: 0,
       dismissed: 0,
       checklists: 0,
-      spotlight: 0,
       possible_duplicates: 0,
       errors: 0,
     };
@@ -113,14 +113,6 @@ Deno.serve(async (req: Request) => {
         stats.dismissed += result.dismissed;
         stats.checklists += result.checklists;
         stats.possible_duplicates += result.possibleDuplicates;
-        if (result.created > 0) {
-          const regenerated = await regenerateSpotlight(
-            supabaseUrl,
-            serviceRoleKey,
-            connection.user_id,
-          );
-          if (regenerated) stats.spotlight += 1;
-        }
       } catch (err) {
         stats.errors += 1;
         console.error('Failed to sync Outlook calendar for user:', connection.user_id, err);
@@ -229,8 +221,7 @@ async function syncUser(
       continue;
     }
 
-    const status =
-      existing.status === 'done' || existing.status === 'delegated' ? existing.status : 'open';
+    const status = syncedCalendarItemStatus(existing.status);
     const bodyChanged = (existing.body || null) !== location;
     const titleChanged = (existing.title || '') !== title;
     const dateChanged = normalizeEventDate(existing.event_date) !== eventDate;
@@ -239,7 +230,7 @@ async function syncUser(
       titleChanged,
       dateChanged,
     });
-    if (titleChanged || bodyChanged || dateChanged || existing.status === 'dismissed') {
+    if (titleChanged || bodyChanged || dateChanged) {
       toUpdate.push({
         id: existing.id,
         title,
@@ -314,7 +305,15 @@ async function syncUser(
       .in('id', dismissIds)
       .eq('status', 'open');
     if (error) console.error('Failed to dismiss removed calendar items:', error.message);
-    else dismissed = dismissIds.length;
+    else {
+      dismissed = dismissIds.length;
+      const { error: childError } = await supabase
+        .from('items')
+        .update({ status: 'dismissed' })
+        .in('parent_id', dismissIds)
+        .eq('status', 'open');
+      if (childError) console.error('Failed to dismiss children of removed calendar items:', childError.message);
+    }
   }
 
   let checklists = 0;
@@ -452,32 +451,6 @@ async function flagCrossSourceDuplicates(
     );
   }
   return duplicates.length;
-}
-
-async function regenerateSpotlight(
-  supabaseUrl: string,
-  serviceRoleKey: string,
-  userId: string,
-): Promise<boolean> {
-  try {
-    const res = await fetch(`${supabaseUrl}/functions/v1/taylo-spotlight`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${serviceRoleKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ force: true, user_id: userId }),
-    });
-    const payload = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
-    if (!res.ok || !payload.success) {
-      console.error('Spotlight refresh failed:', payload.error || res.status);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error('Spotlight refresh failed:', err);
-    return false;
-  }
 }
 
 function json(body: unknown, status = 200): Response {

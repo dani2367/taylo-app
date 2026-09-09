@@ -155,7 +155,7 @@ async function requireUserId(): Promise<string | null> {
 async function invokeTayloFunction(
   name: 'taylo-chat' | 'taylo-offload',
   body: Record<string, unknown>,
-): Promise<{ reply: string; title?: string; message_id?: string; chips?: Chip[] }> {
+): Promise<{ reply: string; title?: string; message_id?: string; chips?: Chip[]; item_id?: string }> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token || !supabaseUrl || !supabaseAnonKey) {
     throw new Error('Not signed in');
@@ -176,6 +176,7 @@ async function invokeTayloFunction(
     title?: string;
     message_id?: string;
     chips?: Chip[];
+    item_id?: string;
     error?: string;
   };
   if (!res.ok || !payload.reply) {
@@ -186,13 +187,14 @@ async function invokeTayloFunction(
     title: payload.title,
     message_id: payload.message_id,
     chips: parseChips(payload.chips),
+    item_id: typeof payload.item_id === 'string' ? payload.item_id : undefined,
   };
 }
 
 async function fetchTayloReply(
   conversationId: string,
   opts?: { opener?: boolean },
-): Promise<{ reply: string; title?: string; message_id?: string; chips?: Chip[] }> {
+): Promise<{ reply: string; title?: string; message_id?: string; chips?: Chip[]; item_id?: string }> {
   return invokeTayloFunction('taylo-chat', {
     conversation_id: conversationId,
     ...(opts?.opener ? { opener: true } : {}),
@@ -201,7 +203,7 @@ async function fetchTayloReply(
 
 async function fetchOffloadReply(
   conversationId: string,
-): Promise<{ reply: string; title?: string; message_id?: string }> {
+): Promise<{ reply: string; title?: string; message_id?: string; item_id?: string }> {
   return invokeTayloFunction('taylo-offload', { conversation_id: conversationId });
 }
 
@@ -575,8 +577,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
       setTyping(true);
       try {
-        const { reply, title } = offload ? await fetchOffloadReply(id) : await fetchTayloReply(id);
-        if (offload) void refreshSpotlight({ force: true });
+        const { reply, title, item_id: createdItemId } = offload
+          ? await fetchOffloadReply(id)
+          : await fetchTayloReply(id);
+        if (offload && createdItemId) void refreshSpotlight();
         setConversations((prev) =>
           prev.map((c) =>
             c.id === id

@@ -1,9 +1,9 @@
 import { PlanItemFeed, PlanStackHeader } from '@/components/app/PlanItemFeed';
 import { appStyles as s } from '@/components/app/styles';
 import { colors } from '@/constants/theme';
-import { mapPlanItemRow, PLAN_ITEM_SELECT, type PlanItemRow } from '@/lib/plan-item-map';
-import { selectHomeActions, selectRadarWatch } from '@/lib/placement';
-import { radarStatusLine, type RadarItem } from '@/lib/radar';
+import { PLAN_ITEM_SELECT, mapRadarWatchCard, type PlanItemRow } from '@/lib/plan-item-map';
+import { exceptHomeActions, HOME_RADAR_LOAD_KINDS, selectHomeActions, selectRadarWatch } from '@/lib/placement';
+import type { RadarItem } from '@/lib/radar';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -29,7 +29,7 @@ export default function LaterRadarScreen() {
       .select(`${PLAN_ITEM_SELECT}, collection_id, created_at, source, parent_id`)
       .eq('user_id', user.id)
       .eq('status', 'open')
-      .in('kind', ['hold', 'obligation', 'occurrence']);
+      .in('kind', [...HOME_RADAR_LOAD_KINDS]);
 
     if (error) {
       console.error('Failed to load radar items:', error.message);
@@ -39,25 +39,9 @@ export default function LaterRadarScreen() {
 
     const today = new Date();
     const all = (data as (PlanItemRow & RadarItem)[] | null) ?? [];
-    const homeIds = new Set(selectHomeActions(all, { today }).map((card) => card.item.id));
-    const rows = selectRadarWatch(all, today).filter((card) => !homeIds.has(card.item.id));
-    setItems(
-      rows.map((card) => ({
-        ...mapPlanItemRow(
-          {
-            ...card.item,
-            prep_children: card.children.map((child) => ({
-              id: child.id,
-              title: child.title,
-              status: child.status ?? 'open',
-              created_at: child.created_at,
-            })),
-          },
-          today,
-        ),
-        context: radarStatusLine(card.item, today),
-      })),
-    );
+    const home = selectHomeActions(all, { today });
+    const rows = exceptHomeActions(selectRadarWatch(all, today), home);
+    setItems(rows.map((card) => mapRadarWatchCard(card, today)));
     setLoading(false);
   }, []);
 
