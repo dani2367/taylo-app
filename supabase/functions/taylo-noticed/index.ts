@@ -5,11 +5,10 @@ import {
   isVagueNoticed,
   looksLikeMentalLoad,
 } from '../_shared/noticed.ts';
-import { HOME_OVERFLOW_RANK_BASE } from '../_shared/placement.ts';
+import { HOME_OVERFLOW_RANK_BASE, isSameLondonDay } from '../_shared/placement.ts';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-sonnet-5';
-const STALE_MS = 4 * 60 * 60 * 1000;
 const MAX_FACTS = 50;
 
 type ItemRow = {
@@ -117,8 +116,7 @@ Deno.serve(async (req: Request) => {
     if (!force) {
       const generatedAt = latestRow?.generated_at;
       if (
-        generatedAt &&
-        Date.now() - new Date(generatedAt).getTime() < STALE_MS &&
+        isSameLondonDay(generatedAt) &&
         lastInsight &&
         !isVagueNoticed(lastInsight) &&
         looksLikeMentalLoad(lastInsight) &&

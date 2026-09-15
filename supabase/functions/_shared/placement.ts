@@ -8,7 +8,6 @@ export const HOME_NEAR_TERM_DAYS = 7;
 /** Spotlight ranks below this are Home; See all reads rank >= this. */
 export const HOME_OVERFLOW_RANK_BASE = 1000;
 export const HOME_SURFACED_COOLDOWN_MS = 18 * 60 * 60 * 1000;
-export const SPOTLIGHT_STALE_MS = 4 * 60 * 60 * 1000;
 /** Load these kinds so parent lookup works even when the parent itself is never surfaced. */
 export const HOME_RADAR_LOAD_KINDS = ['obligation', 'occurrence', 'hold', 'context_only', 'list_item'] as const;
 
@@ -577,29 +576,33 @@ export function sameIdSet(a: string[], b: string[]): boolean {
   return b.every((id) => seen.has(id));
 }
 
-export function isSpotlightTimeStale(
-  generatedAt: Date | null | undefined,
+export function londonCalendarDate(at: Date = new Date()): string {
+  return at.toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
+}
+
+export function isSameLondonDay(
+  generatedAt: Date | string | null | undefined,
   now = new Date(),
-  staleMs = SPOTLIGHT_STALE_MS,
 ): boolean {
-  if (!generatedAt) return true;
-  return now.getTime() - generatedAt.getTime() >= staleMs;
+  if (!generatedAt) return false;
+  const at = generatedAt instanceof Date ? generatedAt : new Date(generatedAt);
+  if (Number.isNaN(at.getTime())) return false;
+  return londonCalendarDate(at) === londonCalendarDate(now);
+}
+
+/** Spotlight / Noticed copy is stale when it was not written on today's London date. */
+export function isSpotlightTimeStale(
+  generatedAt: Date | string | null | undefined,
+  now = new Date(),
+): boolean {
+  return !isSameLondonDay(generatedAt, now);
 }
 
 export function shouldRegenerateSpotlight(opts: {
-  generatedAt?: Date | null;
-  cachedIds: string[];
-  rankedIds: string[];
-  cachedOverflowIds?: string[];
-  overflowIds?: string[];
+  generatedAt?: Date | string | null;
   now?: Date;
 }): boolean {
-  if (isSpotlightTimeStale(opts.generatedAt, opts.now)) return true;
-  if (!sameIdSet(opts.cachedIds, opts.rankedIds)) return true;
-  if (opts.overflowIds) {
-    return !sameIdSet(opts.cachedOverflowIds ?? [], opts.overflowIds);
-  }
-  return false;
+  return isSpotlightTimeStale(opts.generatedAt, opts.now);
 }
 
 function rankHomeEligibleCards<T extends PlacementItem>(

@@ -137,17 +137,16 @@ Deno.serve(async (req: Request) => {
     const latest = latestAt ? cache.filter((row) => (row.generated_at || '') === latestAt) : [];
     const generatedAtRaw = latest[0]?.generated_at;
     const generatedAt = generatedAtRaw ? new Date(generatedAtRaw) : null;
+    const now = new Date();
+    if (!force && !shouldRegenerateSpotlight({ generatedAt, now })) {
+      return json({ success: true, skipped: true, generated_at: generatedAtRaw });
+    }
+
     const cachedHomeIds = latest
       .filter((row) => (row.rank ?? 0) < HOME_OVERFLOW_RANK_BASE)
       .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
       .map((row) => row.item_id)
       .filter((id): id is string => !!id);
-    const cachedOverflowIds = latest
-      .filter((row) => (row.rank ?? 0) >= HOME_OVERFLOW_RANK_BASE)
-      .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
-      .map((row) => row.item_id)
-      .filter((id): id is string => !!id);
-    const now = new Date();
     const previouslySurfaced: HomeSurfaced[] =
       generatedAt && now.getTime() - generatedAt.getTime() < HOME_SURFACED_COOLDOWN_MS
         ? cachedHomeIds.map((id) => ({ id, at: generatedAt }))
@@ -175,21 +174,6 @@ Deno.serve(async (req: Request) => {
       previouslySurfaced,
       today: now,
     });
-    const rankedIds = home.map((card) => card.item.id);
-    const overflowIds = overflow.map((card) => card.item.id);
-    if (
-      !force &&
-      !shouldRegenerateSpotlight({
-        generatedAt,
-        cachedIds: cachedHomeIds,
-        rankedIds,
-        cachedOverflowIds,
-        overflowIds,
-        now,
-      })
-    ) {
-      return json({ success: true, skipped: true, generated_at: generatedAtRaw });
-    }
 
     const rankable = [...home, ...overflow].map((card) => card.item);
     if (!rankable.length) {

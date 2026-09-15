@@ -1,3 +1,4 @@
+import { isSameLondonDay } from '@/lib/placement';
 import { supabase } from '@/lib/supabase';
 import {
   insightRepeatsCaptured,
@@ -7,7 +8,6 @@ import {
 
 export { insightRepeatsCaptured, isUsableInsight, looksLikeMentalLoad };
 
-const STALE_MS = 4 * 60 * 60 * 1000;
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -56,8 +56,7 @@ async function doRefresh(force: boolean): Promise<{ regenerated: boolean }> {
     if (insightRepeatsCaptured(insight, titles)) {
       shouldForce = true;
     } else if (
-      generatedAt &&
-      Date.now() - new Date(generatedAt).getTime() < STALE_MS &&
+      isSameLondonDay(generatedAt) &&
       isUsableInsight(insight) &&
       looksLikeMentalLoad(insight)
     ) {

@@ -422,44 +422,26 @@ expect('home queue does not include overflow ids', queued.home.some((card) => ca
 expect('far-dated leftover is not dumped into see all', queued.overflow.some((card) => card.item.id === 'new-late'), false);
 
 expect(
-  'stale cache regenerates',
+  'same London day does not regenerate copy',
   shouldRegenerateSpotlight({
     generatedAt: new Date(2026, 8, 7, 0, 0, 0),
-    cachedIds: ['pin-a'],
-    rankedIds: ['pin-a'],
-    now: new Date(2026, 8, 7, 5, 0, 0),
-  }),
-  true,
-);
-expect(
-  'fresh cache with a missing eligible item regenerates',
-  shouldRegenerateSpotlight({
-    generatedAt: new Date(2026, 8, 7, 10, 0, 0),
-    cachedIds: ['pin-a', 'pin-b', 'pin-c'],
-    rankedIds: ['new-soon', 'pin-a', 'pin-b', 'pin-c'],
-    now: new Date(2026, 8, 7, 10, 30, 0),
-  }),
-  true,
-);
-expect(
-  'fresh matching cache does not regenerate',
-  shouldRegenerateSpotlight({
-    generatedAt: new Date(2026, 8, 7, 10, 0, 0),
-    cachedIds: ['pin-a', 'pin-b', 'pin-c'],
-    rankedIds: ['pin-c', 'pin-a', 'pin-b'],
-    now: new Date(2026, 8, 7, 10, 30, 0),
+    now: new Date(2026, 8, 7, 18, 0, 0),
   }),
   false,
 );
 expect(
-  'fresh home set still refreshes when overflow pool changes',
+  'previous London day regenerates copy',
   shouldRegenerateSpotlight({
-    generatedAt: new Date(2026, 8, 7, 10, 0, 0),
-    cachedIds: ['pin-a', 'pin-b', 'pin-c'],
-    rankedIds: ['pin-a', 'pin-b', 'pin-c'],
-    cachedOverflowIds: [],
-    overflowIds: ['new-late'],
-    now: new Date(2026, 8, 7, 10, 30, 0),
+    generatedAt: new Date(2026, 8, 6, 18, 0, 0),
+    now: new Date(2026, 8, 7, 8, 0, 0),
+  }),
+  true,
+);
+expect(
+  'missing cache regenerates copy',
+  shouldRegenerateSpotlight({
+    generatedAt: null,
+    now: new Date(2026, 8, 7, 10, 0, 0),
   }),
   true,
 );

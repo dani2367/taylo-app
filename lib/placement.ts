@@ -7,7 +7,7 @@ export {
   HOME_NEAR_TERM_DAYS,
   HOME_RADAR_LOAD_KINDS,
   HOME_SURFACED_COOLDOWN_MS,
-  SPOTLIGHT_STALE_MS,
+  isSameLondonDay,
   asRadarWatchCards,
   asStandaloneCards,
   asHomeNeededNowCards,
