@@ -83,11 +83,14 @@ export function classifyStandaloneItem(item: {
   checklistCount?: number;
   source?: string | null;
   category?: string | null;
+  kind?: string | null;
 }): StandaloneKind {
   const title = item.title || '';
   if (looksLikeShoppingList(title)) return 'shopping';
   // Email/calendar keep nested prep on Home/Radar. Named lists are user-created only.
   if (isInboxSource(item.source)) return 'radar';
+  const storedKind = (item.kind || '').toLowerCase();
+  if (storedKind === 'occurrence' || storedKind === 'context_only') return 'radar';
   if (looksLikeGroceryProduct(title, item.category)) return 'shopping';
   if (isSimpleUserTodo(item)) return 'todo';
   return 'radar';

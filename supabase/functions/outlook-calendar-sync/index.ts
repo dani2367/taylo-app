@@ -15,7 +15,7 @@ import {
 const WINDOW_DAYS = 60;
 const OUTLOOK_CALENDAR_SOURCE = 'outlook_calendar';
 const APPLE_CALENDAR_SOURCE = 'apple_calendar';
-const GRAPH_CALENDAR_VIEW = 'https://graph.microsoft.com/v1.0/me/calendarView';
+const GRAPH_CALENDARS = 'https://graph.microsoft.com/v1.0/me/calendars';
 
 type Connection = MicrosoftConnection & { connected?: boolean };
 
@@ -26,6 +26,12 @@ type GraphEvent = {
   isAllDay?: boolean;
   start?: { dateTime?: string; timeZone?: string };
   location?: { displayName?: string };
+};
+
+type GraphCalendar = {
+  id?: string;
+  name?: string;
+  canEdit?: boolean;
 };
 
 type ExistingRow = {
@@ -139,9 +145,9 @@ async function syncUser(
 }> {
   let accessToken = await getFreshMicrosoftAccessToken(supabase, connection);
   const window = londonWindow();
-  let events: GraphEvent[];
+  let fetched: { events: GraphEvent[]; calendars: number };
   try {
-    events = await fetchCalendarView(accessToken, window);
+    fetched = await fetchAllCalendarEvents(accessToken, window);
   } catch (err) {
     const message = err instanceof Error ? err.message : '';
     if (!message.includes('(401)')) throw err;
@@ -150,10 +156,20 @@ async function syncUser(
       connection.user_id,
       connection.refresh_token,
     );
-    events = await fetchCalendarView(accessToken, window);
+    fetched = await fetchAllCalendarEvents(accessToken, window);
   }
 
-  console.log('Calendar events fetched:', events.length, 'window:', window.start, '->', window.end);
+  const { events, calendars } = fetched;
+  console.log(
+    'Calendar events fetched:',
+    events.length,
+    'calendars:',
+    calendars,
+    'window:',
+    window.start,
+    '->',
+    window.end,
+  );
 
   const { data: existingRows, error: existingError } = await supabase
     .from('items')
@@ -293,6 +309,7 @@ async function syncUser(
   }
 
   const missing = ((existingRows ?? []) as ExistingRow[]).filter((row) => {
+    if (!calendars) return false;
     if (!row.external_id || seen.has(row.external_id)) return false;
     return row.status === 'open';
   });
@@ -334,39 +351,97 @@ async function syncUser(
   return { created, updated, dismissed, checklists, possibleDuplicates };
 }
 
+async function fetchAllCalendarEvents(
+  accessToken: string,
+  window: { start: string; end: string },
+): Promise<{ events: GraphEvent[]; calendars: number }> {
+  const calendars = await fetchCalendars(accessToken);
+  const events: GraphEvent[] = [];
+  const seen = new Set<string>();
+
+  for (const calendar of calendars) {
+    if (!calendar.id) continue;
+    if (isHolidayCalendar(calendar.name)) {
+      console.log('Skipping Outlook holiday calendar:', calendar.name);
+      continue;
+    }
+    const batch = await fetchCalendarView(accessToken, calendar.id, window);
+    console.log(
+      'Outlook calendar',
+      calendar.name ?? calendar.id,
+      'canEdit:',
+      calendar.canEdit ?? false,
+      'events:',
+      batch.length,
+    );
+    for (const event of batch) {
+      if (!event.id || seen.has(event.id)) continue;
+      seen.add(event.id);
+      events.push(event);
+    }
+  }
+
+  return { events, calendars: calendars.length };
+}
+
+async function fetchCalendars(accessToken: string): Promise<GraphCalendar[]> {
+  const calendars: GraphCalendar[] = [];
+  let url: string | null =
+    `${GRAPH_CALENDARS}?$select=id,name,canEdit&$top=50`;
+
+  while (url) {
+    const res = await graphGet(accessToken, url);
+    const data = JSON.parse(res) as { value?: GraphCalendar[]; '@odata.nextLink'?: string };
+    calendars.push(...(data.value ?? []));
+    url = data['@odata.nextLink'] ?? null;
+  }
+
+  return calendars;
+}
+
 async function fetchCalendarView(
   accessToken: string,
+  calendarId: string,
   window: { start: string; end: string },
 ): Promise<GraphEvent[]> {
   const params = new URLSearchParams({
     startDateTime: window.start,
     endDateTime: window.end,
     $select: 'id,subject,start,location,isCancelled,isAllDay',
-    $orderby: 'start/dateTime',
     $top: '100',
   });
-
+  const encodedId = encodeURIComponent(calendarId);
+  let url: string | null =
+    `${GRAPH_CALENDARS}/${encodedId}/calendarView?${params.toString()}`;
   const events: GraphEvent[] = [];
-  let url: string | null = `${GRAPH_CALENDAR_VIEW}?${params.toString()}`;
 
   while (url) {
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/json',
-        Prefer: 'outlook.timezone="Europe/London"',
-      },
-    });
-    const body = await res.text();
-    if (!res.ok) {
-      throw new Error(`Graph calendarView failed (${res.status}): ${body.slice(0, 300)}`);
-    }
-    const data = JSON.parse(body) as { value?: GraphEvent[]; '@odata.nextLink'?: string };
+    const res = await graphGet(accessToken, url);
+    const data = JSON.parse(res) as { value?: GraphEvent[]; '@odata.nextLink'?: string };
     events.push(...(data.value ?? []));
     url = data['@odata.nextLink'] ?? null;
   }
 
   return events;
+}
+
+async function graphGet(accessToken: string, url: string): Promise<string> {
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+      Prefer: 'outlook.timezone="Europe/London"',
+    },
+  });
+  const body = await res.text();
+  if (!res.ok) {
+    throw new Error(`Graph calendar request failed (${res.status}): ${body.slice(0, 300)}`);
+  }
+  return body;
+}
+
+function isHolidayCalendar(name?: string): boolean {
+  return (name || '').toLowerCase().includes('holiday');
 }
 
 function graphStartToEventDate(dateTime: string | undefined, isAllDay: boolean): string | null {

@@ -84,6 +84,16 @@ expect(
   classifyStandaloneItem({ title: "Book Taya's eye test", source: 'chat' }),
   'todo',
 );
+expect(
+  'named chat wedding stays off general to do',
+  classifyStandaloneItem({
+    title: "Oliver's wedding",
+    source: 'chat',
+    kind: 'occurrence',
+    event_date: '2026-12-05',
+  }),
+  'radar',
+);
 expect('present not grocery', looksLikeGroceryProduct("Get Dad's present"), false);
 expect('user todo', isSimpleUserTodo({ title: "Get Dad's present", source: 'chat' }), true);
 expect('present from email is todo', isSimpleUserTodo({ title: "Get Dad's present", source: 'email' }), true);

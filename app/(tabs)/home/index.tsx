@@ -3,12 +3,11 @@ import { useChat } from '@/components/app/ChatProvider';
 import { DayTimelineCard } from '@/components/app/DayTimelineCard';
 import { ItemPrepChecklist, type PrepCheckItem } from '@/components/app/ItemPrepChecklist';
 import { appStyles as s, iconBg } from '@/components/app/styles';
-import { TayloMark } from '@/components/app/TayloMark';
+import { NoticedStar, TayloMark } from '@/components/app/TayloMark';
 import { colors } from '@/constants/theme';
 import { subscribeAppleCalendarSync } from '@/lib/apple-calendar';
 import { isActiveCollection, organizeStandaloneItems } from '@/lib/collections';
-import { memberPalette } from '@/lib/demo-data';
-import { happenSortKey, type HappenItem } from '@/lib/happening';
+import { happenSortKey, happenTimeLabel, isHappeningToday, type HappenItem } from '@/lib/happening';
 import { daysUntil, humanizeEventDate } from '@/lib/human-date';
 import { closeItems } from '@/lib/item-status';
 import {
@@ -17,7 +16,7 @@ import {
   HOME_RADAR_LOAD_KINDS,
   HOME_SURFACED_COOLDOWN_MS,
   isFamilyVisible,
-  isOccurrenceOnSchedule,
+  isInformationalOnSchedule,
   selectHomeActions,
   type HomeSurfaced,
   type PlacementParent,
@@ -40,6 +39,7 @@ import {
   ActivityIndicator,
   AppState,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   Text,
@@ -58,47 +58,17 @@ type FamilyCard = {
   itemIcon: PlanIconSpec | null;
 };
 
-/** Temporary visual placeholders for Your Family — Unsplash face crops. */
-const STOCK_PHOTO = {
-  you: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400&h=400&fit=crop&crop=faces&q=80',
-  sophie: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400&h=400&fit=crop&crop=faces&q=80',
-  arlo: 'https://images.unsplash.com/photo-1503919545889-aef636e10ad4?w=400&h=400&fit=crop&crop=faces&q=80',
-  taya: 'https://images.unsplash.com/photo-1516627145497-ae6968895b74?w=400&h=400&fit=crop&crop=faces&q=80',
-};
+const FAMILY_WASH = [colors.blush, colors.sage, colors.paleBlue];
 
-const PREVIEW_FAMILY_EMAIL = 'd.dennison23@hotmail.com';
-const PREVIEW_FAMILY: FamilyCard[] = [
-  {
-    key: 'preview-sophie',
-    name: 'Sophie',
-    initial: 'S',
-    wash: colors.blush,
-    photo: STOCK_PHOTO.sophie,
-    itemTitle: 'Birthday party',
-    itemWhen: 'Saturday',
-    itemIcon: resolvePlanIcon({ title: 'birthday', category: 'activity' }),
-  },
-  {
-    key: 'preview-arlo',
-    name: 'Arlo',
-    initial: 'A',
-    wash: colors.paleBlue,
-    photo: STOCK_PHOTO.arlo,
-    itemTitle: 'Football training',
-    itemWhen: 'Tomorrow',
-    itemIcon: resolvePlanIcon({ title: 'football', category: 'activity' }),
-  },
-  {
-    key: 'preview-taya',
-    name: 'Taya',
-    initial: 'T',
-    wash: colors.sage,
-    photo: STOCK_PHOTO.taya,
-    itemTitle: 'Dentist',
-    itemWhen: 'Thursday',
-    itemIcon: resolvePlanIcon({ title: 'dentist', category: 'medical' }),
-  },
-];
+function personInitials(first: string | null | undefined, last: string | null | undefined, fallback = ''): string {
+  const a = first?.trim()?.[0];
+  const b = last?.trim()?.[0];
+  if (a && b) return `${a}${b}`.toUpperCase();
+  if (a) return a.toUpperCase();
+  const parts = fallback.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  return (parts[0]?.[0] || '•').toUpperCase();
+}
 
 type NudgeStatus = 'open' | 'done' | 'delegated' | 'dismissed';
 
@@ -156,17 +126,6 @@ type NudgeCard = {
   addedByUser: boolean;
   checklistId: string | null;
   checklist: PrepCheckItem[];
-};
-
-const colorMap = {
-  roseLight: colors.roseLight,
-  roseDark: colors.roseDark,
-  blueLight: colors.blueLight,
-  blue: colors.blue,
-  amberLight: colors.amberLight,
-  amber: colors.amber,
-  tealLight: colors.tealLight,
-  teal: colors.teal,
 };
 
 const categoryMeta: Record<string, { icon: PlanIconSpec; cls: keyof typeof iconBg; label: string }> = {
@@ -256,11 +215,7 @@ function collapsedActionLine(card: NudgeCard): string | null {
 }
 
 function happenTime(item: ItemRow): string {
-  const time = timeFromEventDate(item.occurs_at || item.event_date);
-  if (time) return time.replace(/(am|pm)$/i, '');
-  const blob = `${item.title || ''} ${item.body || ''}`.toLowerCase();
-  if (/\b(birthday|bday|anniversary)\b/.test(blob)) return 'All day';
-  return 'All day';
+  return happenTimeLabel(item, timeFromEventDate(item.occurs_at || item.event_date));
 }
 
 function happenSub(item: ItemRow): string | null {
@@ -271,11 +226,6 @@ function happenSub(item: ItemRow): string | null {
     return who;
   }
   return null;
-}
-
-function isHappeningOccasion(item: ItemRow): boolean {
-  if (!isOccurrenceOnSchedule(item)) return false;
-  return daysUntil(item.occurs_at) === 0;
 }
 
 function greetingLine(name: string) {
@@ -320,6 +270,8 @@ export default function HomeScreen() {
   const [happening, setHappening] = useState<HappenItem[]>([]);
   const [family, setFamily] = useState<FamilyCard[]>([]);
   const [noticed, setNoticed] = useState<string | null>(null);
+  const [noticedSeen, setNoticedSeen] = useState<string | null>(null);
+  const [noticedOpen, setNoticedOpen] = useState(false);
   const [firstName, setFirstName] = useState('');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [editingPrep, setEditingPrep] = useState<Record<string, boolean>>({});
@@ -335,6 +287,7 @@ export default function HomeScreen() {
       setHappening([]);
       setFamily([]);
       setNoticed(null);
+      setNoticedOpen(false);
       setLoading(false);
       return;
     }
@@ -393,42 +346,48 @@ export default function HomeScreen() {
     setSpotlight(actionCards);
     const actionIds = new Set(actionCards.map((card) => card.id));
     const realHappening = openItems
-      .filter((item) => !actionIds.has(item.id) && isHappeningOccasion(item))
+      .filter((item) => !actionIds.has(item.id) && isHappeningToday(item, today))
       .map((item) => ({
         id: item.id,
         title: item.title || 'Untitled',
         time: happenTime(item),
         sub: happenSub(item),
+        informational: isInformationalOnSchedule(item),
         icon: resolvePlanIcon({ title: item.title, category: item.category }),
       }));
     setHappening(realHappening.sort((a, b) => happenSortKey(a) - happenSortKey(b)));
 
     const memberRows = (members as { id: string; role: string; first_name: string | null; last_name: string | null }[] | null) ?? [];
-    const cardsOut: FamilyCard[] = [];
-    memberRows.forEach((member, index) => {
+    const cardsOut: FamilyCard[] = memberRows.map((member, index) => {
       const name = [member.first_name, member.last_name].filter(Boolean).join(' ') || 'Family';
       const first = member.first_name?.trim() || name;
-      const pal = memberPalette[index % memberPalette.length];
       const match = pickItemForPerson(openItems, first, member.role);
       const when = match ? humanizeEventDate(match.occurs_at || match.due_at || match.event_date) : null;
-      cardsOut.push({
+      return {
         key: member.id,
         name: member.first_name?.trim() || name,
-        initial: name[0]?.toUpperCase() || '•',
-        wash: colorMap[pal.bg],
+        initial: personInitials(member.first_name, member.last_name, name),
+        wash: FAMILY_WASH[index % FAMILY_WASH.length],
         photo: null,
         itemTitle: match ? displayItemTitle(match) : null,
         itemWhen: when && when !== 'Today' ? when : match ? fewWords(match.body, 5) : null,
         itemIcon: match ? resolvePlanIcon({ title: match.title, category: match.category }) : null,
-      });
+      };
     });
-    if (profile?.first_name) {
-      const youMatch = pickItemForPerson(openItems, profile.first_name, 'self');
+    const hasSelf = memberRows.some((member) => {
+      const role = (member.role || '').toLowerCase();
+      if (role === 'self' || role === 'you') return true;
+      const first = member.first_name?.trim().toLowerCase();
+      return !!profile?.first_name && first === profile.first_name.trim().toLowerCase();
+    });
+    if (!hasSelf) {
+      const youFirst = profile?.first_name?.trim() || '';
+      const youMatch = youFirst ? pickItemForPerson(openItems, youFirst, 'self') : null;
       const youWhen = youMatch ? humanizeEventDate(youMatch.occurs_at || youMatch.due_at || youMatch.event_date) : null;
-      cardsOut.push({
-        key: 'you',
+      cardsOut.unshift({
+        key: 'profile',
         name: 'You',
-        initial: profile.first_name[0]?.toUpperCase() || 'Y',
+        initial: personInitials(youFirst, null, 'You'),
         wash: colors.sage,
         photo: null,
         itemTitle: youMatch ? displayItemTitle(youMatch) : null,
@@ -436,12 +395,7 @@ export default function HomeScreen() {
         itemIcon: youMatch ? resolvePlanIcon({ title: youMatch.title, category: youMatch.category }) : null,
       });
     }
-    if ((user.email || '').trim().toLowerCase() === PREVIEW_FAMILY_EMAIL) {
-      const you = cardsOut.find((card) => card.key === 'you');
-      setFamily(you ? [{ ...you, photo: STOCK_PHOTO.you }, ...PREVIEW_FAMILY] : PREVIEW_FAMILY);
-    } else {
-      setFamily(cardsOut);
-    }
+    setFamily(cardsOut);
 
     const rawInsight = (noticedRow as { insight_text?: string } | null)?.insight_text?.trim() || null;
     const capturedTitles = openItems
@@ -666,24 +620,28 @@ export default function HomeScreen() {
   }
 
   return (
+    <View style={{ flex: 1 }}>
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={s.screen}
         keyboardShouldPersistTaps="handled">
         <View style={s.homeGreetBlock}>
-          <Text style={s.homeGreetTitle}>
-            {greetingLine(firstName)} <TayloMark size={14} />
-          </Text>
+          <View style={s.homeGreetTitleRow}>
+            <Text style={s.homeGreetTitle}>{greetingLine(firstName)}</Text>
+            <NoticedStar
+              unread={!!noticed && noticed !== noticedSeen}
+              onPress={
+                noticed
+                  ? () => {
+                      setNoticedOpen(true);
+                      setNoticedSeen(noticed);
+                    }
+                  : undefined
+              }
+            />
+          </View>
           <Text style={s.homeGreetSub}>Here's what would be helpful to do today.</Text>
         </View>
-
-        <View style={s.homeSectionHead}>
-          <Text style={s.homeSectionLabel}>Today's actions</Text>
-          <Pressable onPress={() => router.push('/home/today')}>
-            <Text style={s.homeSeeAll}>See all</Text>
-          </Pressable>
-        </View>
-        <Text style={s.homeSectionHint}>{actionsSummary(spotlight.length)}</Text>
 
         {loading ? (
           <View style={s.emptyState}>
@@ -692,6 +650,15 @@ export default function HomeScreen() {
         ) : (
           <>
             <View style={s.homeHero}>
+              <View style={s.homeCardHead}>
+                <View style={s.homeCardHeadCopy}>
+                  <Text style={s.homeSectionLabel}>Today's actions</Text>
+                  <Text style={s.homeCardHint}>{actionsSummary(spotlight.length)}</Text>
+                </View>
+                <Pressable onPress={() => router.push('/home/today')}>
+                  <Text style={s.homeSeeAll}>See all</Text>
+                </Pressable>
+              </View>
               {spotlight.length === 0 ? (
                 <View style={s.homeHeroRow}>
                   <Text style={s.emptyStateText}>When something would be helpful to do, it'll show up here.</Text>
@@ -703,29 +670,17 @@ export default function HomeScreen() {
 
             <DayTimelineCard
               items={happening}
-              emptyTitle="Nothing on today"
+              emptyTitle="A quiet one"
               footer={{
                 label: 'See full day ›',
                 onPress: () => router.push({ pathname: '/plan', params: { tab: 'schedule' } }),
               }}
             />
 
-            {noticed ? (
-              <View style={{ marginTop: 6 }}>
-                <View style={s.homeNoticed}>
-                  <View style={s.homeNoticedHead}>
-                    <TayloMark size={12} />
-                    <Text style={s.homeNoticedLabel}>Taylo noticed</Text>
-                  </View>
-                  <Text style={s.homeNoticedText}>{noticed}</Text>
-                </View>
-              </View>
-            ) : null}
-
             {family.length ? (
-              <>
-                <View style={s.homeSectionHead}>
-                  <Text style={[s.homeSectionLabel, s.homeSectionLabelMuted]}>Your family</Text>
+              <View style={s.homeFamilySection}>
+                <View style={s.homeCardHead}>
+                  <Text style={s.homeSectionLabel}>Your family</Text>
                   <Pressable onPress={() => router.push('/more/family')}>
                     <Text style={s.homeSeeAll}>View all</Text>
                   </Pressable>
@@ -740,7 +695,9 @@ export default function HomeScreen() {
                     <Pressable
                       key={member.key}
                       style={s.homeFamilyCard}
-                      onPress={() => router.push('/more/family')}>
+                      onPress={() =>
+                        router.push({ pathname: '/plan', params: { tab: 'family', person: member.key } })
+                      }>
                       <View style={[s.homeFamilyAvatar, { backgroundColor: member.wash }]}>
                         {member.photo ? (
                           <Image source={{ uri: member.photo }} style={s.homeFamilyPhoto} />
@@ -773,7 +730,7 @@ export default function HomeScreen() {
                     </Pressable>
                   ))}
                 </ScrollView>
-              </>
+              </View>
             ) : null}
 
             {spotlight.length === 0 ? (
@@ -788,5 +745,25 @@ export default function HomeScreen() {
           </>
         )}
       </ScrollView>
+
+      <Modal
+        visible={noticedOpen && !!noticed}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setNoticedOpen(false)}>
+        <Pressable style={s.planModalScrim} onPress={() => setNoticedOpen(false)}>
+          <Pressable style={s.homeNoticedModalCard} onPress={(e) => e.stopPropagation()}>
+            <View style={s.homeNoticedHead}>
+              <TayloMark size={12} />
+              <Text style={s.homeNoticedLabel}>Taylo noticed</Text>
+            </View>
+            <Text style={s.homeNoticedText}>{noticed}</Text>
+            <Pressable onPress={() => setNoticedOpen(false)} style={{ marginTop: 14, alignSelf: 'flex-end' }}>
+              <Text style={s.homeSeeAll}>Got it</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </View>
   );
 }

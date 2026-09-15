@@ -1,4 +1,4 @@
-import { AppHeader, HomeBrandBar } from '@/components/app/AppHeader';
+import { HomeBrandBar } from '@/components/app/AppHeader';
 import { ChatProvider } from '@/components/app/ChatProvider';
 import { appStyles as s } from '@/components/app/styles';
 import { TayloTabBar } from '@/components/app/TayloTabBar';
@@ -21,8 +21,6 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const onHome = pathname === '/home' || pathname === '/home/today';
-  const onPlan = pathname === '/plan' || (pathname.includes('/plan') && !pathname.includes('/home'));
-  const showBrandHeader = !pathname.includes('/chat') && !onHome && !onPlan;
 
   useEffect(() => {
     void (async () => {
@@ -41,7 +39,6 @@ export default function TabsLayout() {
       <View style={s.shell}>
         <View style={[s.headerWrap, { paddingTop: insets.top }]}>
           {onHome && pathname !== '/home/today' ? <HomeBrandBar /> : null}
-          {showBrandHeader ? <AppHeader /> : null}
         </View>
         <Tabs
           tabBar={(props) => <TayloTabBar {...props} />}

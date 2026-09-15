@@ -492,7 +492,11 @@ expect('undated interview prep is not a home action', homeWithPrep.map((card) =>
 expect('birthday with no prep stays off home', homeWithPrep.some((card) => card.item.id === 'franks'), false);
 expect('interview occurrence is never a home card', homeWithPrep.some((card) => card.item.id === 'primark'), false);
 const prepRadar = selectRadarWatch([interview, prep, birthday], today);
-expect('undated interview prep sits on radar', prepRadar.some((card) => card.item.id === 'examples'), true);
+expect(
+  'undated interview prep hangs off the interview on radar',
+  prepRadar.some((card) => card.item.id === 'primark' && card.children.some((row) => row.id === 'examples')),
+  true,
+);
 
 const emailParty = item({
   id: 'email-party',
@@ -543,7 +547,11 @@ expect(
 );
 const emailRadar = selectRadarWatch([party, emailParty, emailCard, buyCardPending], today);
 expect('email party never on radar', emailRadar.some((card) => card.item.id === 'email-party'), false);
-expect('pending child is a standalone radar card', emailRadar.some((card) => card.item.id === 'card-later' && card.children.length === 0), true);
+expect(
+  'pending work hangs off the event on radar',
+  emailRadar.some((card) => card.item.id === 'party' && card.children.some((row) => row.id === 'card-later')),
+  true,
+);
 
 const giftPending = item({
   id: 'gift-later',

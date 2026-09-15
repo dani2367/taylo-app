@@ -1,24 +1,20 @@
-import { BrandIconDisc } from '@/components/app/BrandIcon';
 import { TayloWordmark } from '@/components/app/TayloWordmark';
 import { signupStyles as s } from '@/components/signup/styles';
 import { colors, fonts, fontSizes } from '@/constants/theme';
 import {
   cap,
-  completeSignup,
-  emptyKid,
-  expandSteps,
-  extraChipLabel,
-  initialSignupState,
-  parseExtra,
-  SIGNUP_STEPS_START,
+  createAccountWithHousehold,
+  emptyMember,
+  initialNewSignupState,
   validEmail,
-  type Kid,
-  type SignupState,
-  type SignupStep,
-  type UserType,
+  type HouseholdMember,
+  type NewSignupState,
+  type Relationship,
 } from '@/lib/signup';
-import type { IconName, Wash } from '@/lib/plan-icon';
+import { supabase } from '@/lib/supabase';
+import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import { createElement, useState } from 'react';
 import {
   ActivityIndicator,
@@ -27,49 +23,100 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const FAMILY_OPTS: { name: IconName; wash: Wash; label: string; sub: string; val: UserType }[] = [
-  { name: 'person-outline', wash: 'paleBlue', label: 'Just me', sub: 'No partner or kids', val: 'solo' },
-  { name: 'heart-outline', wash: 'blush', label: 'Me & a partner', sub: 'No children yet', val: 'partner' },
-  { name: 'people-outline', wash: 'sage', label: 'Family with kids', sub: 'One or more children', val: 'family' },
-  { name: 'flower-outline', wash: 'blush', label: 'Baby on the way', sub: 'Expecting soon', val: 'expecting' },
+// DateTimePicker is a native module — require lazily so web doesn't error out.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let DateTimePicker: React.ComponentType<any> | null = null;
+if (Platform.OS !== 'web') {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    DateTimePicker = require('@react-native-community/datetimepicker').default;
+  } catch {
+    // Falls back to text input if the native build doesn't include it yet.
+  }
+}
+
+WebBrowser.maybeCompleteAuthSession();
+
+const OUTLOOK_AUTH_URL = 'https://fbffbenebwgmmtmnumux.supabase.co/functions/v1/outlook-auth';
+const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+
+type Step = 'account' | 'household' | 'connect' | 'done';
+const STEPS: Step[] = ['account', 'household', 'connect', 'done'];
+
+const STEP_EYEBROW: Record<Step, string> = {
+  account: "Let's get started",
+  household: 'Your household',
+  connect: 'Connections',
+  done: "You're all set",
+};
+
+const STEP_TITLE: Record<Step, string> = {
+  account: 'Create your account',
+  household: "Who's in your home?",
+  connect: 'Connect your calendar & email',
+  done: '', // filled in dynamically
+};
+
+const REL_OPTS: { val: Relationship; label: string }[] = [
+  { val: 'partner', label: 'Partner / Co-parent' },
+  { val: 'child', label: 'Child' },
+  { val: 'other', label: 'Other' },
 ];
 
-const CONNS: { name: IconName; wash: Wash; label: string; sub: string; key: string }[] = [
-  { name: 'mail-outline', wash: 'paleBlue', label: 'Gmail', sub: 'Newsletters, orders, appointments', key: 'gmail' },
-  { name: 'calendar-outline', wash: 'sage', label: 'Google Calendar', sub: 'Events & appointments', key: 'gcal' },
-  { name: 'mail-outline', wash: 'blush', label: 'Outlook', sub: 'Alternative email', key: 'outlook' },
-  { name: 'calendar-outline', wash: 'paleBlue', label: 'Apple Calendar', sub: 'iOS calendar', key: 'appcal' },
-];
+// ── Date helpers ─────────────────────────────────────────────────────────────
+
+function parseDob(iso: string | null): Date {
+  if (!iso) return new Date(2010, 0, 1);
+  const parts = iso.split('-').map(Number);
+  return new Date(parts[0], parts[1] - 1, parts[2]);
+}
+
+function isoFromDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function formatDob(iso: string): string {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const parts = iso.split('-').map(Number);
+  return `${parts[2]} ${months[parts[1] - 1]} ${parts[0]}`;
+}
+
+// ── Main screen ──────────────────────────────────────────────────────────────
 
 export default function SignupScreen() {
   const insets = useSafeAreaInsets();
-  const [state, setState] = useState<SignupState>(initialSignupState);
-  const [steps, setSteps] = useState<SignupStep[]>(SIGNUP_STEPS_START);
+
+  const [state, setState] = useState<NewSignupState>(initialNewSignupState());
   const [index, setIndex] = useState(0);
   const [shakeKey, setShakeKey] = useState<string | null>(null);
-  const [continuePressed, setContinuePressed] = useState(false);
   const [shakeX] = useState(() => new Animated.Value(0));
-  const [extraText, setExtraText] = useState('');
   const [focused, setFocused] = useState<string | null>(null);
-  const [partnerForcedOn, setPartnerForcedOn] = useState<boolean | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [mainPressed, setMainPressed] = useState(false);
 
-  const step = steps[index];
-  const showBack = index > 0;
-  const pct = Math.round((index / Math.max(steps.length - 1, 1)) * 100);
-  const showSkip = step === 'connect' || step === 'extra';
-  const skipLabel = step === 'extra' ? 'Skip — finish setup' : 'Skip for now';
-  const showContinue = step !== 'type';
-  const continueLabel = submitting ? 'Creating your account…' : step === 'summary' ? 'Take me to Taylo →' : 'Continue';
-  const partnerToggleOn =
-    partnerForcedOn !== null ? partnerForcedOn : state.userType === 'partner' || !!state.partner;
+  // Step 2 → 3 transition: account creation
+  const [creatingAccount, setCreatingAccount] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  // Step 3: Outlook OAuth
+  const [outlookLoading, setOutlookLoading] = useState(false);
+  const [outlookError, setOutlookError] = useState<string | null>(null);
+
+  // DOB picker: tracks which member's picker is open (by id)
+  const [openDobId, setOpenDobId] = useState<string | null>(null);
+
+  const step = STEPS[index];
+  const pct = Math.round((index / (STEPS.length - 1)) * 100);
+  const showBack = index > 0 && step !== 'done';
+  const topBarHeight = insets.top + 46;
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
 
   function shake(key: string) {
     setShakeKey(key);
@@ -83,171 +130,224 @@ export default function SignupScreen() {
     ]).start(() => setShakeKey(null));
   }
 
-  function goNext() {
-    setIndex((i) => i + 1);
-    setExtraText('');
-  }
-
   function goBack() {
-    if (submitting) return;
-    setSubmitError(null);
-    if (index > 0) setIndex(index - 1);
+    if (creatingAccount) return;
+    setCreateError(null);
+    setIndex((i) => Math.max(i - 1, 0));
   }
 
-  function onContinue() {
-    if (step === 'account') {
-      const email = state.email.trim();
-      const password = state.password;
-      const emailOk = validEmail(email);
-      const passwordOk = !!password && password.length >= 8;
-      if (!emailOk) {
-        shake('email');
-        return;
-      }
-      if (!passwordOk) {
-        shake('password');
-        return;
-      }
-      setState((prev) => ({ ...prev, email }));
-      goNext();
-      return;
-    }
-    if (step === 'name') {
-      const fn = state.name.trim();
-      if (!fn) {
-        shake('first');
-        return;
-      }
-      setState((prev) => ({ ...prev, name: cap(fn), lastName: cap(prev.lastName.trim()) }));
-      goNext();
-      return;
-    }
-    if (step === 'kids') {
-      const kids = state.kids.filter((k) => k.name.trim()).map((k) => ({ ...k, name: cap(k.name.trim()) }));
-      if (!kids.length) {
-        shake('kids');
-        return;
-      }
-      setState((prev) => ({ ...prev, kids }));
-      goNext();
-      return;
-    }
-    if (step === 'partner') {
-      if (partnerToggleOn) {
-        const nm = state.partner.trim();
-        if (!nm) {
-          shake('partner');
-          return;
-        }
-        setState((prev) => ({ ...prev, partner: cap(nm) }));
-      } else {
-        setState((prev) => ({ ...prev, partner: '', partnerInvited: false }));
-      }
-      goNext();
-      return;
-    }
-    if (step === 'summary') {
-      if (submitting) return;
-      setSubmitError(null);
-      setSubmitting(true);
-      void completeSignup(state)
-        .then((result) => {
-          setSubmitting(false);
-          if (!result.ok) {
-            setSubmitError(result.message);
-            return;
-          }
-          router.replace('/home');
-        })
-        .catch(() => {
-          setSubmitting(false);
-          setSubmitError('Something went wrong. Check your connection and try again.');
-        });
-      return;
-    }
-    goNext();
-  }
-
-  function selectType(val: UserType) {
-    setState((prev) => ({ ...prev, userType: val }));
-    setPartnerForcedOn(null);
-    setSteps((prev) => expandSteps(val, index, prev));
-    setTimeout(() => goNext(), 220);
-  }
-
-  function updateKid(i: number, patch: Partial<Kid>) {
-    setState((prev) => ({
-      ...prev,
-      kids: prev.kids.map((k, idx) => (idx === i ? { ...k, ...patch } : k)),
+  function updateMember(id: string, patch: Partial<HouseholdMember>) {
+    setState((p) => ({
+      ...p,
+      members: p.members.map((m) => (m.id === id ? { ...m, ...patch } : m)),
     }));
   }
 
-  const summaryRows = [
-    { label: 'Name', value: `${state.name} ${state.lastName || ''}`.trim() },
-    ...(state.kids.map((k) => k.name).filter(Boolean).length
-      ? [{ label: 'Children', value: state.kids.map((k) => k.name).filter(Boolean).join(', ') }]
-      : []),
-    ...(state.partner
-      ? [
-          {
-            label: 'Partner',
-            value: `${state.partner}${state.partnerInvited ? ' (invited)' : ''}`,
-          },
-        ]
-      : []),
-    {
-      label: 'Connections',
-      value: Object.keys(state.connections).length
-        ? `${Object.keys(state.connections).length} connected`
-        : 'None yet',
-    },
-    ...(state.extras.length ? [{ label: 'Notes', value: `${state.extras.length} added` }] : []),
-  ];
+  // ── Step transitions ───────────────────────────────────────────────────────
+
+  async function advanceToConnect() {
+    // Create the Supabase account + save household before showing the
+    // Outlook OAuth step — the session is required for the OAuth call.
+    setCreatingAccount(true);
+    setCreateError(null);
+    const result = await createAccountWithHousehold(state);
+    setCreatingAccount(false);
+    if (!result.ok) {
+      setCreateError(result.message);
+      return;
+    }
+    setIndex((i) => i + 1);
+  }
+
+  async function connectOutlook() {
+    if (outlookLoading || state.outlookConnected) return;
+    setOutlookLoading(true);
+    setOutlookError(null);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const jwt = session?.access_token;
+      if (!jwt) {
+        throw new Error('Your session is missing. Please restart the app and try again.');
+      }
+
+      const appRedirect = Linking.createURL('outlook-auth');
+      const res = await fetch(OUTLOOK_AUTH_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({ action: 'start', app_redirect: appRedirect }),
+      });
+
+      const txt = await res.text();
+      if (!res.ok) {
+        let msg = txt;
+        try {
+          const parsed = JSON.parse(txt) as { details?: string; error?: string };
+          msg = parsed.details ?? parsed.error ?? txt;
+        } catch {
+          // keep raw body
+        }
+        throw new Error(msg);
+      }
+
+      const { authUrl } = JSON.parse(txt) as { authUrl?: string };
+      if (!authUrl) throw new Error('Could not start Microsoft login.');
+
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, appRedirect);
+      if (result.type === 'success' && 'url' in result) {
+        const returned = Linking.parse(result.url);
+        const err = returned.queryParams?.error;
+        if (typeof err === 'string' && err) throw new Error(err);
+        if (returned.queryParams?.connected === '1') {
+          setState((p) => ({ ...p, outlookConnected: true }));
+        }
+      }
+    } catch (e: unknown) {
+      setOutlookError(e instanceof Error ? e.message : 'Something went wrong.');
+    } finally {
+      setOutlookLoading(false);
+    }
+  }
+
+  async function onContinue() {
+    if (step === 'account') {
+      const email = state.email.trim();
+      if (!state.firstName.trim()) { shake('firstName'); return; }
+      if (!validEmail(email)) { shake('email'); return; }
+      if (!state.password || state.password.length < 8) { shake('password'); return; }
+      setState((p) => ({ ...p, email }));
+      setIndex((i) => i + 1);
+      return;
+    }
+    if (step === 'household') {
+      await advanceToConnect();
+      return;
+    }
+    if (step === 'connect') {
+      setIndex((i) => i + 1);
+      return;
+    }
+    if (step === 'done') {
+      router.replace('/home');
+      return;
+    }
+  }
+
+  // ── Derived values for Done step ──────────────────────────────────────────
+
+  const validMembers = state.members.filter((m) => m.name.trim());
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <KeyboardAvoidingView
       style={s.root}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={insets.top}>
+      keyboardVerticalOffset={topBarHeight}>
+
+      {/* ── Top bar ── */}
       <View style={[s.topbar, { paddingTop: insets.top + 8 }]}>
         <Pressable
           style={[s.back, !showBack && s.backHidden]}
           onPress={goBack}
-          disabled={!showBack || submitting}
-          hitSlop={8}>
+          disabled={!showBack || creatingAccount}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Back">
           <Text style={s.backText}>←</Text>
         </Pressable>
         <View style={s.topbarBrand}>
           <TayloWordmark size={26} />
         </View>
       </View>
+
+      {/* ── Progress bar ── */}
       <View style={{ paddingHorizontal: 14, paddingBottom: 10 }}>
         <View style={s.progressTrack}>
           <View style={[s.progressFill, { width: `${Math.min(pct, 100)}%` }]} />
         </View>
       </View>
 
+      {/* ── Step content ── */}
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={[s.body, { paddingBottom: 28 }]}
+        contentContainerStyle={[s.body, { paddingBottom: Math.max(insets.bottom + 24, 40) }]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
         automaticallyAdjustKeyboardInsets
         key={step}>
+
+        <Text style={s.eyebrow}>{STEP_EYEBROW[step]}</Text>
+        <Text style={s.title}>
+          {step === 'done'
+            ? `Nice to meet you, ${cap(state.firstName || 'there')} 👋`
+            : STEP_TITLE[step]}
+        </Text>
+
+        {/* ── Step 1: Account ─────────────────────────────────────────── */}
         {step === 'account' ? (
           <>
-            <Text style={s.eyebrow}>Welcome to Taylo</Text>
-            <Text style={s.title}>Create your account</Text>
-            <Text style={s.sub}>Start with an email and password.</Text>
+            <Text style={s.sub}>Name, email, and a password to get in.</Text>
+
+            <View style={ls.nameRow}>
+              <View style={[s.field, { flex: 1 }]}>
+                <Text style={s.label}>First name</Text>
+                <Animated.View
+                  style={shakeKey === 'firstName' ? { transform: [{ translateX: shakeX }] } : undefined}>
+                  <TextInput
+                    style={[
+                      s.input,
+                      focused === 'firstName' && s.inputFocused,
+                      shakeKey === 'firstName' && s.inputShake,
+                    ]}
+                    placeholder="First"
+                    placeholderTextColor={colors.textHint}
+                    value={state.firstName}
+                    autoFocus
+                    autoCapitalize="words"
+                    autoCorrect={false}
+                    textContentType="givenName"
+                    onFocus={() => setFocused('firstName')}
+                    onBlur={() => setFocused(null)}
+                    onChangeText={(firstName) => setState((p) => ({ ...p, firstName }))}
+                  />
+                </Animated.View>
+              </View>
+              <View style={[s.field, { flex: 1 }]}>
+                <Text style={s.label}>Last name</Text>
+                <TextInput
+                  style={[s.input, focused === 'lastName' && s.inputFocused]}
+                  placeholder="Last"
+                  placeholderTextColor={colors.textHint}
+                  value={state.lastName}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  textContentType="familyName"
+                  onFocus={() => setFocused('lastName')}
+                  onBlur={() => setFocused(null)}
+                  onChangeText={(lastName) => setState((p) => ({ ...p, lastName }))}
+                />
+              </View>
+            </View>
+
             <View style={s.field}>
               <Text style={s.label}>Email</Text>
-              <Animated.View style={shakeKey === 'email' ? { transform: [{ translateX: shakeX }] } : undefined}>
+              <Animated.View
+                style={shakeKey === 'email' ? { transform: [{ translateX: shakeX }] } : undefined}>
                 <TextInput
-                  style={[s.input, focused === 'email' && s.inputFocused, shakeKey === 'email' && s.inputShake]}
+                  style={[
+                    s.input,
+                    focused === 'email' && s.inputFocused,
+                    shakeKey === 'email' && s.inputShake,
+                  ]}
                   placeholder="e.g. dani@email.com"
                   placeholderTextColor={colors.textHint}
                   value={state.email}
-                  autoFocus
                   autoCapitalize="none"
                   autoCorrect={false}
                   keyboardType="email-address"
@@ -259,6 +359,7 @@ export default function SignupScreen() {
                 />
               </Animated.View>
             </View>
+
             <View style={s.field}>
               <Text style={s.label}>Password</Text>
               <Animated.View
@@ -281,337 +382,617 @@ export default function SignupScreen() {
                 />
               </Animated.View>
             </View>
-          </>
-        ) : null}
 
-        {step === 'name' ? (
-          <>
-            <Text style={s.eyebrow}>About you</Text>
-            <Text style={s.title}>What should we call you?</Text>
-            <Text style={s.sub}>Your first and last name.</Text>
-            <View style={s.field}>
-              <Text style={s.label}>First name</Text>
-              <Animated.View style={shakeKey === 'first' ? { transform: [{ translateX: shakeX }] } : undefined}>
-                <TextInput
-                  style={[s.input, focused === 'first' && s.inputFocused, shakeKey === 'first' && s.inputShake]}
-                  placeholder="e.g. Dani"
-                  placeholderTextColor={colors.textHint}
-                  value={state.name}
-                  autoFocus
-                  onFocus={() => setFocused('first')}
-                  onBlur={() => setFocused(null)}
-                  onChangeText={(name) => setState((p) => ({ ...p, name }))}
-                />
-              </Animated.View>
-            </View>
-            <View style={s.field}>
-              <Text style={s.label}>Last name</Text>
-              <TextInput
-                style={[s.input, focused === 'last' && s.inputFocused]}
-                placeholder="e.g. Cohen"
-                placeholderTextColor={colors.textHint}
-                value={state.lastName}
-                onFocus={() => setFocused('last')}
-                onBlur={() => setFocused(null)}
-                onChangeText={(lastName) => setState((p) => ({ ...p, lastName }))}
-              />
-            </View>
-          </>
-        ) : null}
-
-        {step === 'type' ? (
-          <>
-            <Text style={s.eyebrow}>About your household</Text>
-            <Text style={s.title}>
-              Which best describes your family set up, {state.name || 'there'}?
-            </Text>
-            <Text style={s.sub}>This helps Taylo tailor what it looks out for.</Text>
-            <View style={s.choiceGrid}>
-              {FAMILY_OPTS.map((o) => (
-                <Pressable
-                  key={o.val}
-                  style={[s.choice, state.userType === o.val && s.choiceSel]}
-                  onPress={() => selectType(o.val)}>
-                  <View style={{ marginBottom: 6 }}>
-                    <BrandIconDisc name={o.name} wash={o.wash} size={40} />
-                  </View>
-                  <Text style={s.choiceLabel}>{o.label}</Text>
-                  <Text style={s.choiceSub}>{o.sub}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </>
-        ) : null}
-
-        {step === 'kids' ? (
-          <>
-            <Text style={s.eyebrow}>Your children</Text>
-            <Text style={s.title}>Tell us about your children</Text>
-            <Text style={s.sub}>
-              Names and birthdays — you can add school details later from the Family page.
-            </Text>
-            <Animated.View style={shakeKey === 'kids' ? { transform: [{ translateX: shakeX }] } : undefined}>
-              {state.kids.map((k, i) => (
-                <View key={i} style={s.kidRow}>
-                  <TextInput
-                    style={[s.input, s.inputSm, focused === `kid-n-${i}` && s.inputFocused]}
-                    placeholder="Child's name"
-                    placeholderTextColor={colors.textHint}
-                    value={k.name}
-                    onFocus={() => setFocused(`kid-n-${i}`)}
-                    onBlur={() => setFocused(null)}
-                    onChangeText={(name) => updateKid(i, { name })}
-                  />
-                  <DateField
-                    value={k.birthday}
-                    focused={focused === `kid-b-${i}`}
-                    onFocus={() => setFocused(`kid-b-${i}`)}
-                    onBlur={() => setFocused(null)}
-                    onChange={(birthday) => updateKid(i, { birthday })}
-                  />
-                  {state.kids.length > 1 ? (
-                    <Pressable style={s.remove} onPress={() => setState((p) => ({ ...p, kids: p.kids.filter((_, idx) => idx !== i) }))}>
-                      <Text style={s.removeText}>×</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              ))}
-            </Animated.View>
-            <Pressable onPress={() => setState((p) => ({ ...p, kids: [...p.kids, emptyKid()] }))}>
-              <Text style={s.addRow}>+ Add another child</Text>
-            </Pressable>
-          </>
-        ) : null}
-
-        {step === 'partner' ? (
-          <>
-            <Text style={s.eyebrow}>Partner</Text>
-            <Text style={s.title}>Is there a partner at home?</Text>
-            <Text style={s.sub}>Someone who shares the family load with you.</Text>
-            <View style={s.toggleRow}>
-              <View style={s.toggleCopy}>
-                <Text style={s.toggleLabel}>I have a partner</Text>
-                <Text style={s.toggleSub}>They can be invited to Taylo too</Text>
-              </View>
-              <Pressable
-                onPress={() => {
-                  const next = !partnerToggleOn;
-                  setPartnerForcedOn(next);
-                  if (!next) setState((p) => ({ ...p, partner: '', partnerInvited: false }));
-                }}>
-                <View style={[s.switch, partnerToggleOn && s.switchOn]}>
-                  <View style={[s.knob, partnerToggleOn && s.knobOn]} />
-                </View>
-              </Pressable>
-            </View>
-            {partnerToggleOn ? (
-              <View>
-                <View style={s.field}>
-                  <Text style={s.label}>Partner's first name</Text>
-                  <Animated.View
-                    style={shakeKey === 'partner' ? { transform: [{ translateX: shakeX }] } : undefined}>
-                    <TextInput
-                      style={[
-                        s.input,
-                        focused === 'partner' && s.inputFocused,
-                        shakeKey === 'partner' && s.inputShake,
-                      ]}
-                      placeholder="e.g. James"
-                      placeholderTextColor={colors.textHint}
-                      value={state.partner}
-                      onFocus={() => setFocused('partner')}
-                      onBlur={() => setFocused(null)}
-                      onChangeText={(partner) => setState((p) => ({ ...p, partner }))}
-                    />
-                  </Animated.View>
-                </View>
-                <Pressable
-                  style={s.checkboxRow}
-                  onPress={() => setState((p) => ({ ...p, partnerInvited: !p.partnerInvited }))}>
-                  <View style={[s.checkbox, state.partnerInvited && s.checkboxOn]}>
-                    {state.partnerInvited ? <Text style={s.checkboxMark}>✓</Text> : null}
-                  </View>
-                  <Text style={s.checkboxLabel}>
-                    Invite them to Taylo too — they'll get their own account and see shared family info
-                  </Text>
-                </Pressable>
-              </View>
-            ) : null}
-          </>
-        ) : null}
-
-        {step === 'connect' ? (
-          <>
-            <Text style={s.eyebrow}>Connections</Text>
-            <Text style={s.title}>Connect your calendar & email</Text>
-            <Text style={s.sub}>Taylo reads these to spot what matters for your family.</Text>
-            <View style={s.connList}>
-              {CONNS.map((c) => {
-                const on = !!state.connections[c.key];
-                return (
-                  <View key={c.key} style={s.connRow}>
-                    <BrandIconDisc name={c.name} wash={c.wash} size={32} />
-                    <View style={s.connCopy}>
-                      <Text style={s.connLabel}>{c.label}</Text>
-                      <Text style={s.connSub}>{c.sub}</Text>
-                    </View>
-                    <Pressable
-                      onPress={() =>
-                        setState((prev) => {
-                          const next = { ...prev.connections };
-                          if (next[c.key]) delete next[c.key];
-                          else next[c.key] = true;
-                          return { ...prev, connections: next };
-                        })
-                      }>
-                      <Text style={[s.connBtn, on && s.connBtnOn]}>{on ? 'Connected' : 'Connect'}</Text>
-                    </Pressable>
-                  </View>
-                );
-              })}
-            </View>
-          </>
-        ) : null}
-
-        {step === 'extra' ? (
-          <>
-            <Text style={s.eyebrow}>Almost done</Text>
-            <Text style={s.title}>Anything else on your mind?</Text>
-            <Text style={s.sub}>An upcoming appointment, a reminder — anything at all.</Text>
-            <TextInput
-              style={[s.textarea, focused === 'extra' && s.inputFocused]}
-              placeholder="e.g. MOT is due in March"
-              placeholderTextColor={colors.textHint}
-              multiline
-              value={extraText}
-              onFocus={() => setFocused('extra')}
-              onBlur={() => setFocused(null)}
-              onChangeText={setExtraText}
-            />
             <Pressable
-              onPress={() => {
-                const val = extraText.trim();
-                if (!val) return;
-                setState((prev) => ({ ...prev, extras: [...prev.extras, parseExtra(val)] }));
-                setExtraText('');
-              }}>
-              <Text style={s.addRow}>+ Add</Text>
+              onPress={() => router.replace('/signin')}
+              accessibilityRole="link"
+              style={{ marginBottom: 8 }}>
+              <Text style={s.skip}>Already have an account? Sign in</Text>
             </Pressable>
-            <View style={s.chipList}>
-              {state.extras.map((e, i) => (
-                <View key={`${e.title}-${i}`} style={s.chip}>
-                  <Text style={s.chipText}>{extraChipLabel(e.title)}</Text>
-                  <Pressable onPress={() => setState((p) => ({ ...p, extras: p.extras.filter((_, idx) => idx !== i) }))}>
-                    <Text style={s.chipX}>×</Text>
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          </>
-        ) : null}
 
-        {step === 'summary' ? (
-          <>
-            <Text style={s.eyebrow}>All set</Text>
-            <Text style={s.title}>Nice to meet you, {state.name}</Text>
-            <Text style={s.sub}>Here's what Taylo's got so far:</Text>
-            <View style={s.summaryCard}>
-              {summaryRows.map((row, i) => (
-                <View key={row.label} style={[s.summaryRow, i === summaryRows.length - 1 && s.summaryRowLast]}>
-                  <Text style={s.summaryKey}>{row.label}</Text>
-                  <Text style={s.summaryVal}>{row.value}</Text>
-                </View>
-              ))}
-            </View>
-            <Text style={[s.sub, s.subAfter]}>
-              You can add school details, medical notes and more from the Family page any time.
-            </Text>
-            {submitError ? (
-              <View style={s.errorBanner} accessibilityLiveRegion="polite">
-                <Text style={s.errorBannerText}>{submitError}</Text>
-              </View>
-            ) : null}
-          </>
-        ) : null}
-
-        <View style={[s.footer, { paddingBottom: Math.max(insets.bottom, 22), borderTopWidth: 0, paddingHorizontal: 0, paddingTop: 18 }]}>
-          {showSkip ? (
-            <Pressable onPress={goNext}>
-              <Text style={s.skip}>{skipLabel}</Text>
-            </Pressable>
-          ) : null}
-          {showContinue ? (
             <Pressable
-              style={[s.continue, (continuePressed || submitting) && { transform: [{ scale: 0.98 }] }, submitting && s.continueDisabled]}
-              disabled={submitting}
-              onPressIn={() => setContinuePressed(true)}
-              onPressOut={() => setContinuePressed(false)}
+              style={[s.continue, mainPressed && { transform: [{ scale: 0.98 }] }]}
+              onPressIn={() => setMainPressed(true)}
+              onPressOut={() => setMainPressed(false)}
               onPress={onContinue}>
-              {submitting ? (
+              <Text style={s.continueText}>Continue</Text>
+            </Pressable>
+          </>
+        ) : null}
+
+        {/* ── Step 2: Household ────────────────────────────────────────── */}
+        {step === 'household' ? (
+          <>
+            <Text style={s.sub}>
+              Add anyone who shares your home — you can always edit this from the Family page later.
+            </Text>
+
+            {state.members.map((m) => (
+              <MemberCard
+                key={m.id}
+                member={m}
+                focused={focused}
+                setFocused={setFocused}
+                onChange={(patch) => updateMember(m.id, patch)}
+                onRemove={() =>
+                  setState((p) => ({ ...p, members: p.members.filter((x) => x.id !== m.id) }))
+                }
+                openDobId={openDobId}
+                setOpenDobId={setOpenDobId}
+              />
+            ))}
+
+            <Pressable
+              style={ls.addMemberBtn}
+              onPress={() =>
+                setState((p) => ({ ...p, members: [...p.members, emptyMember()] }))
+              }>
+              <Text style={ls.addMemberBtnText}>+ Add a family member</Text>
+            </Pressable>
+
+            {state.members.length === 0 ? (
+              <Text style={ls.householdHint}>
+                Just you for now — that's fine. You can add family members any time from the Family
+                page.
+              </Text>
+            ) : null}
+
+            {createError ? (
+              <View style={[s.errorBanner, { marginTop: 12 }]}>
+                <Text style={s.errorBannerText}>{createError}</Text>
+              </View>
+            ) : null}
+
+            <Pressable
+              style={[
+                s.continue,
+                { marginTop: 18 },
+                (mainPressed || creatingAccount) && { transform: [{ scale: 0.98 }] },
+                creatingAccount && s.continueDisabled,
+              ]}
+              disabled={creatingAccount}
+              onPressIn={() => setMainPressed(true)}
+              onPressOut={() => setMainPressed(false)}
+              onPress={onContinue}>
+              {creatingAccount ? (
                 <View style={s.continueInner}>
-                  <ActivityIndicator color={colors.cream} size="small" />
-                  <Text style={s.continueText}>{continueLabel}</Text>
+                  <ActivityIndicator color={colors.navy} size="small" />
+                  <Text style={s.continueText}>Creating your account…</Text>
                 </View>
               ) : (
-                <Text style={s.continueText}>{continueLabel}</Text>
+                <Text style={s.continueText}>Continue</Text>
               )}
             </Pressable>
-          ) : null}
-        </View>
+          </>
+        ) : null}
+
+        {/* ── Step 3: Connect ─────────────────────────────────────────── */}
+        {step === 'connect' ? (
+          <>
+            <Text style={s.sub}>
+              Taylo reads these to spot what matters for your family. Only Outlook is available today
+              — more providers coming soon.
+            </Text>
+
+            {/* Outlook connection card */}
+            <View style={ls.connectCard}>
+              <View style={ls.connectCardHead}>
+                <View style={ls.connectCardIconWrap}>
+                  <Text style={ls.connectCardIconText}>✉</Text>
+                </View>
+                <View style={ls.connectCardCopy}>
+                  <Text style={ls.connectCardTitle}>Outlook</Text>
+                  <Text style={ls.connectCardSub}>
+                    {state.outlookConnected
+                      ? 'Connected — Taylo will read your Outlook calendar and inbox'
+                      : 'Calendar & email via your Microsoft account'}
+                  </Text>
+                </View>
+                {state.outlookConnected ? (
+                  <Text style={ls.connectedCheck}>✓</Text>
+                ) : null}
+              </View>
+
+              {!state.outlookConnected ? (
+                <View style={ls.connectCardBody}>
+                  <Text style={ls.connectHint}>
+                    Taylo reads incoming emails and calendar events to spot family-relevant things —
+                    without storing your emails or sharing your data.
+                  </Text>
+                  {outlookError ? (
+                    <View style={[s.errorBanner, { marginBottom: 4 }]}>
+                      <Text style={s.errorBannerText}>{outlookError}</Text>
+                    </View>
+                  ) : null}
+                  <Pressable
+                    style={[ls.connectBtn, outlookLoading && s.continueDisabled]}
+                    disabled={outlookLoading}
+                    onPress={() => void connectOutlook()}>
+                    {outlookLoading ? (
+                      <View style={s.continueInner}>
+                        <ActivityIndicator color={colors.navy} size="small" />
+                        <Text style={s.continueText}>Connecting…</Text>
+                      </View>
+                    ) : (
+                      <Text style={s.continueText}>Connect Outlook</Text>
+                    )}
+                  </Pressable>
+                </View>
+              ) : null}
+            </View>
+
+            {/* ⚠️ Note for dev: Outlook OAuth uses the Supabase function as the
+                Microsoft redirect_uri. In local dev, Linking.createURL returns an
+                exp:// app_redirect which the server accepts, but the Azure app
+                registration redirect_uri must match the deployed Supabase function
+                URL — not a local IP. If you're seeing redirect_uri_mismatch errors
+                in non-dev builds, check the Azure portal registration. */}
+
+            {state.outlookConnected ? (
+              <Pressable
+                style={[
+                  s.continue,
+                  { marginTop: 14 },
+                  mainPressed && { transform: [{ scale: 0.98 }] },
+                ]}
+                onPressIn={() => setMainPressed(true)}
+                onPressOut={() => setMainPressed(false)}
+                onPress={onContinue}>
+                <Text style={s.continueText}>Continue →</Text>
+              </Pressable>
+            ) : (
+              <Pressable onPress={onContinue} style={{ marginTop: 16 }}>
+                <Text style={s.skip}>Skip for now — connect later from Settings</Text>
+              </Pressable>
+            )}
+          </>
+        ) : null}
+
+        {/* ── Step 4: Done ─────────────────────────────────────────────── */}
+        {step === 'done' ? (
+          <>
+            <Text style={s.sub}>Here's what Taylo's got set up — you can always add more later.</Text>
+
+            <View style={s.summaryCard}>
+              <View style={s.summaryRow}>
+                <Text style={s.summaryKey}>Your name</Text>
+                <Text style={s.summaryVal}>
+                  {`${cap(state.firstName)} ${cap(state.lastName)}`.trim()}
+                </Text>
+              </View>
+              {validMembers.length ? (
+                <View style={s.summaryRow}>
+                  <Text style={s.summaryKey}>Household</Text>
+                  <Text style={s.summaryVal}>
+                    {validMembers.map((m) => cap(m.name)).join(', ')}
+                  </Text>
+                </View>
+              ) : null}
+              <View style={[s.summaryRow, s.summaryRowLast]}>
+                <Text style={s.summaryKey}>Calendar & email</Text>
+                <Text style={s.summaryVal}>
+                  {state.outlookConnected ? 'Outlook connected ✓' : 'Not connected yet'}
+                </Text>
+              </View>
+            </View>
+
+            {!state.outlookConnected ? (
+              <Text style={[s.sub, s.subAfter]}>
+                You can connect Outlook any time from More → Connections.
+              </Text>
+            ) : null}
+
+            <Pressable
+              style={[
+                s.continue,
+                { marginTop: 18 },
+                mainPressed && { transform: [{ scale: 0.98 }] },
+              ]}
+              onPressIn={() => setMainPressed(true)}
+              onPressOut={() => setMainPressed(false)}
+              onPress={() => router.replace('/home')}>
+              <Text style={s.continueText}>Take me to Taylo →</Text>
+            </Pressable>
+          </>
+        ) : null}
+
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
-function DateField({
-  value,
-  onChange,
+// ── MemberCard ───────────────────────────────────────────────────────────────
+
+function MemberCard({
+  member,
   focused,
-  onFocus,
-  onBlur,
+  setFocused,
+  onChange,
+  onRemove,
+  openDobId,
+  setOpenDobId,
 }: {
-  value: string;
-  onChange: (v: string) => void;
-  focused: boolean;
-  onFocus: () => void;
-  onBlur: () => void;
+  member: HouseholdMember;
+  focused: string | null;
+  setFocused: (k: string | null) => void;
+  onChange: (patch: Partial<HouseholdMember>) => void;
+  onRemove: () => void;
+  openDobId: string | null;
+  setOpenDobId: (id: string | null) => void;
 }) {
+  const nameKey = `name-${member.id}`;
+  const isDobOpen = openDobId === member.id;
+  const isChild = member.relationship === 'child';
+
+  return (
+    <View style={ls.memberCard}>
+      {/* Name + remove */}
+      <View style={ls.memberNameRow}>
+        <TextInput
+          style={[ls.memberNameInput, focused === nameKey && s.inputFocused]}
+          placeholder="Name"
+          placeholderTextColor={colors.textHint}
+          value={member.name}
+          autoCapitalize="words"
+          autoCorrect={false}
+          onFocus={() => setFocused(nameKey)}
+          onBlur={() => setFocused(null)}
+          onChangeText={(name) => onChange({ name })}
+        />
+        <Pressable style={ls.memberRemove} onPress={onRemove} hitSlop={8}>
+          <Text style={ls.memberRemoveText}>×</Text>
+        </Pressable>
+      </View>
+
+      {/* Relationship pills */}
+      <View style={ls.relRow}>
+        {REL_OPTS.map((opt) => (
+          <Pressable
+            key={opt.val}
+            style={[ls.relPill, member.relationship === opt.val && ls.relPillOn]}
+            onPress={() =>
+              onChange({ relationship: opt.val, dob: opt.val !== 'child' ? null : member.dob })
+            }>
+            <Text style={[ls.relPillText, member.relationship === opt.val && ls.relPillTextOn]}>
+              {opt.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* DOB field — children only */}
+      {isChild ? (
+        <DobField
+          member={member}
+          onChange={onChange}
+          isDobOpen={isDobOpen}
+          onToggle={() => setOpenDobId(isDobOpen ? null : member.id)}
+          onClose={() => setOpenDobId(null)}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+// ── DobField ─────────────────────────────────────────────────────────────────
+
+function DobField({
+  member,
+  onChange,
+  isDobOpen,
+  onToggle,
+  onClose,
+}: {
+  member: HouseholdMember;
+  onChange: (patch: Partial<HouseholdMember>) => void;
+  isDobOpen: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+}) {
+  const dateValue = parseDob(member.dob);
+
+  // ── Web: native <input type="date"> ──
   if (Platform.OS === 'web') {
     return createElement('input', {
       type: 'date',
-      value,
-      onChange: (e: { target: { value: string } }) => onChange(e.target.value),
-      onFocus,
-      onBlur,
+      value: member.dob ?? '',
+      max: new Date().toISOString().split('T')[0],
+      onChange: (e: { target: { value: string } }) =>
+        onChange({ dob: e.target.value || null }),
       style: {
-        flex: 1,
-        minWidth: 0,
+        width: '100%',
         borderWidth: 1.5,
         borderStyle: 'solid',
-        borderColor: focused ? colors.terracotta : colors.border,
+        borderColor: colors.border,
         borderRadius: 11,
-        paddingTop: 9,
-        paddingBottom: 9,
-        paddingLeft: 11,
-        paddingRight: 11,
+        paddingTop: 10,
+        paddingBottom: 10,
+        paddingLeft: 12,
+        paddingRight: 12,
         fontSize: fontSizes.body,
         fontFamily: fonts.sansRegular,
         color: colors.text,
         backgroundColor: colors.cream,
         outline: 'none',
+        marginTop: 6,
+        boxSizing: 'border-box',
       },
     });
   }
 
+  // ── Native: tap-to-open picker ──
   return (
-    <TextInput
-      style={[s.input, s.inputSm, focused && s.inputFocused]}
-      placeholder="YYYY-MM-DD"
-      placeholderTextColor={colors.textHint}
-      value={value}
-      onFocus={onFocus}
-      onBlur={onBlur}
-      onChangeText={onChange}
-    />
+    <>
+      <Pressable style={ls.dobRow} onPress={onToggle}>
+        <Text style={ls.dobLabel}>Date of birth</Text>
+        <Text style={member.dob ? ls.dobValue : ls.dobPlaceholder}>
+          {member.dob ? formatDob(member.dob) : 'Tap to set'}
+        </Text>
+      </Pressable>
+
+      {/* iOS: inline spinner */}
+      {DateTimePicker && Platform.OS === 'ios' && isDobOpen ? (
+        <View style={ls.iosPickerWrap}>
+          <DateTimePicker
+            value={dateValue}
+            mode="date"
+            display="spinner"
+            maximumDate={new Date()}
+            onChange={(_: unknown, date?: Date) => {
+              if (date) onChange({ dob: isoFromDate(date) });
+            }}
+          />
+          <Pressable style={ls.iosPickerDoneRow} onPress={onClose}>
+            <Text style={ls.iosPickerDoneText}>Done</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {/* Android: system date picker dialog */}
+      {DateTimePicker && Platform.OS === 'android' && isDobOpen ? (
+        <DateTimePicker
+          value={dateValue}
+          mode="date"
+          display="default"
+          maximumDate={new Date()}
+          onChange={(event: { type: string }, date?: Date) => {
+            onClose();
+            if (event.type === 'set' && date) onChange({ dob: isoFromDate(date) });
+          }}
+        />
+      ) : null}
+
+      {/* Fallback text input if the native module isn't available in this build */}
+      {!DateTimePicker ? (
+        <TextInput
+          style={ls.dobFallback}
+          placeholder="YYYY-MM-DD"
+          placeholderTextColor={colors.textHint}
+          value={member.dob ?? ''}
+          onChangeText={(v) => onChange({ dob: v || null })}
+        />
+      ) : null}
+    </>
   );
 }
+
+// ── Local styles ─────────────────────────────────────────────────────────────
+
+const ls = StyleSheet.create({
+  nameRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 0,
+  },
+  // ─ Household step ─
+  memberCard: {
+    backgroundColor: colors.cream,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 12,
+    marginBottom: 10,
+    gap: 10,
+  },
+  memberNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  memberNameInput: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: 11,
+    paddingVertical: 11,
+    paddingHorizontal: 13,
+    fontSize: fontSizes.body,
+    fontFamily: fonts.sansRegular,
+    color: colors.text,
+    backgroundColor: colors.cream,
+  },
+  memberRemove: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: colors.paleBlue,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  memberRemoveText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontFamily: fonts.sansRegular,
+    lineHeight: 16,
+  },
+  relRow: {
+    flexDirection: 'row',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  relPill: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    backgroundColor: colors.ivory,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+  },
+  relPillOn: {
+    backgroundColor: colors.blush,
+    borderColor: colors.terracotta,
+  },
+  relPillText: {
+    fontSize: fontSizes.caption,
+    fontFamily: fonts.sansMedium,
+    color: colors.textMuted,
+  },
+  relPillTextOn: {
+    color: colors.navy,
+  },
+  // ─ DOB ─
+  dobRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: 11,
+    paddingVertical: 10,
+    paddingHorizontal: 13,
+    backgroundColor: colors.cream,
+  },
+  dobLabel: {
+    fontSize: fontSizes.caption,
+    fontFamily: fonts.sansSemiBold,
+    color: colors.textHint,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  dobValue: {
+    fontSize: fontSizes.body,
+    fontFamily: fonts.sansRegular,
+    color: colors.text,
+  },
+  dobPlaceholder: {
+    fontSize: fontSizes.body,
+    fontFamily: fonts.sansRegular,
+    color: colors.textHint,
+  },
+  iosPickerWrap: {
+    backgroundColor: colors.cream,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  iosPickerDoneRow: {
+    alignItems: 'flex-end',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  iosPickerDoneText: {
+    fontSize: fontSizes.body,
+    fontFamily: fonts.sansSemiBold,
+    color: colors.navy,
+  },
+  dobFallback: {
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: 11,
+    paddingVertical: 11,
+    paddingHorizontal: 13,
+    fontSize: fontSizes.body,
+    fontFamily: fonts.sansRegular,
+    color: colors.text,
+    backgroundColor: colors.cream,
+  },
+  addMemberBtn: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: colors.paleBlue,
+    borderRadius: 13,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  addMemberBtnText: {
+    fontSize: fontSizes.body,
+    fontFamily: fonts.sansSemiBold,
+    color: colors.navy,
+  },
+  householdHint: {
+    fontSize: fontSizes.body,
+    fontFamily: fonts.sansRegular,
+    color: colors.textHint,
+    lineHeight: fontSizes.body * 1.55,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  // ─ Connect step ─
+  connectCard: {
+    backgroundColor: colors.cream,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  connectCardHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+  },
+  connectCardIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.paleBlue,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  connectCardIconText: {
+    fontSize: 18,
+  },
+  connectCardCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  connectCardTitle: {
+    fontSize: fontSizes.title,
+    fontFamily: fonts.sansSemiBold,
+    color: colors.navy,
+  },
+  connectCardSub: {
+    fontSize: fontSizes.caption,
+    fontFamily: fonts.sansRegular,
+    color: colors.textMuted,
+    marginTop: 2,
+    lineHeight: 18,
+  },
+  connectedCheck: {
+    fontSize: 22,
+    color: colors.terracotta,
+  },
+  connectCardBody: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    padding: 14,
+    gap: 12,
+  },
+  connectHint: {
+    fontSize: fontSizes.body,
+    fontFamily: fonts.sansRegular,
+    color: colors.textMuted,
+    lineHeight: fontSizes.body * 1.5,
+  },
+  connectBtn: {
+    backgroundColor: colors.blush,
+    borderWidth: 1.5,
+    borderColor: colors.terracotta,
+    borderRadius: 22,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+});

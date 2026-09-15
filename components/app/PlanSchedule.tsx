@@ -1,25 +1,24 @@
 import { BrandGlyph, BrandIconDisc } from '@/components/app/BrandIcon';
 import { DayTimelineCard } from '@/components/app/DayTimelineCard';
+import { ScheduleMonthCalendar } from '@/components/app/ScheduleMonthCalendar';
 import { appStyles as s } from '@/components/app/styles';
 import { colors } from '@/constants/theme';
 import { happenClockLabel, happenSortKey, type HappenItem } from '@/lib/happening';
 import { cachedDensityInsight, refreshScheduleDensity } from '@/lib/schedule-density';
 import { resolvePlanIcon } from '@/lib/plan-icon';
 import {
+  addMonthKey,
   bucketAgenda,
   currentWeekDays,
+  defaultSelectedYmd,
   findBusyDay,
   fallbackDensityLine,
-  formatDayLabel,
-  formatSelectorLabel,
-  LATER_PREVIEW,
+  laterThisMonthLabel,
   mapAgendaRow,
-  MAX_WEEK_OFFSET,
+  monthKeyFromYmd,
+  monthPrefix,
   selectedSectionTitle,
   thingsAheadLabel,
-  weekCellInitial,
-  weekDaysAtOffset,
-  weekSectionLabel,
   ymdLocal,
   type AgendaRow,
   type BusyDay,
@@ -28,8 +27,8 @@ import {
 import { supabase } from '@/lib/supabase';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, router } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
 const SELECT = 'id, title, body, category, icon, occurs_at, who_it_affects, kind, status, confidence';
 
@@ -63,28 +62,35 @@ export function AgendaItemRow({
   );
 }
 
-export function PlanSchedule() {
+export function PlanSchedule({
+  onJumpTo,
+}: {
+  onJumpTo?: (localY: number) => void;
+}) {
   const today = useMemo(() => new Date(), []);
-  const [weekOffset, setWeekOffset] = useState(0);
-  const week = useMemo(() => weekDaysAtOffset(today, weekOffset), [today, weekOffset]);
+  const [monthKey, setMonthKey] = useState(() => monthPrefix(today));
   const [selectedYmd, setSelectedYmd] = useState(() => ymdLocal(today));
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [rows, setRows] = useState<AgendaRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [picker, setPicker] = useState(false);
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const [density, setDensity] = useState<string | null>(null);
   const [busy, setBusy] = useState<BusyDay | null>(null);
 
+  const timelineY = useRef(0);
+  const [jumpSeq, setJumpSeq] = useState(0);
+
   const selectedDate = useMemo(() => {
-    const match = week.find((day) => ymdLocal(day) === selectedYmd);
-    if (match) return match;
     const [y, m, d] = selectedYmd.split('-').map(Number);
     return new Date(y, m - 1, d);
-  }, [selectedYmd, week]);
+  }, [selectedYmd]);
 
-  const buckets = useMemo(() => bucketAgenda(rows, selectedYmd, today), [rows, selectedYmd, today]);
-  const laterPreview = buckets.laterThisMonth.slice(0, LATER_PREVIEW);
+  const buckets = useMemo(
+    () => bucketAgenda(rows, selectedYmd, today, monthKey),
+    [rows, selectedYmd, today, monthKey],
+  );
   const isToday = selectedYmd === ymdLocal(today);
+  const markedYmds = useMemo(() => new Set(rows.map((row) => row.ymd)), [rows]);
   const selectedHappen: HappenItem[] = useMemo(() => {
     const real = buckets.selected.map((item) => ({
       id: item.id,
@@ -96,6 +102,34 @@ export function PlanSchedule() {
     }));
     return real.sort((a, b) => happenSortKey(a) - happenSortKey(b));
   }, [buckets.selected]);
+
+  const jumpToSelectedDay = useCallback(() => {
+    if (!onJumpTo) return;
+    onJumpTo(timelineY.current);
+  }, [onJumpTo]);
+
+  useEffect(() => {
+    if (jumpSeq === 0) return;
+    const timer = setTimeout(jumpToSelectedDay, 40);
+    return () => clearTimeout(timer);
+  }, [jumpSeq, jumpToSelectedDay]);
+
+  const selectDay = useCallback((ymd: string) => {
+    setMonthKey(monthKeyFromYmd(ymd));
+    setSelectedYmd(ymd);
+    setJumpSeq((n) => n + 1);
+  }, []);
+
+  const changeMonth = useCallback(
+    (delta: number) => {
+      setMonthKey((current) => {
+        const next = addMonthKey(current, delta);
+        setSelectedYmd(defaultSelectedYmd(next, today));
+        return next;
+      });
+    },
+    [today],
+  );
 
   const load = useCallback(async () => {
     const {
@@ -159,14 +193,11 @@ export function PlanSchedule() {
   }
 
   return (
-    <>
+    <View>
       {density && busy ? (
         <Pressable
           style={s.scheduleNotice}
-          onPress={() => {
-            setWeekOffset(0);
-            setSelectedYmd(busy.ymd);
-          }}
+          onPress={() => selectDay(busy.ymd)}
           accessibilityRole="button"
           accessibilityLabel="See the busy day">
           <BrandGlyph name="sparkles-outline" size={18} color={colors.terracotta} />
@@ -175,132 +206,88 @@ export function PlanSchedule() {
         </Pressable>
       ) : null}
 
-      <View style={s.homeSectionHead}>
-        <Text style={s.homeSectionLabel}>{weekSectionLabel(weekOffset)}</Text>
-        <Pressable onPress={() => setPicker(true)} hitSlop={8} style={s.scheduleSelector}>
-          <Text style={s.homeSeeAll}>{formatSelectorLabel(selectedDate, today)} ▾</Text>
-        </Pressable>
+      <ScheduleMonthCalendar
+        monthKey={monthKey}
+        selectedYmd={selectedYmd}
+        today={today}
+        markedYmds={markedYmds}
+        expanded={calendarOpen}
+        onToggleExpanded={() => setCalendarOpen((open) => !open)}
+        onChangeMonth={changeMonth}
+        onSelectDay={selectDay}
+      />
+
+      <View onLayout={(event) => { timelineY.current = event.nativeEvent.layout.y; }}>
+        <DayTimelineCard
+          kicker={isToday ? 'Today' : selectedSectionTitle(selectedDate, today)}
+          items={selectedHappen}
+          emptyTitle={rows.length ? (isToday ? 'Nothing on today' : 'Nothing on this day') : undefined}
+          onItemPress={(item) => {
+            router.push({ pathname: '/plan/item/[itemId]', params: { itemId: item.id } });
+          }}
+        />
       </View>
 
-      <View style={s.scheduleWeekNav}>
-        <Pressable
-          style={[s.scheduleWeekArrow, weekOffset <= 0 && s.scheduleWeekArrowOff]}
-          disabled={weekOffset <= 0}
-          onPress={() => {
-            const next = weekOffset - 1;
-            setWeekOffset(next);
-            setSelectedYmd(next <= 0 ? ymdLocal(today) : ymdLocal(weekDaysAtOffset(today, next)[0]));
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="Previous week">
-          <Ionicons name="chevron-back" size={18} color={colors.navy} />
-        </Pressable>
-        <View style={s.scheduleWeek}>
-          {week.map((day) => {
-            const ymd = ymdLocal(day);
-            const on = ymd === selectedYmd;
+      <View style={s.homeHero}>
+        <View style={s.homeCardHead}>
+          <Text style={s.homeSectionLabel}>{laterThisMonthLabel(monthKey)}</Text>
+        </View>
+        {buckets.laterThisMonth.length ? (
+          buckets.laterThisMonth.map((item, index) => (
+            <AgendaItemRow
+              key={item.id}
+              item={item}
+              when="date"
+              last={index === buckets.laterThisMonth.length - 1}
+            />
+          ))
+        ) : (
+          <View style={[s.homeHeroRow, s.homeHeroRowLast]}>
+            <Text style={s.emptyStateText}>Nothing else this month.</Text>
+          </View>
+        )}
+      </View>
+
+      {buckets.furtherAhead.length ? (
+        <View style={s.homeHero}>
+          <View style={s.homeCardHead}>
+            <Text style={s.homeSectionLabel}>Further ahead</Text>
+          </View>
+          {buckets.furtherAhead.map((group, index) => {
+            const open = expandedMonth === group.key;
+            const lastGroup = index === buckets.furtherAhead.length - 1;
             return (
-              <Pressable
-                key={ymd}
-                style={[s.scheduleWeekCell, on && s.scheduleWeekCellOn]}
-                onPress={() => setSelectedYmd(ymd)}>
-                <Text style={[s.scheduleWeekInitial, on && s.scheduleWeekTextOn]}>{weekCellInitial(day)}</Text>
-                <Text style={[s.scheduleWeekNum, on && s.scheduleWeekTextOn]}>{day.getDate()}</Text>
-              </Pressable>
+              <View key={group.key}>
+                <Pressable
+                  style={[s.homeHeroRow, lastGroup && !open && s.homeHeroRowLast]}
+                  onPress={() => setExpandedMonth(open ? null : group.key)}>
+                  <View style={s.nrow}>
+                    <Ionicons
+                      name={open ? 'chevron-down' : 'chevron-forward'}
+                      size={16}
+                      color={colors.textHint}
+                    />
+                    <View style={s.ncopy}>
+                      <Text style={s.homeItemTitle}>
+                        {group.label} · {thingsAheadLabel(group.count)}
+                      </Text>
+                    </View>
+                  </View>
+                </Pressable>
+                {open
+                  ? group.items.map((item, itemIndex) => (
+                      <AgendaItemRow
+                        key={item.id}
+                        item={item}
+                        when="date"
+                        last={lastGroup && itemIndex === group.items.length - 1}
+                      />
+                    ))
+                  : null}
+              </View>
             );
           })}
         </View>
-        <Pressable
-          style={[s.scheduleWeekArrow, weekOffset >= MAX_WEEK_OFFSET && s.scheduleWeekArrowOff]}
-          disabled={weekOffset >= MAX_WEEK_OFFSET}
-          onPress={() => {
-            const next = weekOffset + 1;
-            setWeekOffset(next);
-            setSelectedYmd(ymdLocal(weekDaysAtOffset(today, next)[0]));
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="Next week">
-          <Ionicons name="chevron-forward" size={18} color={colors.navy} />
-        </Pressable>
-      </View>
-
-      <DayTimelineCard
-        kicker={isToday ? 'Today' : selectedSectionTitle(selectedDate, today)}
-        items={selectedHappen}
-        emptyTitle={rows.length ? (isToday ? 'Nothing on today' : 'Nothing on this day') : undefined}
-        onItemPress={(item) => {
-          router.push({ pathname: '/plan/item/[itemId]', params: { itemId: item.id } });
-        }}
-      />
-
-      {buckets.laterThisMonth.length ? (
-        <>
-          <View style={s.homeSectionHead}>
-            <Text style={s.homeSectionLabel}>Later this month</Text>
-            {buckets.laterThisMonth.length > LATER_PREVIEW ? (
-              <Pressable
-                onPress={() =>
-                  router.push({ pathname: '/plan/month', params: { selected: selectedYmd } })
-                }>
-                <Text style={s.homeSeeAll}>View all</Text>
-              </Pressable>
-            ) : null}
-          </View>
-          <View style={s.homeHero}>
-            {laterPreview.map((item, index) => (
-              <AgendaItemRow
-                key={item.id}
-                item={item}
-                when="date"
-                last={index === laterPreview.length - 1}
-              />
-            ))}
-          </View>
-        </>
-      ) : null}
-
-      {buckets.furtherAhead.length ? (
-        <>
-          <View style={s.homeSectionHead}>
-            <Text style={s.homeSectionLabel}>Further ahead</Text>
-          </View>
-          <View style={s.homeHero}>
-            {buckets.furtherAhead.map((group, index) => {
-              const open = expandedMonth === group.key;
-              const lastGroup = index === buckets.furtherAhead.length - 1;
-              return (
-                <View key={group.key}>
-                  <Pressable
-                    style={[s.homeHeroRow, lastGroup && !open && s.homeHeroRowLast]}
-                    onPress={() => setExpandedMonth(open ? null : group.key)}>
-                    <View style={s.nrow}>
-                      <Ionicons
-                        name={open ? 'chevron-down' : 'chevron-forward'}
-                        size={16}
-                        color={colors.textHint}
-                      />
-                      <View style={s.ncopy}>
-                        <Text style={s.homeItemTitle}>
-                          {group.label} · {thingsAheadLabel(group.count)}
-                        </Text>
-                      </View>
-                    </View>
-                  </Pressable>
-                  {open
-                    ? group.items.map((item, itemIndex) => (
-                        <AgendaItemRow
-                          key={item.id}
-                          item={item}
-                          when="date"
-                          last={lastGroup && itemIndex === group.items.length - 1}
-                        />
-                      ))
-                    : null}
-                </View>
-              );
-            })}
-          </View>
-        </>
       ) : null}
 
       {!rows.length && !selectedHappen.length ? (
@@ -312,33 +299,6 @@ export function PlanSchedule() {
           </View>
         </View>
       ) : null}
-
-      <Modal visible={picker} animationType="fade" transparent onRequestClose={() => setPicker(false)}>
-        <Pressable style={s.planModalScrim} onPress={() => setPicker(false)}>
-          <Pressable style={s.planModalCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={s.planModalTitle}>{weekSectionLabel(weekOffset)}</Text>
-            <Text style={s.planModalHint}>Jump to a day, or use the arrows for next week.</Text>
-            {week.map((day) => {
-              const ymd = ymdLocal(day);
-              const on = ymd === selectedYmd;
-              return (
-                <Pressable
-                  key={ymd}
-                  style={[s.schedulePickRow, on && s.schedulePickRowOn]}
-                  onPress={() => {
-                    setSelectedYmd(ymd);
-                    setPicker(false);
-                  }}>
-                  <Text style={s.homeItemTitle}>{formatSelectorLabel(day, today)}</Text>
-                </Pressable>
-              );
-            })}
-            <Pressable onPress={() => setPicker(false)}>
-              <Text style={s.planModalCancel}>Cancel</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
-    </>
+    </View>
   );
 }

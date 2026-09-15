@@ -432,13 +432,15 @@ export const signupStyles = StyleSheet.create({
   },
   continue: {
     width: '100%',
-    backgroundColor: colors.navy,
+    backgroundColor: colors.blush,
+    borderWidth: 1.5,
+    borderColor: colors.terracotta,
     borderRadius: 22,
     paddingVertical: 14,
     alignItems: 'center',
   },
   continueDisabled: {
-    opacity: 0.7,
+    opacity: 0.6,
   },
   continueInner: {
     flexDirection: 'row',
@@ -446,7 +448,7 @@ export const signupStyles = StyleSheet.create({
     gap: 8,
   },
   continueText: {
-    color: colors.white,
+    color: colors.navy,
     fontSize: fontSizes.header,
     fontFamily: fonts.sansSemiBold,
   },

@@ -35,3 +35,7 @@ export function SendIcon() {
 export function MenuIcon() {
   return <Ionicons name="menu-outline" size={22} color={colors.textMuted} />;
 }
+
+export function HistoryIcon() {
+  return <Ionicons name="time-outline" size={22} color={colors.textMuted} />;
+}

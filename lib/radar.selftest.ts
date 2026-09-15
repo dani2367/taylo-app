@@ -69,6 +69,14 @@ expect(
   radarGroupedContext(2, '2026-09-12', today),
   'Next week · 2 things to sort',
 );
+expect(
+  'grouped long titles stay on the count line',
+  radarGroupedContext(2, ymd(42), today, [
+    'Check passports and visas for israel trip',
+    'Arrange travel documents and insurance for the family',
+  ]),
+  'In 6 weeks · 2 things to sort',
+);
 
 const ordered = [
   item({ id: 'b', title: 'B', event_date: null, created_at: '2026-09-01T00:00:00Z' }),

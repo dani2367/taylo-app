@@ -5,6 +5,7 @@ import {
   hasUnambiguousStatedDate,
   intakeContractRules,
   isExcludedPrep,
+  isNamedDatedLifeEventCapture,
   informationalScheduleOccursAt,
   normalizeIntakeItem,
   shouldPersistObligation,
@@ -21,8 +22,8 @@ function expect(name: string, got: unknown, want: unknown) {
 }
 
 expect(
-  'email contract still forbids occurrence kind',
-  intakeContractRules('email').includes('Never use kind=occurrence'),
+  'email contract allows named-event occurrence',
+  intakeContractRules('email').includes('kind=occurrence IS allowed'),
   true,
 );
 expect(
@@ -80,12 +81,12 @@ const noPresents = finalizeSourceItems({
 
 expect(
   'no-presents obligations never set occurs_at',
-  noPresents.filter((item) => item.kind !== 'context_only').every((item) => item.occurs_at === null),
+  noPresents.filter((item) => item.kind === 'obligation').every((item) => item.occurs_at === null),
   true,
 );
 expect(
-  'stated-fact birthday context_only may sit on schedule',
-  noPresents.find((item) => item.kind === 'context_only')?.occurs_at,
+  'stated-fact birthday occurrence may sit on schedule',
+  noPresents.find((item) => item.kind === 'occurrence')?.occurs_at,
   '2026-09-20',
 );
 expect(
@@ -230,7 +231,7 @@ expect('trainers hold has no occurs_at', trainersHold[0]?.occurs_at, null);
 expect('trainers kind is hold', trainersHold[0]?.kind, 'hold');
 expect('trainers split has no child obligations', splitParentAndChildren(trainersHold, trainersText).children, []);
 
-expect('email occurrence kind is coerced', trainers[0]?.kind !== 'occurrence', true);
+expect('email occurrence kind is not used for undated holds', trainers[0]?.kind !== 'occurrence', true);
 
 const nurseryText = 'Nursery is closed on the 19th for staff training. No need to bring anything.';
 const nurseryClosed = finalizeSourceItems({
@@ -433,6 +434,7 @@ expect(
   birthdayNoPrep.filter((item) => item.kind === 'obligation').map((item) => item.title).sort(),
   ['Card', 'Present'],
 );
+expect('birthday with a stated day is an occurrence', birthdayNoPrep[0]?.kind, 'occurrence');
 
 const helmet = splitParentAndChildren(
   [
@@ -507,7 +509,7 @@ const marley = finalizeSourceItems({
     },
   ],
 });
-expect('marley party is context not a home to-do', marley[0]?.kind, 'context_only');
+expect('marley party is an occurrence not a home to-do', marley[0]?.kind, 'occurrence');
 expect('marley keeps an RSVP', marley.some((item) => item.kind === 'obligation' && /rsvp/i.test(item.title)), true);
 expect(
   'marley does not keep a donation leftover',
@@ -515,5 +517,152 @@ expect(
   false,
 );
 expect('marley does not invent a present', marley.some((item) => item.title.toLowerCase() === 'present'), false);
+
+const weddingText =
+  "Olivier's wedding is on 5 December. I need to plan the chairman speech.";
+const wedding = finalizeSourceItems({
+  source: 'chat',
+  sourceText: weddingText,
+  fallbackTitle: "Olivier's wedding",
+  date: '2026-12-05',
+  rawItems: [
+    {
+      title: "Olivier's wedding — chairman speech",
+      kind: 'obligation',
+      occurs_at: null,
+      due_at: '2026-12-05',
+      actionable: 'yes',
+      prep_implied: 'stated',
+      confidence: 'high',
+      evidence: weddingText,
+    },
+  ],
+});
+const weddingSplit = splitParentAndChildren(wedding, "Olivier's wedding");
+expect('collapsed wedding becomes an occurrence', weddingSplit.parent.kind, 'occurrence');
+expect('collapsed wedding occurs_at is the stated day', weddingSplit.parent.occurs_at, '2026-12-05');
+expect('collapsed wedding parent has no due_at', weddingSplit.parent.due_at, null);
+expect('collapsed wedding speech is a child obligation', weddingSplit.children.map((item) => item.title), [
+  'Chairman speech',
+]);
+expect('collapsed wedding speech due_at is the event day', weddingSplit.children[0]?.due_at, '2026-12-05');
+expect('collapsed wedding speech has no occurs_at', weddingSplit.children[0]?.occurs_at, null);
+
+const writeForText = 'olivers wedding on 5th december - need to write my chairman speech';
+const writeFor = finalizeSourceItems({
+  source: 'chat',
+  sourceText: writeForText,
+  fallbackTitle: "Write chairman speech for Oliver's wedding",
+  date: '2026-12-05',
+  extraLabels: ["Write chairman speech for Oliver's wedding"],
+  rawItems: [
+    {
+      title: "Write chairman speech for Oliver's wedding",
+      kind: 'obligation',
+      occurs_at: null,
+      due_at: '2026-12-05',
+      actionable: 'yes',
+      prep_implied: 'stated',
+      confidence: 'high',
+      evidence: writeForText,
+    },
+  ],
+});
+const writeForSplit = splitParentAndChildren(writeFor, "Write chairman speech for Oliver's wedding");
+expect('write-for wedding is an occurrence', writeForSplit.parent.kind, 'occurrence');
+expect('write-for wedding title is the event', writeForSplit.parent.title, "Oliver's wedding");
+expect('write-for wedding sits on the stated day', writeForSplit.parent.occurs_at, '2026-12-05');
+expect(
+  'write-for speech is the radar obligation',
+  writeForSplit.children.map((item) => item.title),
+  ['Write chairman speech'],
+);
+
+const eyeText = 'Book the eye test on 5 December';
+const eyeTest = finalizeSourceItems({
+  source: 'chat',
+  sourceText: eyeText,
+  fallbackTitle: "Book Taya's eye test",
+  date: '2026-12-05',
+  rawItems: [
+    {
+      title: "Book Taya's eye test",
+      kind: 'obligation',
+      due_at: '2026-12-05',
+      actionable: 'yes',
+      prep_implied: 'stated',
+      confidence: 'high',
+      evidence: eyeText,
+    },
+  ],
+});
+expect('dated eye test stays an obligation', eyeTest[0]?.kind, 'obligation');
+expect('dated eye test is not an occurrence', eyeTest.some((item) => item.kind === 'occurrence'), false);
+
+const teacherText = 'Email the teacher about the farm trip on 5 December';
+const teacher = finalizeSourceItems({
+  source: 'chat',
+  sourceText: teacherText,
+  fallbackTitle: 'Email the teacher about the farm trip',
+  date: '2026-12-05',
+  rawItems: [
+    {
+      title: 'Email the teacher about the farm trip',
+      kind: 'obligation',
+      due_at: '2026-12-05',
+      actionable: 'yes',
+      prep_implied: 'stated',
+      confidence: 'high',
+      evidence: teacherText,
+    },
+  ],
+});
+expect('email about a trip stays an obligation', teacher[0]?.kind, 'obligation');
+expect('email about a trip is not an occurrence', teacher.some((item) => item.kind === 'occurrence'), false);
+
+const shoesText = "Buy Arlo's shoes for the wedding on 5 December";
+const shoes = finalizeSourceItems({
+  source: 'chat',
+  sourceText: shoesText,
+  fallbackTitle: "Buy Arlo's shoes for the wedding",
+  date: '2026-12-05',
+  rawItems: [
+    {
+      title: "Buy Arlo's shoes for the wedding",
+      kind: 'obligation',
+      due_at: '2026-12-05',
+      actionable: 'yes',
+      prep_implied: 'stated',
+      confidence: 'high',
+      evidence: shoesText,
+    },
+  ],
+});
+expect('shoes for the wedding stay an obligation', shoes[0]?.kind, 'obligation');
+expect(
+  'named event capture: wedding',
+  isNamedDatedLifeEventCapture("Oliver's wedding", "Oliver's wedding on 5 December"),
+  true,
+);
+expect(
+  'named event capture: collapsed speech',
+  isNamedDatedLifeEventCapture("Write chairman speech for Oliver's wedding", writeForText),
+  true,
+);
+expect(
+  'named event capture: not eye test',
+  isNamedDatedLifeEventCapture("Book Taya's eye test", eyeText),
+  false,
+);
+expect(
+  'named event capture: not email about trip',
+  isNamedDatedLifeEventCapture('Email the teacher about the farm trip', teacherText),
+  false,
+);
+expect(
+  'named event capture: not shoes for wedding',
+  isNamedDatedLifeEventCapture("Buy Arlo's shoes for the wedding", shoesText),
+  false,
+);
 
 if (!process.exitCode) console.log('intake-contract self-test passed');

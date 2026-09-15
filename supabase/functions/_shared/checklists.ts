@@ -2,9 +2,17 @@ import type { SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { intakeRowFields, type IntakeItem } from './intake-contract.ts';
 
 const MAX_ITEMS = 24;
-const MAX_LABEL_LEN = 40;
+const MAX_LABEL_LEN = 160;
 
 export { cleanGroceryProductLabel, looksLikeShoppingList } from './shopping.ts';
+
+function clipLabel(raw: string): string {
+  const text = raw.replace(/\s+/g, ' ').trim();
+  if (text.length <= MAX_LABEL_LEN) return text;
+  const slice = text.slice(0, MAX_LABEL_LEN);
+  const lastSpace = slice.lastIndexOf(' ');
+  return (lastSpace > 40 ? slice.slice(0, lastSpace) : slice).trim();
+}
 
 export function isJunkPrepTitle(title?: string | null): boolean {
   const value = (title || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -23,7 +31,7 @@ export function parseChecklistLabels(value: unknown): string[] {
     const key = label.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    labels.push(label.slice(0, MAX_LABEL_LEN));
+    labels.push(clipLabel(label));
     if (labels.length >= MAX_ITEMS) break;
   }
   return labels;
@@ -77,7 +85,7 @@ export async function insertIntakeChildren(
     slice.map((item) => ({
       user_id: params.userId,
       parent_id: params.itemId,
-      title: item.title.slice(0, MAX_LABEL_LEN),
+      title: clipLabel(item.title),
       status: 'open',
       source,
       source_label: meta?.source_label ?? 'Prep',

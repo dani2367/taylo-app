@@ -243,6 +243,127 @@ export async function completeSignup(state: SignupState): Promise<CompleteSignup
   }
 }
 
+// ─── New 4-step signup flow ───────────────────────────────────────────────────
+
+export type Relationship = 'partner' | 'child' | 'other';
+
+export type HouseholdMember = {
+  id: string;
+  name: string;
+  relationship: Relationship;
+  dob: string | null; // 'YYYY-MM-DD', relevant for children
+};
+
+export type NewSignupState = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  members: HouseholdMember[];
+  outlookConnected: boolean;
+};
+
+export function initialNewSignupState(): NewSignupState {
+  return {
+    firstName: '',
+    lastName: '',
+    email: '',
+    password: '',
+    members: [],
+    outlookConnected: false,
+  };
+}
+
+export function emptyMember(rel: Relationship = 'child'): HouseholdMember {
+  return {
+    id: `m_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    name: '',
+    relationship: rel,
+    dob: null,
+  };
+}
+
+export type CreateAccountResult = { ok: true; userId: string } | { ok: false; message: string };
+
+/**
+ * Creates the Supabase auth account, saves profile, and inserts family members.
+ * Called at the household→connect step transition so the session is available
+ * before the Outlook OAuth runs.
+ */
+export async function createAccountWithHousehold(state: NewSignupState): Promise<CreateAccountResult> {
+  try {
+    const email = state.email.trim();
+    const password = state.password;
+    const first_name = cap(state.firstName.trim());
+    const last_name = cap(state.lastName.trim());
+
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { first_name, last_name } },
+    });
+
+    const duplicateIdentities = (signUpData.user?.identities?.length ?? 1) === 0;
+    let userId: string | undefined;
+
+    if (signUpError) {
+      if (!isEmailTakenMessage(signUpError.message)) {
+        return { ok: false, message: friendlyAuthMessage(signUpError.message) };
+      }
+      const existing = await signInExisting(email, password);
+      if (!existing.ok) return existing;
+      userId = existing.userId;
+    } else if (duplicateIdentities) {
+      const existing = await signInExisting(email, password);
+      if (!existing.ok) return { ok: false, message: EMAIL_IN_USE };
+      userId = existing.userId;
+    } else if (!signUpData.user) {
+      return { ok: false, message: 'Could not create your account. Please try again.' };
+    } else if (!signUpData.session) {
+      return { ok: false, message: CONFIRM_EMAIL };
+    } else {
+      userId = signUpData.user.id;
+    }
+
+    if (!userId) {
+      return { ok: false, message: 'Could not create your account. Please try again.' };
+    }
+
+    const { error: profileError } = await supabase.from('profiles').upsert({
+      id: userId,
+      first_name,
+      last_name,
+      onboarding_completed_at: new Date().toISOString(),
+    });
+
+    if (profileError) {
+      return { ok: false, message: profileError.message };
+    }
+
+    const validMembers = state.members.filter((m) => m.name.trim());
+    if (validMembers.length) {
+      await supabase.from('family_members').delete().eq('user_id', userId);
+      // Note: 'other' relationship maps to 'partner' role until the DB schema
+      // supports an 'other' role value.
+      await supabase.from('family_members').insert(
+        validMembers.map((m) => ({
+          user_id: userId,
+          role: m.relationship === 'child' ? 'child' : 'partner',
+          first_name: cap(m.name.trim()),
+          birthday: m.dob || null,
+        })),
+      );
+    }
+
+    return { ok: true, userId };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Something went wrong. Please try again.';
+    return { ok: false, message };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function extraChipLabel(title: string) {
   return title.replace(/[\u{1F000}-\u{1FFFF}\u{2190}-\u{2BFF}\u{2600}-\u{27BF}️‍]/gu, '').trim();
 }

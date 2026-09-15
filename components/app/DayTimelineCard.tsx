@@ -1,7 +1,7 @@
 import { BrandGlyph, BrandIconDisc } from '@/components/app/BrandIcon';
 import { appStyles as s } from '@/components/app/styles';
 import { colors } from '@/constants/theme';
-import { dayMood, happenCountLabel, type HappenItem } from '@/lib/happening';
+import { happenCountLabel, type HappenItem } from '@/lib/happening';
 import { Pressable, Text, View } from 'react-native';
 
 const DAY_ICON = 36;
@@ -20,17 +20,13 @@ export function DayTimelineCard({
   emptyTitle?: string;
 }) {
   if (!items.length && !emptyTitle) return null;
-  const liveCount = items.filter((item) => !item.informational).length;
-
+  const summary = items.length ? happenCountLabel(items.length) : emptyTitle;
   return (
     <View style={s.homeDayCard}>
       <View style={s.homeDayHead}>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={s.homeDayKicker}>{kicker}</Text>
-          <Text style={s.homeDayTitle}>
-            {items.length ? (liveCount ? dayMood(liveCount) : 'Worth knowing') : emptyTitle}
-          </Text>
-          {liveCount ? <Text style={s.homeDayCount}>{happenCountLabel(liveCount)}</Text> : null}
+          <Text style={s.homeDayTitle}>{kicker}</Text>
+          {summary ? <Text style={s.homeDayCount}>{summary}</Text> : null}
         </View>
         <BrandGlyph name="sunny-outline" size={22} color={colors.terracotta} />
       </View>
@@ -57,9 +53,7 @@ export function DayTimelineCard({
             </View>
             <Text style={[s.homeDayTime, muted && s.homeDayTimeInfo]}>{item.time}</Text>
             <View style={s.ncopy}>
-              <Text style={[s.homeDayName, muted && s.homeDayNameInfo]} numberOfLines={1}>
-                {item.title}
-              </Text>
+              <Text style={[s.homeDayName, muted && s.homeDayNameInfo]}>{item.title}</Text>
               {item.sub ? <Text style={s.homeDaySub}>{item.sub}</Text> : null}
             </View>
           </View>

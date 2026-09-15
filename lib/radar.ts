@@ -105,8 +105,15 @@ export function radarGroupedContext(
   childTitles: string[] = [],
 ): string {
   const countLabel = thingsToSortLabel(count);
-  const names = childTitles.filter(Boolean).slice(0, 3).join(', ');
   const when = humanizeEventDate(parentDate, today);
+  const compact = childTitles
+    .map((title) => title.replace(/\s+/g, ' ').trim())
+    .filter((title) => title && title.length <= 28);
+  const names =
+    compact.length > 0 && compact.length === childTitles.filter(Boolean).length
+      ? compact.slice(0, 3).join(', ')
+      : '';
+
   if (names) {
     if (!when || /ago|yesterday/i.test(when)) return names;
     return `${when} · ${names}`;

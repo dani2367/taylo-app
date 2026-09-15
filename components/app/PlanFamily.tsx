@@ -25,7 +25,7 @@ import { ITEM_COUNT_SELECT } from '@/lib/plan-item-map';
 import { nestedListCount, isListHubTitle } from '@/lib/radar-organize';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect, router } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
 type ItemCountRow = {
@@ -213,11 +213,15 @@ function HouseholdCard({
   );
 }
 
-export function PlanFamily() {
+export function PlanFamily({ focusPerson }: { focusPerson?: string | null } = {}) {
   const [plan, setPlan] = useState<FamilyPlan | null>(null);
   const [summaries, setSummaries] = useState<Record<string, string>>({});
-  const [focus, setFocus] = useState<string | null>(null);
+  const [focus, setFocus] = useState<string | null>(focusPerson || null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (focusPerson) setFocus(focusPerson);
+  }, [focusPerson]);
 
   const load = useCallback(async () => {
     const {

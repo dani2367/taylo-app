@@ -175,7 +175,7 @@ export default function SignInScreen() {
           onPress={onSubmit}>
           {submitting ? (
             <View style={s.continueInner}>
-              <ActivityIndicator color={colors.cream} size="small" />
+              <ActivityIndicator color={colors.navy} size="small" />
               <Text style={s.continueText}>Signing in…</Text>
             </View>
           ) : (

@@ -55,16 +55,21 @@ export function intakeContractRules(source: IntakeSource): string {
   const occursRule =
     source === 'calendar'
       ? `occurs_at: REQUIRED on the occurrence (the calendar event start). Child obligations must set occurs_at to null. Never copy a due date onto occurs_at.`
-      : `occurs_at: null for obligations, holds, and list_items. Never use kind=occurrence for ${source}. A date that is an action deadline is due_at on an obligation — never occurs_at. Narrow exception: context_only MAY set occurs_at only when the source states an unambiguous calendar day as fact (e.g. "nursery is closed on the 19th", "19 September") AND confidence is high. Never for inferred, hedged, or estimated dates ("might", "sometime next week", "Tuesday-ish"). Code will strip occurs_at unless that bar is met.`;
+      : `occurs_at: null for obligations, holds, and list_items. A date that is an action deadline is due_at on an obligation — never occurs_at.
+- kind=occurrence IS allowed for ${source} only when the item IS the event they attend AND the source names an unambiguous calendar day (5 December, 20 September). Wedding, birthday party, school/farm trip, concert, funeral. occurs_at = that day (all-day unless they said a time). Confidence high.
+- Dated chores stay obligations, never occurrences: "book the eye test on Tuesday", "email the teacher about the trip", "return the form by the 19th", "buy shoes for the wedding". Those go on General to do from chat.
+- Do not collapse the event and the work into one obligation ("Oliver's wedding — chairman speech"). Return the event as occurrence AND each action as its own obligation (e.g. "Write the chairman speech") with due_at on or before the event day.
+- context_only MAY set occurs_at only for a stated fact that is not an event they attend (e.g. "nursery is closed on the 19th") AND confidence is high.
+- Never for inferred, hedged, or estimated dates ("might", "sometime next week", "Tuesday-ish"). Code will strip occurs_at unless that bar is met.`;
 
   return `Intake contract — every item you return must fill these fields. ${INTAKE_ITEM_JSON}
 
 kind:
-- occurrence: something that genuinely happens, calendar events only.
-- obligation: a concrete action (bring packed lunch, sign a form, buy a card).
+- occurrence: something that genuinely happens on a day. Calendar events always. Email/chat MAY use this only for a named attendable event plus an unambiguous date — not for admin ("book", "email", "return a form") and not for "need to plan a speech" with no event.
+- obligation: a concrete action (bring packed lunch, sign a form, write a speech).
 - hold: awareness with no deadline ("trainers are getting small").
 - list_item: a product or line on a shopping/custom list.
-- context_only: useful context with no action and no calendar occurrence.
+- context_only: useful context that is not an event they attend (nursery closed).
 
 ${occursRule}
 due_at: when the action is due, if applicable. Any source may set this. Holds have due_at null. Do not invent a deadline.
@@ -80,6 +85,7 @@ Prep discipline — do NOT invent prep:
 - When an occurrence or heads-up implies several obligations (birthday → card; school trip → packed lunch AND waterproof coat), return each as its own item. Do not bundle them into one record or a checklist blob.
 - "Bring packed lunch and a waterproof coat" → exactly two high-confidence stated obligations, titles like "Packed lunch" and "Waterproof coat".
 - "Taya's trainers are getting small" → one hold, due_at null, occurs_at null. Not an obligation with a fabricated deadline.
+- "Olivier's wedding on 5 December, need to plan a speech" → occurrence (wedding, occurs_at = 5 Dec) plus obligation ("Plan the speech", due_at on/before that day). Not one to-do titled "wedding — speech".
 - "Nursery is closed on the 19th for staff training" → one context_only, high confidence, occurs_at = that day, no prep obligations.
 - "Might need to pop in sometime next week" → hold or context_only with occurs_at null. Do not invent a calendar day.
 
@@ -103,8 +109,53 @@ const CARD_EXCLUSION_RE = /\bno\s+(?:need\s+for\s+)?cards?|please\s+no\s+cards?|
 const BIRTHDAY_RE = /\b(birthday|bday|party)\b/i;
 const BIRTHDAY_DEFAULT_RE = /\bbirthdays?\b|\bbday\b/i;
 const FORM_RE = /\b(form|permission|slip|ofsted|return by|due)\b/i;
+const HOLIDAY_RE = /\b(holiday|holidays|passport|vacation|half[-\s]?term)\b/i;
 const APPOINT_RE = /\b(appointment|dentist|doctor|gp|hospital|checkup|injection|vaccine|optician|hearing)\b/i;
-const HOLIDAY_RE = /\b(holiday|passport|visa|flight|travel\s+insurance)\b/i;
+const ADMIN_TASK_TITLE_RE =
+  /^(email|call|text|message|book|sign|return|pay|buy|get|order|pick\s*up|renew|apply|arrange|organise|organize|sort|print|tell|ask|chase|send)\b/i;
+const BARE_EVENT_NOUN_RE =
+  /^(the\s+)?(wedding|funeral|christening|party|trip|concert|festival|gala|holiday|birthday|match)$/i;
+
+/** Something they attend — not a chore that merely mentions an event. */
+export function titleNamesAttendableEvent(title: string): boolean {
+  const t = title.replace(/\s+/g, ' ').trim();
+  if (!t) return false;
+  if (/\b(wedding|funeral|christening|bar\s+mitzvah|bat\s+mitzvah)\b/i.test(t)) return true;
+  if (/\bbirthdays?\b|\bbday\b/i.test(t)) return true;
+  if (/\b[\w']+'s\s+party\b/i.test(t) || /\bbirthday\s+party\b/i.test(t)) return true;
+  if (/\b(school|year\s+\d+|farm|class|residential|ski)\s+trip\b/i.test(t)) return true;
+  if (/\b(concert|festival|gala)\b/i.test(t)) return true;
+  if (/\b(football|netball|rugby|cricket|tennis)\s+match\b/i.test(t)) return true;
+  if (/\bholiday\b/i.test(t) && !/\bpassport\b/i.test(t)) return true;
+  return false;
+}
+
+function isSpecificAttendableEventTitle(title: string): boolean {
+  const t = title.replace(/\s+/g, ' ').trim();
+  if (!titleNamesAttendableEvent(t)) return false;
+  return !BARE_EVENT_NOUN_RE.test(t);
+}
+
+export function isCollapsedWorkForEvent(title: string): boolean {
+  const t = title.replace(/\s+/g, ' ').trim();
+  const dash = t.split(/\s+[—–-]\s+/);
+  if (dash.length >= 2 && isSpecificAttendableEventTitle(dash[0])) return true;
+  const forEvent = t.match(/^(.+?)\s+for\s+(.+)$/i);
+  return !!forEvent && isSpecificAttendableEventTitle(forEvent[2]);
+}
+
+/**
+ * Chat/email may become an occurrence only when they named the event itself
+ * (or work clearly for that event) AND an unambiguous calendar day.
+ * Dated chores stay obligations (Offload → General to do).
+ */
+export function isNamedDatedLifeEventCapture(title: string, sourceText: string): boolean {
+  if (hasSoftOrInferredDateLanguage(sourceText)) return false;
+  if (!hasUnambiguousStatedDate(sourceText)) return false;
+  if (isCollapsedWorkForEvent(title)) return true;
+  if (ADMIN_TASK_TITLE_RE.test(title.trim())) return false;
+  return isSpecificAttendableEventTitle(title);
+}
 
 export function parseIsoDateTime(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -171,6 +222,30 @@ export function informationalScheduleOccursAt(params: {
   if (params.source === 'calendar') return null;
   if (params.kind !== 'context_only') return null;
   if (params.confidence !== 'high') return null;
+  return statedCalendarDay(params);
+}
+
+/** Email/chat occurrence: a named event on an unambiguous day, not a chore deadline. */
+export function statedEventOccursAt(params: {
+  kind: IntakeKind;
+  confidence: Confidence;
+  source: IntakeSource;
+  sourceText: string;
+  title: string;
+  candidate: string | null;
+}): string | null {
+  if (params.source === 'calendar') return null;
+  if (params.kind !== 'occurrence') return null;
+  if (params.confidence === 'low') return null;
+  if (!isNamedDatedLifeEventCapture(params.title, params.sourceText)) return null;
+  return statedCalendarDay(params);
+}
+
+function statedCalendarDay(params: {
+  source: IntakeSource;
+  sourceText: string;
+  candidate: string | null;
+}): string | null {
   const date = dateOnly(params.candidate);
   if (!date) return null;
   if (hasSoftOrInferredDateLanguage(params.sourceText)) return null;
@@ -229,11 +304,10 @@ export function defaultSurfaceWindow(item: {
   return { surface_from: addDays(anchor, -3), surface_until: anchor };
 }
 
-function asKind(value: unknown, source: IntakeSource): IntakeKind | null {
+function asKind(value: unknown, _source: IntakeSource): IntakeKind | null {
   if (typeof value !== 'string') return null;
   const kind = value.trim().toLowerCase();
   if (!KINDS.includes(kind as IntakeKind)) return null;
-  if (source !== 'calendar' && kind === 'occurrence') return 'context_only';
   return kind as IntakeKind;
 }
 
@@ -300,14 +374,13 @@ export function normalizeIntakeItem(
   if (!title) return null;
 
   let kind = asKind(raw.kind, opts.source) ?? (opts.source === 'calendar' ? 'occurrence' : 'obligation');
-  let occurs_at = opts.source === 'calendar' ? parseIsoDateTime(raw.occurs_at) : null;
+  const rawOccurs = parseIsoDateTime(raw.occurs_at);
   let due_at = parseIsoDateTime(raw.due_at);
-  if (opts.source !== 'calendar' && !due_at) {
-    due_at = parseIsoDateTime(raw.occurs_at);
+  if (opts.source !== 'calendar' && !due_at && kind !== 'occurrence') {
+    due_at = rawOccurs;
   }
 
   if (kind === 'hold') due_at = null;
-  if (kind === 'occurrence' && opts.source !== 'calendar') kind = due_at ? 'obligation' : 'context_only';
 
   const prep_implied = asEnum(
     raw.prep_implied ?? raw.prep_origin,
@@ -317,14 +390,29 @@ export function normalizeIntakeItem(
   const confidence = asEnum(raw.confidence, CONFIDENCE, 'medium');
   const actionable = asEnum(raw.actionable, ACTIONABLE, kind === 'obligation' ? 'yes' : 'no');
   const evidence = cleanEvidence(raw.evidence);
+  const candidate = rawOccurs || due_at;
 
-  if (opts.source !== 'calendar') {
+  let occurs_at: string | null = null;
+  if (opts.source === 'calendar') {
+    occurs_at = rawOccurs;
+  } else if (kind === 'occurrence') {
+    occurs_at = statedEventOccursAt({
+      kind,
+      confidence,
+      source: opts.source,
+      sourceText: opts.sourceText,
+      title,
+      candidate,
+    });
+    if (!occurs_at) kind = due_at ? 'obligation' : 'context_only';
+    else due_at = null;
+  } else if (kind === 'context_only') {
     occurs_at = informationalScheduleOccursAt({
       kind,
       confidence,
       source: opts.source,
       sourceText: opts.sourceText,
-      candidate: parseIsoDateTime(raw.occurs_at) || due_at,
+      candidate,
     });
   }
 
@@ -469,6 +557,8 @@ export function finalizeSourceItems(params: {
     ];
   }
 
+  items = expandCollapsedLifeEvent(items, params.sourceText, params.date ?? null);
+
   const parent = items[0];
   const due = parent?.due_at ?? params.date ?? null;
   const defaults = birthdayTypeDefaults({
@@ -489,7 +579,27 @@ export function finalizeSourceItems(params: {
     items = items.filter((item) => !DONATION_RE.test(item.title));
   }
 
-  return items;
+  return promoteStatedLifeEvent(items, params.sourceText);
+}
+
+/** Birthday / trip / wedding named as context_only still belongs on Schedule as an occurrence. */
+function promoteStatedLifeEvent(items: IntakeItem[], sourceText: string): IntakeItem[] {
+  if (hasSoftOrInferredDateLanguage(sourceText)) return items;
+  if (!hasUnambiguousStatedDate(sourceText)) return items;
+  return items.map((item) => {
+    if (item.kind !== 'context_only') return item;
+    if (item.confidence === 'low') return item;
+    if (!isSpecificAttendableEventTitle(item.title)) return item;
+    const day = dateOnly(item.occurs_at) || dateOnly(item.due_at);
+    if (!day) return item;
+    return {
+      ...item,
+      kind: 'occurrence',
+      occurs_at: day,
+      due_at: null,
+      actionable: 'no',
+    };
+  });
 }
 
 function applyPartyRsvp(items: IntakeItem[], sourceText: string, due: string | null): IntakeItem[] {
@@ -518,14 +628,96 @@ function demotePartyObligation(items: IntakeItem[]): IntakeItem[] {
   const head = items[0];
   if (head.kind !== 'obligation') return items;
   if (!BIRTHDAY_RE.test(head.title)) return items;
+  const day = dateOnly(head.occurs_at) || dateOnly(head.due_at);
   return [
     {
       ...head,
-      kind: 'context_only',
+      kind: day ? 'occurrence' : 'context_only',
+      occurs_at: day,
+      due_at: null,
       actionable: 'no',
     },
     ...items.slice(1),
   ];
+}
+
+function titleCaseLabel(value: string): string {
+  const trimmed = value.replace(/\s+/g, ' ').trim();
+  if (!trimmed) return trimmed;
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
+function splitCollapsedEventTitle(title: string, sourceText: string): { eventTitle: string; actionTitle: string | null } {
+  const parts = title.split(/\s+[—–-]\s+/);
+  if (parts.length >= 2 && isSpecificAttendableEventTitle(parts[0])) {
+    return { eventTitle: titleCaseLabel(parts[0]), actionTitle: titleCaseLabel(parts.slice(1).join(' — ')) };
+  }
+
+  const forEvent = title.match(/^(.+?)\s+for\s+(.+)$/i);
+  if (forEvent && isSpecificAttendableEventTitle(forEvent[2])) {
+    return { eventTitle: titleCaseLabel(forEvent[2]), actionTitle: titleCaseLabel(forEvent[1]) };
+  }
+
+  let actionTitle: string | null = null;
+  const blob = `${title} ${sourceText}`;
+  if (/\bspeech\b/i.test(blob) && isSpecificAttendableEventTitle(title)) {
+    actionTitle = /\bchairman\b/i.test(blob) ? 'Write the chairman speech' : 'Write the speech';
+  }
+  return { eventTitle: titleCaseLabel(title), actionTitle };
+}
+
+function withSurfaceWindow(item: IntakeItem): IntakeItem {
+  const window = defaultSurfaceWindow(item);
+  return {
+    ...item,
+    surface_from: window.surface_from,
+    surface_until: window.surface_until,
+  };
+}
+
+/** One obligation that names both an event and the work — split so Schedule and Radar can each hold a row. */
+export function expandCollapsedLifeEvent(
+  items: IntakeItem[],
+  sourceText: string,
+  fallbackDate?: string | null,
+): IntakeItem[] {
+  if (items.some((item) => item.kind === 'occurrence')) return items;
+  const idx = items.findIndex(
+    (item) => item.kind === 'obligation' && isNamedDatedLifeEventCapture(item.title, sourceText),
+  );
+  if (idx < 0) return items;
+  const item = items[idx];
+  const date = dateOnly(item.due_at) || dateOnly(item.occurs_at) || dateOnly(fallbackDate ?? null);
+  if (!date) return items;
+
+  const split = splitCollapsedEventTitle(item.title, sourceText);
+  if (!split.eventTitle) return items;
+
+  const rest = items.filter((_, i) => i !== idx).filter((row) => row.title.toLowerCase() !== item.title.toLowerCase());
+  const occurrence = withSurfaceWindow({
+    ...item,
+    title: split.eventTitle,
+    kind: 'occurrence',
+    occurs_at: date,
+    due_at: null,
+    actionable: 'no',
+    prep_implied: 'none',
+  });
+  const hasWork = rest.some((row) => row.kind === 'obligation');
+  const actionTitle = split.actionTitle;
+  if (!hasWork && actionTitle && actionTitle.toLowerCase() !== occurrence.title.toLowerCase()) {
+    const obligation = withSurfaceWindow({
+      ...item,
+      title: actionTitle,
+      kind: 'obligation',
+      occurs_at: null,
+      due_at: date,
+      actionable: 'yes',
+      prep_implied: 'stated',
+    });
+    return [occurrence, obligation, ...rest];
+  }
+  return [occurrence, ...rest];
 }
 
 export function splitParentAndChildren(

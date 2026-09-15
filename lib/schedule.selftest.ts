@@ -1,9 +1,11 @@
 import {
   bucketAgenda,
+  calendarStripDays,
   compareAgenda,
   findBusyDay,
   fallbackDensityLine,
   formatSelectorLabel,
+  laterThisMonthLabel,
   mapAgendaRow,
   weekDaysAtOffset,
   weekSectionLabel,
@@ -135,6 +137,29 @@ expect(
   ['Football'],
 );
 expect(
+  'later this month is from tomorrow, not the selected day',
+  bucketAgenda(
+    [row({ id: 'tm', title: 'Football', occurs_at: '2026-09-06', who_it_affects: 'Arlo' }), later],
+    '2026-09-15',
+    today,
+  ).laterThisMonth.map((item) => item.title),
+  ['Football', 'Sleepover pack'],
+);
+expect(
+  'active October fills later this month from the 1st',
+  bucketAgenda([form, dentist, later, oct1, oct2, nov], '2026-10-01', today, '2026-10').laterThisMonth.map(
+    (item) => item.title,
+  ),
+  ['Inset day', 'MOT'],
+);
+expect(
+  'further ahead after October starts at November',
+  bucketAgenda([form, dentist, later, oct1, oct2, nov], '2026-10-01', today, '2026-10').furtherAhead.map(
+    (group) => `${group.label}:${group.count}`,
+  ),
+  ['November:1'],
+);
+expect(
   'further ahead groups by month with counts',
   buckets.furtherAhead.map((group) => `${group.label}:${group.count}`),
   ['October:2', 'November:1'],
@@ -169,6 +194,12 @@ expect('week after starts Monday', ymdLocal(weekDaysAtOffset(today, 2)[0]), '202
 expect('this week label', weekSectionLabel(0), 'This week');
 expect('next week label', weekSectionLabel(1), 'Next week');
 expect('two weeks label', weekSectionLabel(2), 'In two weeks');
+expect('later heading uses the active month', laterThisMonthLabel('2026-10'), 'Later this October');
+expect(
+  'collapsed strip is the week containing the selected day',
+  calendarStripDays('2026-09', '2026-09-15').map((day) => ymdLocal(day)),
+  ['2026-09-14', '2026-09-15', '2026-09-16', '2026-09-17', '2026-09-18', '2026-09-19', '2026-09-20'],
+);
 
 const closed = mapAgendaRow({
   id: 'closed',

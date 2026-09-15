@@ -67,7 +67,9 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   primaryBtn: {
-    backgroundColor: colors.navy,
+    backgroundColor: colors.blush,
+    borderWidth: 1.5,
+    borderColor: colors.terracotta,
     borderRadius: 20,
     paddingVertical: 14,
     alignItems: 'center',
@@ -75,7 +77,7 @@ const styles = StyleSheet.create({
   primaryBtnText: {
     fontFamily: fonts.sansSemiBold,
     fontSize: fontSizes.header,
-    color: colors.cream,
+    color: colors.navy,
   },
   outlineBtn: {
     backgroundColor: colors.cream,

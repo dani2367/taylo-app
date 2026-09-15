@@ -2,15 +2,24 @@ import { AgendaItemRow } from '@/components/app/PlanSchedule';
 import { PlanStackHeader } from '@/components/app/PlanItemFeed';
 import { appStyles as s } from '@/components/app/styles';
 import { colors } from '@/constants/theme';
-import { bucketAgenda, mapAgendaRow, type AgendaRow, type ScheduleSourceItem } from '@/lib/schedule';
+import {
+  bucketAgenda,
+  laterThisMonthLabel,
+  mapAgendaRow,
+  monthKeyFromYmd,
+  monthPrefix,
+  type AgendaRow,
+  type ScheduleSourceItem,
+} from '@/lib/schedule';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 
 export default function ScheduleMonthScreen() {
-  const { selected } = useLocalSearchParams<{ selected?: string }>();
+  const { selected, month } = useLocalSearchParams<{ selected?: string; month?: string }>();
   const [items, setItems] = useState<AgendaRow[]>([]);
+  const [heading, setHeading] = useState('Later this month');
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -19,6 +28,10 @@ export default function ScheduleMonthScreen() {
       typeof selected === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(selected)
         ? selected
         : `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const activeMonth =
+      typeof month === 'string' && /^\d{4}-\d{2}$/.test(month)
+        ? month
+        : monthKeyFromYmd(selectedYmd) || monthPrefix(today);
 
     const {
       data: { user },
@@ -41,9 +54,10 @@ export default function ScheduleMonthScreen() {
     const rows = ((data as ScheduleSourceItem[] | null) ?? [])
       .map((item) => mapAgendaRow(item, today))
       .filter((item): item is AgendaRow => !!item);
-    setItems(bucketAgenda(rows, selectedYmd, today).laterThisMonth);
+    setHeading(laterThisMonthLabel(activeMonth));
+    setItems(bucketAgenda(rows, selectedYmd, today, activeMonth).laterThisMonth);
     setLoading(false);
-  }, [selected]);
+  }, [selected, month]);
 
   useFocusEffect(
     useCallback(() => {
@@ -54,15 +68,15 @@ export default function ScheduleMonthScreen() {
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={s.screen}>
       <PlanStackHeader backLabel="Plan" />
-      <View style={s.homeSectionHead}>
-        <Text style={s.homeSectionLabel}>Later this month</Text>
-      </View>
       {loading ? (
         <View style={s.emptyState}>
           <ActivityIndicator color={colors.rose} />
         </View>
       ) : (
         <View style={s.homeHero}>
+          <View style={s.homeCardHead}>
+            <Text style={s.homeSectionLabel}>{heading}</Text>
+          </View>
           {items.length ? (
             items.map((item, index) => (
               <AgendaItemRow key={item.id} item={item} when="date" last={index === items.length - 1} />

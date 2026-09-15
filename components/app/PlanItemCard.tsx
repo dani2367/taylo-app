@@ -86,9 +86,7 @@ export function PlanItemCard({
           <View style={s.ncopy}>
             {hero ? (
               <>
-                <Text style={s.homeItemTitle} numberOfLines={2}>
-                  {card.title}
-                </Text>
+                <Text style={s.homeItemTitle}>{card.title}</Text>
                 {support ? <Text style={s.homeItemSub}>{support}</Text> : null}
               </>
             ) : (
@@ -164,9 +162,7 @@ export function PlanItemCard({
         <View style={s.nrow}>
           <View style={s.familyInfoDot} />
           <View style={s.ncopy}>
-            <Text style={s.familyInfoTitle} numberOfLines={2}>
-              {card.title}
-            </Text>
+            <Text style={s.familyInfoTitle}>{card.title}</Text>
             {support ? <Text style={s.homeItemSub}>{support}</Text> : null}
           </View>
         </View>
@@ -177,16 +173,20 @@ export function PlanItemCard({
   return (
     <Swipeable
       overshootRight={false}
+      containerStyle={{ width: '100%' }}
+      childrenContainerStyle={{ width: '100%' }}
       renderRightActions={() => (
         <Pressable style={s.nudgeSwipeDelete} onPress={onDismiss}>
           <Text style={s.nudgeSwipeDeleteText}>Delete</Text>
         </Pressable>
       )}>
-      <Pressable
-        style={hero ? [s.homeHeroRow, last && !isOpen && s.homeHeroRowLast] : s.planCard}
-        onPress={alwaysOpen ? undefined : onToggleExpand}>
-        {body}
-      </Pressable>
+      <View style={{ width: '100%' }}>
+        <Pressable
+          style={hero ? [s.homeHeroRow, last && !isOpen && s.homeHeroRowLast] : s.planCard}
+          onPress={alwaysOpen ? undefined : onToggleExpand}>
+          {body}
+        </Pressable>
+      </View>
     </Swipeable>
   );
 }

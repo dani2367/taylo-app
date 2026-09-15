@@ -221,13 +221,17 @@ Deno.serve(async (req: Request) => {
         itemId = shoppingItemId;
       } else {
       const { parent, children } = splitParentAndChildren(extracted.items, extracted.title);
-      const todoCollectionId = await findOrCreateTodoCollection(supabase, user.id);
+      extracted.title = parent.title;
+      const listBound =
+        parent.kind === 'occurrence' || parent.kind === 'context_only'
+          ? null
+          : await findOrCreateTodoCollection(supabase, user.id);
       const { data: item, error: itemError } = await supabase
         .from('items')
         .insert({
           user_id: user.id,
-          collection_id: todoCollectionId,
-          title: extracted.title,
+          collection_id: listBound,
+          title: parent.title,
           body: extracted.body,
           detail: extracted.body,
           suggestion: null,
@@ -405,7 +409,7 @@ function extractPrompt(household: Household, today: string): string {
   "title": "short title for the parent item",
   "body": "one short subtitle for the Home card, or null",
   "category": "school|medical|activity|delivery|returns|financial|errand|home",
-  "event_date": "YYYY-MM-DD or null — this is due_at, never occurs_at",
+  "event_date": "YYYY-MM-DD or null — due_at for obligations; the event day for a named occurrence",
   "who_it_affects": "family member name or 'family' or null",
   "urgency_level": "today|this_week|upcoming|none",
   "checklist_items": ["Chicken"] or null,
@@ -420,8 +424,8 @@ Rules
 - event_date / due_at: convert relative dates using today (${today}). "in three weeks" means about 21 days from today. If no date is implied, null. Never invent a deadline for a hold.
 - who_it_affects: a known household name if it is about them; "Dad"/"Mum" if they said that; "family" if it is for everyone; null if it is just the parent's errand with no named person.
 - urgency_level: today if it is needed now/today; this_week if this week or within the next 3 days; upcoming if a date 4–21 days out is known; none if there is no time pressure (standing errand, staple, hold). Shopping defaults to none unless they imply sooner ("for dinner tomorrow").
-- Lists: only supermarket products go on the shopping list. Tasks ("accommodation for bootcamp", "call school", "book dentist") go on General to do. Never treat a booking, stay, form, or arrangement as shopping because they said "need".
-- reply: you are Taylo talking to them — a warm, organised friend. One short sentence, like a text, contractions, first person. Confirm you added it. Shopping: "Got it — turmeric is on your shopping list." To-dos: "Got it — that's on your to-do list." Never say "Today" (that screen is called Home). Never say "saved" or "got your message".
+- Lists: only supermarket products go on the shopping list. Dated chores and admin ("book the eye test", "email the teacher", "return the form") go on General to do even if they mention a trip or wedding. Named dated events they attend (wedding, birthday party, school trip on 5 December) are occurrence + child obligations — not a General to do row. Never treat a booking, stay, form, or arrangement as shopping because they said "need".
+- reply: you are Taylo talking to them — a warm, organised friend. One short sentence, like a text, contractions, first person. Confirm you added it. Shopping: "Got it — turmeric is on your shopping list." To-dos: "Got it — that's on your to-do list." Named events: "Got it — that's on your schedule" (mention the speech/RSVP if you also captured it). Never say "Today" (that screen is called Home). Never say "saved" or "got your message".
 ${CHECKLIST_PROMPT_RULE}
 
 ${intakeContractRules('chat')}

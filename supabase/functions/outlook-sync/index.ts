@@ -91,6 +91,7 @@ Deno.serve(async (req: Request) => {
       .from('connections')
       .select('user_id, refresh_token, access_token, expires_at')
       .eq('provider', 'microsoft')
+      .eq('connected', true)
       .not('refresh_token', 'is', null);
 
     if (initial_sync) {

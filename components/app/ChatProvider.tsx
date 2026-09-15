@@ -1,6 +1,7 @@
 import { genericAheadOpener, type Chip } from '@/lib/demo-data';
 import { refreshSpotlight } from '@/lib/spotlight';
 import { supabase } from '@/lib/supabase';
+import { chipAsParentAsk } from '@/lib/suggestion';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -91,7 +92,9 @@ const GENERIC_CHIP_LABELS = new Set([
 
 function parseChips(raw: Chip[] | null | undefined): Chip[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
-  return raw.filter((c) => c?.label && c?.msg && !GENERIC_CHIP_LABELS.has(c.label));
+  return raw
+    .filter((c) => c?.label && c?.msg && !GENERIC_CHIP_LABELS.has(c.label))
+    .map(chipAsParentAsk);
 }
 
 function parseIntent(raw: string | null | undefined): AskIntent | null {
@@ -562,6 +565,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 title: namedTitle ?? c.title,
                 sub: namedTitle ? 'Taylo' : c.sub,
                 messages: [...c.messages, userMsg],
+                chips: [],
                 updatedAt: Date.now(),
               }
             : c,
@@ -571,6 +575,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .from('conversations')
         .update({
           updated_at: new Date().toISOString(),
+          suggestion_chips: [],
           ...(namedTitle ? { title: namedTitle, subtitle: 'Taylo' } : {}),
         })
         .eq('id', id);

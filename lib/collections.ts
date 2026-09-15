@@ -308,6 +308,7 @@ type StandaloneRow = {
   event_date: string | null;
   source: string | null;
   category: string | null;
+  kind: string | null;
   collection_id: string | null;
   prep_children: PrepJoin;
   collections: { title: string | null; type: string | null } | { title: string | null; type: string | null }[] | null;
@@ -330,7 +331,7 @@ async function closeChildrenOfClosedParents(userId: string): Promise<void> {
     .eq('user_id', userId)
     .in('status', ['done', 'dismissed', 'delegated']);
   if (error) {
-    console.error('Failed to load closed parents:', error.message);
+    console.warn('Failed to load closed parents:', error.message);
     return;
   }
   const parentIds = ((closedParents as { id: string }[] | null) ?? []).map((row) => row.id);
@@ -350,7 +351,7 @@ export async function organizeStandaloneItems(userId: string): Promise<void> {
 
   const { data, error } = await supabase
     .from('items')
-    .select('id, title, body, detail, suggestion, action_description, event_date, source, category, collection_id, collections(title, type), prep_children:items!parent_id(id)')
+    .select('id, title, body, detail, suggestion, action_description, event_date, source, category, kind, collection_id, collections(title, type), prep_children:items!parent_id(id)')
     .eq('user_id', userId)
     .eq('status', 'open')
     .is('parent_id', null)
@@ -412,6 +413,7 @@ export async function organizeStandaloneItems(userId: string): Promise<void> {
       event_date: row.event_date,
       source: row.source,
       category: row.category,
+      kind: row.kind,
       checklistCount: prepCount(row.prep_children),
     });
     const label = (row.title || '').trim();

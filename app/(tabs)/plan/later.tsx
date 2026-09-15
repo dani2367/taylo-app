@@ -54,9 +54,6 @@ export default function LaterRadarScreen() {
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={s.screen}>
       <PlanStackHeader backLabel="Plan" />
-      <View style={s.homeSectionHead}>
-        <Text style={s.homeSectionLabel}>Keeping an eye on</Text>
-      </View>
       {loading ? (
         <View style={s.emptyState}>
           <ActivityIndicator color={colors.rose} />
@@ -67,6 +64,11 @@ export default function LaterRadarScreen() {
           setItems={setItems}
           empty="Nothing waiting on the radar."
           variant="hero"
+          header={
+            <View style={s.homeCardHead}>
+              <Text style={s.homeSectionLabel}>Keeping an eye on</Text>
+            </View>
+          }
         />
       )}
     </ScrollView>

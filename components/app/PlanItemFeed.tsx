@@ -12,7 +12,7 @@ import {
 } from '@/lib/prep-checklists';
 import { supabase } from '@/lib/supabase';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 export function PlanItemFeed({
@@ -23,6 +23,7 @@ export function PlanItemFeed({
   startExpanded = false,
   variant = 'card',
   maxVisible,
+  header,
 }: {
   items: PlanItemCardModel[];
   setItems: (update: (prev: PlanItemCardModel[]) => PlanItemCardModel[]) => void;
@@ -31,6 +32,7 @@ export function PlanItemFeed({
   startExpanded?: boolean;
   variant?: 'card' | 'hero';
   maxVisible?: number;
+  header?: ReactNode;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [editingPrep, setEditingPrep] = useState<Record<string, boolean>>({});
@@ -227,21 +229,7 @@ export function PlanItemFeed({
     router.push('/chat');
   }
 
-  if (items.length === 0) {
-    if (variant === 'hero') {
-      return (
-        <View style={s.homeHero}>
-          <View style={[s.homeHeroRow, s.homeHeroRowLast]}>
-            <Text style={s.emptyStateText}>{empty}</Text>
-          </View>
-        </View>
-      );
-    }
-    return <Text style={s.planEmptyLine}>{empty}</Text>;
-  }
-
   const shown = maxVisible ? items.slice(0, maxVisible) : items;
-
   const list = shown.map((card, index) => (
     <PlanItemCard
       key={`${card.id}:${index}`}
@@ -264,8 +252,26 @@ export function PlanItemFeed({
     />
   ));
 
+  const rows =
+    items.length === 0 ? (
+      <View style={[s.homeHeroRow, s.homeHeroRowLast]}>
+        <Text style={s.emptyStateText}>{empty}</Text>
+      </View>
+    ) : (
+      list
+    );
+
   if (variant === 'hero') {
-    return <View style={s.homeHero}>{list}</View>;
+    return (
+      <View style={s.homeHero}>
+        {header}
+        {rows}
+      </View>
+    );
+  }
+
+  if (items.length === 0) {
+    return <Text style={s.planEmptyLine}>{empty}</Text>;
   }
 
   return <View>{list}</View>;

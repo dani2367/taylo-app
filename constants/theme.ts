@@ -32,6 +32,8 @@ export const colors = {
   textMuted: navyMuted,
   textHint: navyHint,
   border: 'rgba(23,43,69,0.06)',
+  /** Stronger stroke for cream/pastel cards on ivory (Today card, etc). */
+  cardStroke: 'rgba(23,43,69,0.18)',
 
   background: taylo.ivory,
   grayLight: taylo.ivory,

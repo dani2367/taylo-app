@@ -20,14 +20,18 @@ import { RADAR_PREVIEW, type RadarItem } from '@/lib/radar';
 import { exceptHomeActions, HOME_RADAR_LOAD_KINDS, selectHomeActions, selectRadarWatch } from '@/lib/placement';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect, router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -85,8 +89,12 @@ function listCount(members: ItemCountRow[], collectionTitle: string): number {
 }
 
 export default function PlanScreen() {
-  const { tab: tabParam } = useLocalSearchParams<{ tab?: string | string[] }>();
+  const { tab: tabParam, person: personParam } = useLocalSearchParams<{
+    tab?: string | string[];
+    person?: string | string[];
+  }>();
   const requestedTab = Array.isArray(tabParam) ? tabParam[0] : tabParam;
+  const requestedPerson = Array.isArray(personParam) ? personParam[0] : personParam;
   const [tab, setTab] = useState<PlanTab>(
     requestedTab === 'schedule' || requestedTab === 'family' ? requestedTab : 'radar',
   );
@@ -98,6 +106,23 @@ export default function PlanScreen() {
   const [listEmoji, setListEmoji] = useState(DEFAULT_LIST_EMOJI);
   const [createError, setCreateError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [listKeyboardInset, setListKeyboardInset] = useState(0);
+  const { height: windowHeight } = useWindowDimensions();
+  const scrollRef = useRef<ScrollView>(null);
+  const scheduleOffsetY = useRef(0);
+
+  useEffect(() => {
+    const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', (event) => {
+      setListKeyboardInset(event.endCoordinates.height);
+    });
+    const hide = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => {
+      setListKeyboardInset(0);
+    });
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (requestedTab === 'schedule' || requestedTab === 'family' || requestedTab === 'radar') {
@@ -222,7 +247,11 @@ export default function PlanScreen() {
   const copy = TAB_COPY[tab];
 
   return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={s.screen} keyboardShouldPersistTaps="handled">
+    <ScrollView
+      ref={scrollRef}
+      style={{ flex: 1 }}
+      contentContainerStyle={s.screen}
+      keyboardShouldPersistTaps="handled">
       <View style={s.homeGreetBlock}>
         <Text style={s.homeGreetTitle}>Plan</Text>
         <Text style={s.homeGreetSub}>{copy.sub}</Text>
@@ -249,20 +278,10 @@ export default function PlanScreen() {
           </View>
         ) : (
           <>
-            <View style={s.homeReassure}>
-              <BrandIconDisc name="sparkles-outline" wash="paleBlue" size={32} />
-              <View style={s.homeReassureCopy}>
-                <Text style={s.homeReassureTitle}>I've got the rest</Text>
-                <Text style={s.homeReassureSub}>
-                  Your lists, reminders and everything on the horizon. Add a list if you need one.
-                </Text>
-              </View>
-            </View>
-
-            <View style={s.homeSectionHead}>
-              <Text style={s.homeSectionLabel}>Your lists</Text>
-            </View>
             <View style={s.homeHero}>
+              <View style={s.homeCardHead}>
+                <Text style={s.homeSectionLabel}>Your lists</Text>
+              </View>
               {lists.map((list) => (
                 <Pressable
                   key={list.id}
@@ -275,9 +294,7 @@ export default function PlanScreen() {
                       <BrandIconDisc name={list.icon.name} wash={list.icon.wash} size={36} />
                     </View>
                     <View style={s.ncopy}>
-                      <Text style={s.homeItemTitle} numberOfLines={1}>
-                        {list.title}
-                      </Text>
+                      <Text style={s.homeItemTitle}>{list.title}</Text>
                       <Text style={s.homeItemSub}>{itemCountLabel(list.count)}</Text>
                     </View>
                     <Text style={s.uchevron}>›</Text>
@@ -299,64 +316,92 @@ export default function PlanScreen() {
               </Pressable>
             </View>
 
-            <View style={s.homeSectionHead}>
-              <Text style={s.homeSectionLabel}>Keeping an eye on</Text>
-              {radar.length ? (
-                <Pressable onPress={() => router.push('/plan/later')}>
-                  <Text style={s.homeSeeAll}>See all</Text>
-                </Pressable>
-              ) : null}
-            </View>
             <PlanItemFeed
               items={radar}
               setItems={setRadar}
               empty="Nothing waiting further out — I'll keep watch."
               variant="hero"
               maxVisible={RADAR_PREVIEW}
+              header={
+                <View style={s.homeCardHead}>
+                  <Text style={s.homeSectionLabel}>Keeping an eye on</Text>
+                  {radar.length ? (
+                    <Pressable onPress={() => router.push('/plan/later')}>
+                      <Text style={s.homeSeeAll}>See all</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              }
             />
           </>
         )
       ) : tab === 'schedule' ? (
-        <PlanSchedule />
+        <View onLayout={(event) => { scheduleOffsetY.current = event.nativeEvent.layout.y; }}>
+          <PlanSchedule
+            onJumpTo={(localY) => {
+              scrollRef.current?.scrollTo({
+                y: Math.max(0, scheduleOffsetY.current + localY - 20),
+                animated: true,
+              });
+            }}
+          />
+        </View>
       ) : (
-        <PlanFamily />
+        <PlanFamily focusPerson={requestedPerson} />
       )}
 
       <Modal visible={creating} animationType="fade" transparent onRequestClose={() => setCreating(false)}>
-        <Pressable style={s.planModalScrim} onPress={() => setCreating(false)}>
-          <Pressable style={s.planModalCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={s.planModalTitle}>New list</Text>
-            <Text style={s.planModalHint}>Name it, pick an emoji if you like, and I'll keep it on your radar.</Text>
-            <TextInput
-              style={s.planModalInput}
-              placeholder="e.g. Holiday packing"
-              placeholderTextColor={colors.textHint}
-              value={listName}
-              onChangeText={setListName}
-              autoFocus
-            />
-            <View style={s.planEmojiRow}>
-              {LIST_EMOJIS.map((emoji) => (
-                <Pressable
-                  key={emoji}
-                  style={[s.planEmojiPick, listEmoji === emoji && s.planEmojiPickOn]}
-                  onPress={() => setListEmoji(emoji)}>
-                  <Text style={s.planGlyphEmoji}>{emoji}</Text>
-                </Pressable>
-              ))}
-            </View>
-            {createError ? <Text style={s.planModalError}>{createError}</Text> : null}
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <Pressable
+            style={[
+              s.planModalScrim,
+              listKeyboardInset > 0 && s.planModalScrimAboveKeyboard,
+              listKeyboardInset > 0 && Platform.OS === 'android' ? { paddingBottom: listKeyboardInset + 12 } : null,
+            ]}
+            onPress={() => setCreating(false)}>
             <Pressable
-              style={[s.planModalSave, (!listName.trim() || saving) && { opacity: 0.6 }]}
-              disabled={!listName.trim() || saving}
-              onPress={() => void saveList()}>
-              <Text style={s.planModalSaveText}>{saving ? 'Saving…' : 'Create list'}</Text>
-            </Pressable>
-            <Pressable onPress={() => setCreating(false)}>
-              <Text style={s.planModalCancel}>Cancel</Text>
+              style={[
+                s.planModalCard,
+                listKeyboardInset > 0 && {
+                  maxHeight: Math.max(240, windowHeight - listKeyboardInset - 28),
+                },
+              ]}
+              onPress={(e) => e.stopPropagation()}>
+              <ScrollView keyboardShouldPersistTaps="handled" bounces={false} showsVerticalScrollIndicator={false}>
+                <Text style={s.planModalTitle}>New list</Text>
+                <Text style={s.planModalHint}>Name it, pick an emoji if you like, and I'll keep it on your radar.</Text>
+                <TextInput
+                  style={s.planModalInput}
+                  placeholder="e.g. Holiday packing"
+                  placeholderTextColor={colors.textHint}
+                  value={listName}
+                  onChangeText={setListName}
+                  autoFocus
+                />
+                <View style={s.planEmojiRow}>
+                  {LIST_EMOJIS.map((emoji) => (
+                    <Pressable
+                      key={emoji}
+                      style={[s.planEmojiPick, listEmoji === emoji && s.planEmojiPickOn]}
+                      onPress={() => setListEmoji(emoji)}>
+                      <Text style={s.planGlyphEmoji}>{emoji}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                {createError ? <Text style={s.planModalError}>{createError}</Text> : null}
+                <Pressable
+                  style={[s.planModalSave, (!listName.trim() || saving) && { opacity: 0.6 }]}
+                  disabled={!listName.trim() || saving}
+                  onPress={() => void saveList()}>
+                  <Text style={s.planModalSaveText}>{saving ? 'Saving…' : 'Create list'}</Text>
+                </Pressable>
+                <Pressable onPress={() => setCreating(false)}>
+                  <Text style={s.planModalCancel}>Cancel</Text>
+                </Pressable>
+              </ScrollView>
             </Pressable>
           </Pressable>
-        </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
   );

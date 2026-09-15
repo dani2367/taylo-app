@@ -1,4 +1,22 @@
+import type { Chip } from './demo-data';
 import { isPersonalPurchase } from './radar-organize';
+
+const CHIP_PARENT_ASK =
+  /^(give me|can you|could you|would you|please |what |what's |whats |how |suggest |draft |remind me|send me|help me|i need|i want|tell me|write |start |add )/i;
+const CHIP_ASSISTANT_VOICE =
+  /^(here(?:'s| is| are)\b|you might\b|you could\b|you may\b|i can\b|i['’]ll\b|let me\b)/i;
+
+/** Suggested prompts must read as the parent asking Taylo, never as Taylo speaking. */
+export function chipAsParentAsk(chip: Chip): Chip {
+  const label = (chip.label || '').replace(/\s+/g, ' ').trim();
+  const msg = (chip.msg || '').replace(/\s+/g, ' ').trim();
+  if (!label || !msg) return { label, msg };
+  if (CHIP_ASSISTANT_VOICE.test(msg)) {
+    return { label, msg: `Can you help with ${label.toLowerCase()}?` };
+  }
+  if (CHIP_PARENT_ASK.test(msg) || /[?]$/.test(msg)) return { label, msg };
+  return { label, msg: `Give me ${msg.charAt(0).toLowerCase()}${msg.slice(1)}` };
+}
 
 export function isGenericHelp(raw: string | null | undefined): boolean {
   const text = (raw || '').trim();

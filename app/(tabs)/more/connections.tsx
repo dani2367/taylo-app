@@ -1,6 +1,6 @@
+import { MoreSubHeader } from '@/components/app/MoreSubHeader';
 import { appStyles as s } from '@/components/app/styles';
-import { colors } from '@/constants/theme';
-import { demoCalToggles, demoEmailToggles } from '@/lib/demo-data';
+import { colors, fonts, fontSizes, radii, space } from '@/constants/theme';
 import {
   listDeviceCalendars,
   loadAppleCalendarConnection,
@@ -12,46 +12,16 @@ import {
   type DeviceCalendar,
 } from '@/lib/apple-calendar';
 import { supabase } from '@/lib/supabase';
-import Constants, { ExecutionEnvironment } from 'expo-constants';
-import * as AuthSession from 'expo-auth-session';
-import { makeRedirectUri, useAuthRequest } from 'expo-auth-session';
+import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
-import { router } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, AppState, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const MICROSOFT_CLIENT_ID = 'f976566d-39c1-48bc-b140-e7a5a727afd5';
 const OUTLOOK_AUTH_URL = 'https://fbffbenebwgmmtmnumux.supabase.co/functions/v1/outlook-auth';
-const NATIVE_REDIRECT_URI = 'tayloapp://outlook-auth';
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
-const MICROSOFT_SCOPES = [
-  'openid',
-  'offline_access',
-  'https://graph.microsoft.com/Mail.Read',
-  'https://graph.microsoft.com/Calendars.Read',
-];
-
-const discovery = {
-  authorizationEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
-  tokenEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
-};
-
-function outlookRedirectUri(): string {
-  // Expo Go cannot use the production scheme. Use the current LAN URL, but
-  // strip query params — Microsoft rejects redirect URIs that include them.
-  const computed =
-    Constants.executionEnvironment === ExecutionEnvironment.StoreClient
-      ? makeRedirectUri()
-      : makeRedirectUri({
-          scheme: 'tayloapp',
-          path: 'outlook-auth',
-          native: NATIVE_REDIRECT_URI,
-        });
-  const q = computed.indexOf('?');
-  return q === -1 ? computed : computed.slice(0, q);
-}
 
 function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   return (
@@ -61,35 +31,56 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   );
 }
 
+function ConnectionCard({
+  title,
+  subtitle,
+  active,
+  children,
+  expanded,
+  onToggleExpand,
+}: {
+  title: string;
+  subtitle: string;
+  active: boolean;
+  children?: React.ReactNode;
+  expanded: boolean;
+  onToggleExpand: () => void;
+}) {
+  return (
+    <View style={ls.card}>
+      <Pressable style={[ls.cardHead, active && ls.cardHeadActive]} onPress={onToggleExpand}>
+        <View style={{ flex: 1 }}>
+          <Text style={ls.cardTitle}>{title}</Text>
+          <Text style={ls.cardSub}>{subtitle}</Text>
+        </View>
+        {active ? <Text style={ls.activeBadge}>Active</Text> : null}
+        <Text style={ls.chevron}>{expanded ? '∧' : '∨'}</Text>
+      </Pressable>
+      {expanded ? <View style={ls.cardBody}>{children}</View> : null}
+    </View>
+  );
+}
+
 export default function ConnectionsScreen() {
-  const [emailOpen, setEmailOpen] = useState(false);
+  const [outlookOpen, setOutlookOpen] = useState(false);
   const [calOpen, setCalOpen] = useState(false);
-  const [email, setEmail] = useState(demoEmailToggles);
-  const [cal, setCal] = useState(demoCalToggles);
   const [outlook, setOutlook] = useState(false);
   const [outlookLoading, setOutlookLoading] = useState(false);
   const [apple, setApple] = useState(false);
   const [appleLoading, setAppleLoading] = useState(false);
   const [deviceCals, setDeviceCals] = useState<DeviceCalendar[]>([]);
   const [selectedCalIds, setSelectedCalIds] = useState<string[]>([]);
+  const returnParams = useLocalSearchParams<{ connected?: string; error?: string }>();
+  const shownReturnError = useRef<string | null>(null);
 
-  const redirectUri = useMemo(outlookRedirectUri, []);
-
-  const [request, response, promptAsync] = useAuthRequest(
-    {
-      clientId: MICROSOFT_CLIENT_ID,
-      scopes: MICROSOFT_SCOPES,
-      redirectUri,
-      responseType: AuthSession.ResponseType.Code,
-      codeChallengeMethod: AuthSession.CodeChallengeMethod.S256,
-      usePKCE: true,
-      extraParams: { response_mode: 'query' },
-    },
-    discovery,
-  );
-
-  const codeVerifierRef = useRef<string | null>(null);
-  const exchangedCodeRef = useRef<string | null>(null);
+  const hydrateOutlook = useCallback(async () => {
+    const { data } = await supabase
+      .from('connections')
+      .select('connected')
+      .eq('provider', 'microsoft')
+      .maybeSingle();
+    setOutlook(Boolean(data?.connected));
+  }, []);
 
   const hydrateApple = useCallback(async () => {
     const { connected, selectedIds } = await loadAppleCalendarConnection();
@@ -103,84 +94,82 @@ export default function ConnectionsScreen() {
 
   useEffect(() => {
     void hydrateApple();
-  }, [hydrateApple]);
+    void hydrateOutlook();
+  }, [hydrateApple, hydrateOutlook]);
 
   useEffect(() => {
-    if (response?.type === 'error') {
-      const description =
-        response.params?.error_description ??
-        response.params?.error ??
-        response.error?.message ??
-        'Microsoft returned an error.';
-      Alert.alert('Connection failed', `${description}\n\nRedirect URI: ${redirectUri}`);
-      return;
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') void hydrateOutlook();
+    });
+    return () => sub.remove();
+  }, [hydrateOutlook]);
+
+  useEffect(() => {
+    if (returnParams.connected === '1') {
+      setOutlook(true);
+      void hydrateOutlook();
     }
-
-    if (response?.type !== 'success') return;
-
-    const { code } = response.params;
-    if (!code || exchangedCodeRef.current === code) return;
-
-    const codeVerifier = codeVerifierRef.current;
-    if (!codeVerifier) {
-      Alert.alert('Connection failed', 'Missing PKCE verifier. Please try connecting again.');
-      return;
+    const err = returnParams.error ? String(returnParams.error) : '';
+    if (err && shownReturnError.current !== err) {
+      shownReturnError.current = err;
+      Alert.alert('Connection failed', err);
     }
+  }, [returnParams.connected, returnParams.error, hydrateOutlook]);
 
-    exchangedCodeRef.current = code;
-
-    (async () => {
-      setOutlookLoading(true);
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const jwt = session?.access_token;
-
-        const requestBody = { code, redirect_uri: redirectUri, code_verifier: codeVerifier };
-        console.log('[outlook-auth] Edge Function request', {
-          url: OUTLOOK_AUTH_URL,
-          hasJwt: Boolean(jwt),
-          redirectUri,
-          codeLength: typeof code === 'string' ? code.length : null,
-          verifierLength: codeVerifier.length,
-        });
-
-        const res = await fetch(OUTLOOK_AUTH_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            apikey: SUPABASE_ANON_KEY,
-            ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}),
-          },
-          body: JSON.stringify(requestBody),
-        });
-
-        const responseText = await res.text();
-        console.log('[outlook-auth] Edge Function response', {
-          ok: res.ok,
-          status: res.status,
-          body: responseText,
-        });
-
-        if (!res.ok) {
-          let message = responseText;
-          try {
-            const parsed = JSON.parse(responseText) as { details?: string; error?: string };
-            message = parsed.details ?? parsed.error ?? responseText;
-          } catch {
-            // keep raw body
-          }
-          throw new Error(message);
-        }
-
-        setOutlook(true);
-      } catch (e: unknown) {
-        exchangedCodeRef.current = null;
-        Alert.alert('Connection failed', e instanceof Error ? e.message : 'Something went wrong.');
-      } finally {
-        setOutlookLoading(false);
+  async function connectOutlook() {
+    if (outlookLoading || outlook) return;
+    setOutlookLoading(true);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const jwt = session?.access_token;
+      if (!jwt) {
+        throw new Error('Sign in to Taylo first, then connect Outlook.');
       }
-    })();
-  }, [response, redirectUri]);
+
+      const appRedirect = Linking.createURL('outlook-auth');
+      const res = await fetch(OUTLOOK_AUTH_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({ action: 'start', app_redirect: appRedirect }),
+      });
+      const responseText = await res.text();
+      if (!res.ok) {
+        let message = responseText;
+        try {
+          const parsed = JSON.parse(responseText) as { details?: string; error?: string };
+          message = parsed.details ?? parsed.error ?? responseText;
+        } catch {
+          // keep raw body
+        }
+        throw new Error(message);
+      }
+      const { authUrl } = JSON.parse(responseText) as { authUrl?: string };
+      if (!authUrl) throw new Error('Could not start Microsoft login.');
+
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, appRedirect);
+      if (result.type === 'success' && 'url' in result) {
+        const returned = Linking.parse(result.url);
+        const error = returned.queryParams?.error;
+        if (typeof error === 'string' && error) {
+          throw new Error(error);
+        }
+        if (returned.queryParams?.connected === '1') {
+          setOutlook(true);
+        }
+      }
+      await hydrateOutlook();
+    } catch (e: unknown) {
+      Alert.alert('Connection failed', e instanceof Error ? e.message : 'Something went wrong.');
+    } finally {
+      setOutlookLoading(false);
+    }
+  }
 
   async function connectAppleCalendar() {
     if (appleLoading) return;
@@ -190,7 +179,7 @@ export default function ConnectionsScreen() {
       if (!granted) {
         Alert.alert(
           'Calendar access needed',
-          'Taylo reads your device calendars to show what\'s coming up. You can enable this in Settings.',
+          "Taylo reads your device calendars to show what's coming up. You can enable this in Settings.",
         );
         return;
       }
@@ -225,131 +214,104 @@ export default function ConnectionsScreen() {
     void syncAppleCalendar({ force: true });
   }
 
+  const outlookSub = outlook
+    ? 'Outlook connected — Taylo reads relevant emails'
+    : 'Connect Outlook to let Taylo spot what matters';
+
   const calendarSub = apple
     ? selectedCalIds.length
       ? `${selectedCalIds.length} calendar${selectedCalIds.length === 1 ? '' : 's'} selected`
       : 'Choose which calendars to include'
     : usesPreviewAppleCalendar()
       ? 'Needs a development build to read your iPhone calendar'
-      : 'Connect Apple Calendar to sync what\'s coming up';
+      : "Connect Apple Calendar to sync what's coming up";
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={s.screen}>
-      <View style={s.subnav}>
-        <Pressable onPress={() => router.back()}>
-          <Text style={s.subnavBack}>← More</Text>
-        </Pressable>
-        <Text style={s.subnavTitle}>Connections</Text>
-      </View>
+      <MoreSubHeader title="Connections" />
       <Text style={s.connIntro}>
         Connect the services you already use — Taylo reads them to spot what matters for your family.
       </Text>
 
-      <View style={s.hcard}>
-        <Pressable style={[s.hhead, { backgroundColor: colors.paleBlue }]} onPress={() => setEmailOpen((v) => !v)}>
-          <View style={{ flex: 1 }}>
-            <Text style={[s.hheadTitle, { color: colors.navy }]}>Email</Text>
-            <Text style={[s.hheadSub, { color: colors.textMuted }]}>Gmail connected · reading newsletters & orders</Text>
+      {/* Outlook / Email */}
+      <ConnectionCard
+        title="Outlook"
+        subtitle={outlookSub}
+        active={outlook}
+        expanded={outlookOpen}
+        onToggleExpand={() => setOutlookOpen((v) => !v)}>
+        {outlook ? (
+          <View style={ls.connectedRow}>
+            <Text style={ls.connectedText}>Taylo is reading your Outlook inbox for relevant events, orders and appointments.</Text>
           </View>
-          <Text style={s.bon}>Active</Text>
-        </Pressable>
-        {emailOpen ? (
+        ) : (
+          <View style={ls.connectRow}>
+            <Text style={ls.connectHint}>
+              Taylo reads incoming emails to spot family events, deliveries, and appointments — without storing your emails.
+            </Text>
+            <Pressable
+              style={[ls.connectBtn, outlookLoading && ls.connectBtnLoading]}
+              disabled={outlookLoading}
+              onPress={() => void connectOutlook()}>
+              <Text style={ls.connectBtnText}>
+                {outlookLoading ? 'Connecting…' : 'Connect Outlook'}
+              </Text>
+            </Pressable>
+          </View>
+        )}
+      </ConnectionCard>
+
+      {/* Apple Calendar */}
+      <ConnectionCard
+        title="Apple Calendar"
+        subtitle={calendarSub}
+        active={apple}
+        expanded={calOpen}
+        onToggleExpand={() => setCalOpen((v) => !v)}>
+        {apple && deviceCals.length ? (
           <>
-            <Text style={s.connSectionLabel}>What to capture</Text>
-            {email.map((t, i) => (
-              <View key={t.key} style={[s.hitem, { paddingVertical: 7 }, i === email.length - 1 && { borderBottomWidth: 0 }]}>
+            <Text style={ls.sectionLabel}>Calendars to include</Text>
+            {deviceCals.map((calendar, i) => (
+              <View
+                key={calendar.id}
+                style={[s.hitem, { paddingVertical: 9 }, i === deviceCals.length - 1 && { borderBottomWidth: 0 }]}>
                 <View style={{ flex: 1 }}>
-                  <Text style={s.toggleRow}>{t.label}</Text>
-                  <Text style={s.toggleSub}>{t.sub}</Text>
+                  <Text style={s.toggleRow}>{calendar.title}</Text>
+                  {calendar.sub ? <Text style={s.toggleSub}>{calendar.sub}</Text> : null}
                 </View>
                 <Toggle
-                  on={t.on}
-                  onToggle={() => setEmail((prev) => prev.map((x) => (x.key === t.key ? { ...x, on: !x.on } : x)))}
+                  on={selectedCalIds.includes(calendar.id)}
+                  onToggle={() => void toggleDeviceCalendar(calendar.id)}
                 />
               </View>
             ))}
-            <View style={s.connAlso}>
-              <Text style={s.connAlsoLabel}>Also connect:</Text>
-              <Pressable
-                style={[s.connAlsoBtn, outlook && s.connAlsoBtnOn]}
-                disabled={!request || outlookLoading || outlook}
-                onPress={() => {
-                  codeVerifierRef.current = request?.codeVerifier ?? null;
-                  void promptAsync();
-                }}>
-                <Text style={[s.connAlsoBtnText, outlook && s.connAlsoBtnTextOn]}>
-                  {outlookLoading ? 'Connecting…' : outlook ? 'Outlook connected' : 'Outlook'}
-                </Text>
-              </Pressable>
-            </View>
           </>
-        ) : null}
-      </View>
-
-      <View style={s.hcard}>
-        <Pressable style={[s.hhead, { backgroundColor: colors.blueLight }]} onPress={() => setCalOpen((v) => !v)}>
-          <View style={{ flex: 1 }}>
-            <Text style={[s.hheadTitle, { color: colors.navy }]}>Calendar</Text>
-            <Text style={[s.hheadSub, { color: colors.textMuted }]}>{calendarSub}</Text>
+        ) : apple ? (
+          <View style={[s.hitem, { paddingVertical: 12, borderBottomWidth: 0 }]}>
+            <Text style={s.toggleSub}>
+              Permission is on, but Taylo could not list calendars. This usually means the app is running in Expo Go instead of a development build.
+            </Text>
           </View>
-          {apple ? <Text style={s.bon}>Active</Text> : null}
-        </Pressable>
-        {calOpen ? (
-          <>
-            {apple && deviceCals.length ? (
-              <>
-                <Text style={s.connSectionLabel}>Calendars to include</Text>
-                {deviceCals.map((calendar, i) => (
-                  <View
-                    key={calendar.id}
-                    style={[s.hitem, { paddingVertical: 7 }, i === deviceCals.length - 1 && { borderBottomWidth: 0 }]}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.toggleRow}>{calendar.title}</Text>
-                      {calendar.sub ? <Text style={s.toggleSub}>{calendar.sub}</Text> : null}
-                    </View>
-                    <Toggle
-                      on={selectedCalIds.includes(calendar.id)}
-                      onToggle={() => void toggleDeviceCalendar(calendar.id)}
-                    />
-                  </View>
-                ))}
-              </>
-            ) : apple ? (
-              <View style={[s.hitem, { paddingVertical: 10, borderBottomWidth: 0 }]}>
-                <Text style={s.toggleRow}>No device calendars found</Text>
-                <Text style={s.toggleSub}>
-                  Permission is on, but Taylo could not list calendars. This usually means the app
-                  is running in Expo Go instead of a development build.
-                </Text>
-              </View>
-            ) : (
-              cal.map((t, i) => (
-                <View key={t.key} style={[s.hitem, { paddingVertical: 7 }, i === cal.length - 1 && { borderBottomWidth: 0 }]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.toggleRow}>{t.label}</Text>
-                    <Text style={s.toggleSub}>{t.sub}</Text>
-                  </View>
-                  <Toggle
-                    on={t.on}
-                    onToggle={() => setCal((prev) => prev.map((x) => (x.key === t.key ? { ...x, on: !x.on } : x)))}
-                  />
-                </View>
-              ))
-            )}
-            <View style={s.connAlso}>
-              <Text style={s.connAlsoLabel}>Also connect:</Text>
+        ) : (
+          <View style={ls.connectRow}>
+            <Text style={ls.connectHint}>
+              {usesPreviewAppleCalendar()
+                ? 'A development build is required to read your iPhone calendar.'
+                : 'Taylo reads your iPhone calendars to show upcoming events in one place.'}
+            </Text>
+            {!usesPreviewAppleCalendar() ? (
               <Pressable
-                style={[s.connAlsoBtn, apple && s.connAlsoBtnOn]}
-                disabled={appleLoading || apple}
+                style={[ls.connectBtn, appleLoading && ls.connectBtnLoading]}
+                disabled={appleLoading}
                 onPress={() => void connectAppleCalendar()}>
-                <Text style={[s.connAlsoBtnText, apple && s.connAlsoBtnTextOn]}>
-                  {appleLoading ? 'Connecting…' : apple ? 'Apple Calendar connected' : 'Apple Calendar'}
+                <Text style={ls.connectBtnText}>
+                  {appleLoading ? 'Connecting…' : 'Connect Apple Calendar'}
                 </Text>
               </Pressable>
-            </View>
-          </>
-        ) : null}
-      </View>
+            ) : null}
+          </View>
+        )}
+      </ConnectionCard>
 
       <Text style={s.pnote}>
         Taylo only reads what it needs · never shares your data{'\n'}disconnect anything at any time
@@ -357,3 +319,105 @@ export default function ConnectionsScreen() {
     </ScrollView>
   );
 }
+
+const ls = StyleSheet.create({
+  card: {
+    marginHorizontal: space.gutter,
+    marginBottom: 8,
+    backgroundColor: colors.cream,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: 'rgba(23,43,69,0.1)',
+    overflow: 'hidden',
+    boxShadow: '0px 1px 2px rgba(23,43,69,0.045)',
+    elevation: 1,
+  },
+  cardHead: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: colors.cream,
+  },
+  cardHeadActive: {
+    backgroundColor: colors.sage,
+  },
+  cardTitle: {
+    fontSize: fontSizes.title,
+    fontFamily: fonts.sansSemiBold,
+    color: colors.navy,
+  },
+  cardSub: {
+    marginTop: 2,
+    fontSize: fontSizes.caption,
+    fontFamily: fonts.sansRegular,
+    color: colors.textMuted,
+    lineHeight: 18,
+  },
+  activeBadge: {
+    fontSize: 9,
+    fontFamily: fonts.sansSemiBold,
+    paddingVertical: 2,
+    paddingHorizontal: 7,
+    borderRadius: 6,
+    backgroundColor: colors.paleBlue,
+    color: colors.navy,
+    overflow: 'hidden',
+  },
+  chevron: {
+    fontSize: 12,
+    color: colors.textHint,
+    width: 14,
+    textAlign: 'center',
+  },
+  cardBody: {
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(23,43,69,0.06)',
+  },
+  sectionLabel: {
+    paddingTop: 10,
+    paddingHorizontal: 14,
+    paddingBottom: 4,
+    fontSize: 10,
+    fontFamily: fonts.sansSemiBold,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.54,
+  },
+  connectRow: {
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  connectHint: {
+    fontSize: fontSizes.body,
+    fontFamily: fonts.sansRegular,
+    color: colors.textMuted,
+    lineHeight: fontSizes.body * 1.5,
+  },
+  connectBtn: {
+    backgroundColor: colors.navy,
+    borderRadius: radii.button,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  connectBtnLoading: {
+    opacity: 0.5,
+  },
+  connectBtnText: {
+    color: colors.cream,
+    fontSize: fontSizes.label,
+    fontFamily: fonts.sansSemiBold,
+  },
+  connectedRow: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  connectedText: {
+    fontSize: fontSizes.body,
+    fontFamily: fonts.sansRegular,
+    color: colors.textMuted,
+    lineHeight: fontSizes.body * 1.5,
+  },
+});

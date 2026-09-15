@@ -40,8 +40,8 @@ action_required is true only when there is a real action (form, RSVP, payment, p
 If the email is noise (tracking that is fine, statements, generic newsletters), return empty items and a null title.
 
 Otherwise always fill items with a valid kind:
-- items[0] is the parent heads-up (kind is never occurrence).
-- Further items are separate obligations (packed lunch, waterproof coat) — never a checklist blob. Invent no prep.
+- items[0] is the parent heads-up. Use occurrence for a named event on an unambiguous day; context_only for facts they do not attend.
+- Further items are separate obligations (packed lunch, waterproof coat, plan the speech) — never collapse event + work into one obligation. Invent no prep.
 - hold: undated awareness ("trainers are getting small"). due_at and occurs_at null.
 - context_only: useful fact with no action. If the source states an unambiguous calendar day ("closed on the 19th"), set occurs_at to that day and confidence high. If the timing is hedged or vague ("sometime next week", "Tuesday-ish"), occurs_at must be null.
 - nudge_title: the thing, short. A hard action ("Sign Arlo's trip form") or the event ("Nursery closed").

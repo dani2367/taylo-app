@@ -218,14 +218,65 @@ export function monthPrefix(today: Date): string {
   return `${today.getFullYear()}-${pad2(today.getMonth() + 1)}`;
 }
 
-export function bucketAgenda(rows: AgendaRow[], selectedYmd: string, today = new Date()): ScheduleBuckets {
+export function monthKeyFromYmd(ymd: string): string {
+  return ymd.slice(0, 7);
+}
+
+export function addMonthKey(key: string, delta: number): string {
+  const [year, month] = key.split('-').map(Number);
+  return monthPrefix(new Date(year, month - 1 + delta, 1));
+}
+
+export function monthTitle(key: string, today = new Date()): string {
+  const [year, month] = key.split('-').map(Number);
+  const name = MONTHS_LONG[month - 1] || key;
+  return year === today.getFullYear() ? name : `${name} ${year}`;
+}
+
+export function laterThisMonthLabel(key: string): string {
+  const month = Number(key.slice(5, 7));
+  return `Later this ${MONTHS_LONG[month - 1] || key}`;
+}
+
+export function laterMonthBounds(monthKey: string, today = new Date()): { start: string; end: string } {
+  const [year, month] = monthKey.split('-').map(Number);
+  const end = ymdLocal(new Date(year, month, 0));
+  const start = monthKey === monthPrefix(today) ? ymdLocal(addDays(today, 1)) : `${monthKey}-01`;
+  return { start, end };
+}
+
+export function monthGridDays(monthKey: string): Date[] {
+  const [year, month] = monthKey.split('-').map(Number);
+  const start = startOfWeek(new Date(year, month - 1, 1));
+  return Array.from({ length: 42 }, (_, i) => addDays(start, i));
+}
+
+export function calendarStripDays(monthKey: string, selectedYmd: string): Date[] {
+  const grid = monthGridDays(monthKey);
+  let idx = grid.findIndex((day) => ymdLocal(day) === selectedYmd);
+  if (idx < 0) idx = grid.findIndex((day) => monthPrefix(day) === monthKey);
+  if (idx < 0) idx = 0;
+  const week = Math.floor(idx / 7) * 7;
+  return grid.slice(week, week + 7);
+}
+
+export function defaultSelectedYmd(monthKey: string, today = new Date()): string {
+  if (monthKey === monthPrefix(today)) return ymdLocal(today);
+  return `${monthKey}-01`;
+}
+
+export function bucketAgenda(
+  rows: AgendaRow[],
+  selectedYmd: string,
+  today = new Date(),
+  activeMonthKey = monthPrefix(today),
+): ScheduleBuckets {
   const selected = rows.filter((row) => row.ymd === selectedYmd).sort(compareAgenda);
-  const prefix = monthPrefix(today);
+  const { start, end } = laterMonthBounds(activeMonthKey, today);
   const laterThisMonth = rows
-    .filter((row) => row.ymd > selectedYmd && row.ymd.startsWith(prefix))
+    .filter((row) => row.ymd >= start && row.ymd <= end)
     .sort(compareAgenda);
 
-  const end = monthEndYmd(today);
   const ahead = rows.filter((row) => row.ymd > end).sort(compareAgenda);
   const byMonth = new Map<string, AgendaRow[]>();
   for (const item of ahead) {

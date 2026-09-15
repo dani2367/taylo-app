@@ -115,6 +115,7 @@ function PrepRow({
   return (
     <View style={s.prepRow}>
       <Pressable
+        style={s.prepCheckHit}
         onPress={(e) => {
           e.stopPropagation();
           onToggle(item.id, !item.done);
@@ -127,6 +128,7 @@ function PrepRow({
         <TextInput
           style={s.prepInput}
           value={item.text}
+          multiline
           onChangeText={(text) => onChangeText(item.id, text)}
           onEndEditing={(e) => onCommitText?.(item.id, e.nativeEvent.text)}
           onPressIn={(e) => e.stopPropagation()}
@@ -135,7 +137,7 @@ function PrepRow({
         />
       ) : (
         <Pressable
-          style={{ flex: 1 }}
+          style={s.prepTextHit}
           onPress={(e) => {
             e.stopPropagation();
             onToggle(item.id, !item.done);

@@ -11,7 +11,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.tayloapp.taylo",
       "infoPlist": {
-        "UIBackgroundModes": ["fetch"]
+        "UIBackgroundModes": [
+          "fetch"
+        ]
       }
     },
     "android": {
@@ -54,7 +56,8 @@
         }
       ],
       "expo-task-manager",
-      "expo-background-fetch"
+      "expo-background-fetch",
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,

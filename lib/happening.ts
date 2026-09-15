@@ -1,4 +1,10 @@
-import { type PlanIconSpec } from './plan-icon';
+import { daysUntil } from './human-date.ts';
+import {
+  isInformationalOnSchedule,
+  isScheduleItem,
+  type PlacementItem,
+} from '../supabase/functions/_shared/placement.ts';
+import type { PlanIconSpec } from './plan-icon.ts';
 
 export type HappenItem = {
   id: string;
@@ -9,10 +15,15 @@ export type HappenItem = {
   informational?: boolean;
 };
 
-export function dayMood(count: number) {
-  if (count <= 1) return 'A quiet one';
-  if (count <= 3) return 'A fairly calm one';
-  return 'A fuller one';
+/** Whether this row belongs on Home's Today card for this calendar day. */
+export function isHappeningToday(item: PlacementItem, today = new Date()): boolean {
+  if (!isScheduleItem(item)) return false;
+  return daysUntil(item.occurs_at, today) === 0;
+}
+
+export function happenTimeLabel(item: PlacementItem, clock: string | null): string {
+  if (isInformationalOnSchedule(item)) return 'Note';
+  return clock?.trim() || 'All day';
 }
 
 export function happenCountLabel(count: number) {
@@ -20,15 +31,19 @@ export function happenCountLabel(count: number) {
 }
 
 export function happenSortKey(item: HappenItem): number {
-  if (/^all day$/i.test(item.time)) return 0;
-  const match = /(\d{1,2})(?::(\d{2}))?/.exec(item.time);
+  if (/^all day$/i.test(item.time) || /^note$/i.test(item.time)) return 0;
+  const match = /(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i.exec(item.time);
   if (!match) return 1;
-  return Number(match[1]) * 60 + Number(match[2] || 0);
+  let hour = Number(match[1]);
+  const minute = Number(match[2] || 0);
+  const suffix = (match[3] || '').toLowerCase();
+  if (suffix === 'pm' && hour < 12) hour += 12;
+  if (suffix === 'am' && hour === 12) hour = 0;
+  return hour * 60 + minute;
 }
 
-/** Home day card shows 8:30 / 2:15, not 8:30am. */
+/** Home/Plan day card: 12-hour with am/pm (e.g. 2pm, 2:30pm). */
 export function happenClockLabel(timeLabel: string | null | undefined): string {
   if (!timeLabel) return 'All day';
-  const stripped = timeLabel.replace(/(am|pm)$/i, '').trim();
-  return stripped || 'All day';
+  return timeLabel.trim() || 'All day';
 }

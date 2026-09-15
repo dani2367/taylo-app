@@ -79,7 +79,7 @@ export function isSurfaceFromPending(item: PlacementItem, today = new Date()): b
   return !!from && from > todayYmd(today);
 }
 
-/** Real calendar occurrences — the only rows that belong on Home's day card. */
+/** Real calendar occurrences — timed or all-day events they attend. */
 export function isOccurrenceOnSchedule(item: PlacementItem): boolean {
   if (!isOpenForSurfacing(item.status)) return false;
   return item.kind === 'occurrence' && !!item.occurs_at;
@@ -87,7 +87,8 @@ export function isOccurrenceOnSchedule(item: PlacementItem): boolean {
 
 /**
  * Narrow Schedule carve-out: a context_only row with occurs_at already set
- * (ingest only writes that for high-confidence stated facts). Never Home.
+ * (ingest only writes that for high-confidence stated facts).
+ * Shows on the day timeline (Home and Plan) as a note, never as a Home action.
  */
 export function isInformationalOnSchedule(item: PlacementItem): boolean {
   if (!isOpenForSurfacing(item.status)) return false;
@@ -370,10 +371,15 @@ function groupingParent<T extends PlacementItem>(row: T, byId: Map<string, T>): 
   return live;
 }
 
+/** Events keep their work nested even when there is only one line — same shape as Schedule. */
+function nestsRadarWork(parent: PlacementItem): boolean {
+  return parent.kind === 'occurrence' || parent.kind === 'context_only';
+}
+
 /**
- * Radar collapses 2+ watch children under their shared parent (occurrence,
- * obligation, hold, or context_only — not only calendar events).
- * A single outstanding child stays a standalone card. Home never uses this.
+ * Radar nests watch children under their shared parent (occurrence,
+ * obligation, hold, or context_only). Event parents keep a nested list even
+ * for one child. Kit under a form still needs 2+ lines to collapse. Home never uses this.
  */
 export function asRadarWatchCards<T extends PlacementItem>(
   items: T[],
@@ -401,13 +407,13 @@ export function asRadarWatchCards<T extends PlacementItem>(
   const groupedParentIds = new Set<string>();
   const foldedChildIds = new Set<string>();
   for (const [parentId, children] of grouped) {
-    if (children.length < 2) {
-      groupedCards.push({ item: children[0]!, children: [] });
-      continue;
-    }
     const parent = byId.get(parentId);
     if (!parent) {
       for (const child of children) groupedCards.push({ item: child, children: [] });
+      continue;
+    }
+    if (children.length < 2 && !nestsRadarWork(parent)) {
+      groupedCards.push({ item: children[0]!, children: [] });
       continue;
     }
     groupedParentIds.add(parentId);
@@ -461,11 +467,12 @@ export function exceptHomeActions<T extends PlacementItem>(
   const out: PlacementCard<T>[] = [];
   for (const card of watch) {
     if (homeCovered.has(card.item.id) && card.children.length) continue;
-    if (card.children.length >= 2) {
+    if (card.children.length) {
       const remaining = card.children.filter((child) => !homeCovered.has(child.id));
-      if (remaining.length >= 2) {
+      if (!remaining.length) continue;
+      if (remaining.length >= 2 || nestsRadarWork(card.item)) {
         out.push({ item: card.item, children: remaining });
-      } else if (remaining.length === 1 && !homeCovered.has(remaining[0]!.id)) {
+      } else {
         out.push({ item: remaining[0]!, children: [] });
       }
       continue;

@@ -84,7 +84,7 @@ export function mapRadarWatchCard(
   card: PlacementCard<PlanItemRow>,
   today = new Date(),
 ): PlanItemCardModel {
-  if (card.children.length >= 2) {
+  if (card.children.length >= 1) {
     const countLabel = thingsToSortLabel(card.children.length);
     const childTitles = card.children.map((row) => (row.title || '').trim() || 'Untitled');
     return {
