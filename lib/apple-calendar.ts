@@ -5,6 +5,7 @@ import {
   APPLE_CALENDAR_SYNC_TASK,
 } from '@/lib/apple-calendar-map';
 import { shouldClassifyExistingCalendarItem, syncedCalendarItemStatus } from '@/lib/calendar-classified';
+import { linkInsertedCalendarItems } from '@/lib/cross-source';
 import { closeItems } from '@/lib/item-status';
 import { supabase } from '@/lib/supabase';
 import { isRunningInExpoGo } from 'expo';
@@ -235,6 +236,7 @@ async function runSync(): Promise<SyncResult> {
     if (!existing) {
       toInsert.push({
         user_id: user.id,
+        created_by: user.id,
         title,
         body: location,
         event_date: eventDate,
@@ -294,6 +296,11 @@ async function runSync(): Promise<SyncResult> {
       console.error('Failed to upsert calendar items:', insertError.message);
     } else {
       created = inserted?.length ?? 0;
+      await linkInsertedCalendarItems(
+        supabase,
+        user.id,
+        (inserted ?? []).map((row) => row.id),
+      );
       for (const row of inserted ?? []) {
         const start = typeof row.event_date === 'string' ? row.event_date : '';
         classifyPayload.push({

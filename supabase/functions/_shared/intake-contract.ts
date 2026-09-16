@@ -56,16 +56,16 @@ export function intakeContractRules(source: IntakeSource): string {
     source === 'calendar'
       ? `occurs_at: REQUIRED on the occurrence (the calendar event start). Child obligations must set occurs_at to null. Never copy a due date onto occurs_at.`
       : `occurs_at: null for obligations, holds, and list_items. A date that is an action deadline is due_at on an obligation — never occurs_at.
-- kind=occurrence IS allowed for ${source} only when the item IS the event they attend AND the source names an unambiguous calendar day (5 December, 20 September). Wedding, birthday party, school/farm trip, concert, funeral. occurs_at = that day (all-day unless they said a time). Confidence high.
-- Dated chores stay obligations, never occurrences: "book the eye test on Tuesday", "email the teacher about the trip", "return the form by the 19th", "buy shoes for the wedding". Those go on General to do from chat.
-- Do not collapse the event and the work into one obligation ("Oliver's wedding — chairman speech"). Return the event as occurrence AND each action as its own obligation (e.g. "Write the chairman speech") with due_at on or before the event day.
+- kind=occurrence IS allowed for ${source} when they state that a thing happens on an unambiguous calendar day — "X is on 23 October", "spa day on 12 June", "parents evening on 4 November", "on Wednesday next week". The noun does not have to be wedding/birthday. occurs_at = that day. Confidence high.
+- Dated chores stay obligations: the date is a deadline or the sentence is the work ("book the eye test on 5 December", "email the teacher about the trip", "return the form by the 19th", "buy shoes for the wedding"). Those go on General to do from chat.
+- If they name the event AND extra work ("Oliver's stag is on the 23rd October — need to book flights"), return the event as occurrence AND the action as its own obligation. Do not collapse them into one to-do. Do not invent "arrive" / "attend" / "go to the hospital" as a child — the event on the card is enough.
 - context_only MAY set occurs_at only for a stated fact that is not an event they attend (e.g. "nursery is closed on the 19th") AND confidence is high.
-- Never for inferred, hedged, or estimated dates ("might", "sometime next week", "Tuesday-ish"). Code will strip occurs_at unless that bar is met.`;
+- Never for inferred, hedged, or estimated dates ("might", "sometime next week", "Tuesday-ish", a weekday with no this/next week). "Wednesday next week" is a real day — keep it. Code will strip occurs_at unless that bar is met.`;
 
   return `Intake contract — every item you return must fill these fields. ${INTAKE_ITEM_JSON}
 
 kind:
-- occurrence: something that genuinely happens on a day. Calendar events always. Email/chat MAY use this only for a named attendable event plus an unambiguous date — not for admin ("book", "email", "return a form") and not for "need to plan a speech" with no event.
+- occurrence: something that genuinely happens on a day. Calendar events always. Email/chat: use this when they say a named thing happens on a calendar day. Not for admin ("book", "email", "return a form") even if that sentence contains a date.
 - obligation: a concrete action (bring packed lunch, sign a form, write a speech).
 - hold: awareness with no deadline ("trainers are getting small").
 - list_item: a product or line on a shopping/custom list.
@@ -86,6 +86,7 @@ Prep discipline — do NOT invent prep:
 - "Bring packed lunch and a waterproof coat" → exactly two high-confidence stated obligations, titles like "Packed lunch" and "Waterproof coat".
 - "Taya's trainers are getting small" → one hold, due_at null, occurs_at null. Not an obligation with a fabricated deadline.
 - "Olivier's wedding on 5 December, need to plan a speech" → occurrence (wedding, occurs_at = 5 Dec) plus obligation ("Plan the speech", due_at on/before that day). Not one to-do titled "wedding — speech".
+- "Oliver's stag is on the 23rd October — need to book flights" → occurrence (stag, occurs_at = that day) plus obligation ("Book flights"). The flights to-do does not replace the event on Schedule.
 - "Nursery is closed on the 19th for staff training" → one context_only, high confidence, occurs_at = that day, no prep obligations.
 - "Might need to pop in sometime next week" → hold or context_only with occurs_at null. Do not invent a calendar day.
 
@@ -114,20 +115,96 @@ const APPOINT_RE = /\b(appointment|dentist|doctor|gp|hospital|checkup|injection|
 const ADMIN_TASK_TITLE_RE =
   /^(email|call|text|message|book|sign|return|pay|buy|get|order|pick\s*up|renew|apply|arrange|organise|organize|sort|print|tell|ask|chase|send)\b/i;
 const BARE_EVENT_NOUN_RE =
-  /^(the\s+)?(wedding|funeral|christening|party|trip|concert|festival|gala|holiday|birthday|match)$/i;
+  /^(the\s+)?(wedding|funeral|christening|party|trip|concert|festival|gala|holiday|birthday|match|stag(?:\s+do)?|hen(?:\s+(?:do|party))?)$/i;
+const POSSESSIVE_LIFE_EVENT_NOUN =
+  'stag(?:\\s+do)?|hen(?:\\s+(?:do|party))?|wedding|funeral|christening|bar\\s+mitzvah|bat\\s+mitzvah|birthday(?:\\s+party)?';
+const POSSESSIVE_NAME_STOP = /^(need|needs|this|his|its|us|as|is|was|has|does)$/i;
+const MONTH_INDEX: Record<string, number> = {
+  jan: 0,
+  january: 0,
+  feb: 1,
+  february: 1,
+  mar: 2,
+  march: 2,
+  apr: 3,
+  april: 3,
+  may: 4,
+  jun: 5,
+  june: 5,
+  jul: 6,
+  july: 6,
+  aug: 7,
+  august: 7,
+  sep: 8,
+  sept: 8,
+  september: 8,
+  oct: 9,
+  october: 9,
+  nov: 10,
+  november: 10,
+  dec: 11,
+  december: 11,
+};
 
 /** Something they attend — not a chore that merely mentions an event. */
 export function titleNamesAttendableEvent(title: string): boolean {
   const t = title.replace(/\s+/g, ' ').trim();
   if (!t) return false;
   if (/\b(wedding|funeral|christening|bar\s+mitzvah|bat\s+mitzvah)\b/i.test(t)) return true;
+  if (/\b(stag(?:\s+do)?|hen(?:\s+(?:do|party))?)\b/i.test(t)) return true;
   if (/\bbirthdays?\b|\bbday\b/i.test(t)) return true;
   if (/\b[\w']+'s\s+party\b/i.test(t) || /\bbirthday\s+party\b/i.test(t)) return true;
   if (/\b(school|year\s+\d+|farm|class|residential|ski)\s+trip\b/i.test(t)) return true;
   if (/\b(concert|festival|gala)\b/i.test(t)) return true;
   if (/\b(football|netball|rugby|cricket|tennis)\s+match\b/i.test(t)) return true;
+  if (/\b(operation|surgery)\b/i.test(t)) return true;
   if (/\bholiday\b/i.test(t) && !/\bpassport\b/i.test(t)) return true;
   return false;
+}
+
+/** "Oliver's stag" / "olivers wedding" from the offload sentence itself. */
+export function namedPossessiveLifeEvent(text: string): string | null {
+  const re = new RegExp(`\\b([A-Za-z]+)(?:['’]s|s)\\s+(${POSSESSIVE_LIFE_EVENT_NOUN})\\b`, 'i');
+  const match = text.match(re);
+  if (!match) return null;
+  if (POSSESSIVE_NAME_STOP.test(match[1])) return null;
+  const name = match[1].charAt(0).toUpperCase() + match[1].slice(1).toLowerCase();
+  const event = match[2].replace(/\s+/g, ' ').toLowerCase();
+  const title = `${name}'s ${event}`;
+  return isSpecificAttendableEventTitle(title) ? title : null;
+}
+
+/** 23rd October / October 23 → YYYY-MM-DD. Year omitted means the next that day. */
+export function parseUkCalendarDay(text: string, today = new Date()): string | null {
+  const t = text.replace(/\s+/g, ' ');
+  const dayMonth = t.match(new RegExp(`\\b(${ORDINAL_DAY})\\s+(?:of\\s+)?(${MONTH_NAME})(?:\\s+(20\\d{2}))?\\b`, 'i'));
+  const monthDay = dayMonth
+    ? null
+    : t.match(new RegExp(`\\b(${MONTH_NAME})\\s+(${ORDINAL_DAY})(?:\\s+(20\\d{2}))?\\b`, 'i'));
+  let day: number | null = null;
+  let month: number | null = null;
+  let year: number | null = null;
+  if (dayMonth) {
+    day = Number.parseInt(dayMonth[1], 10);
+    month = MONTH_INDEX[dayMonth[2].toLowerCase()] ?? null;
+    year = dayMonth[3] ? Number(dayMonth[3]) : null;
+  } else if (monthDay) {
+    month = MONTH_INDEX[monthDay[1].toLowerCase()] ?? null;
+    day = Number.parseInt(monthDay[2], 10);
+    year = monthDay[3] ? Number(monthDay[3]) : null;
+  }
+  if (day != null && month != null && !Number.isNaN(day) && day >= 1 && day <= 31) {
+    const nowY = today.getFullYear();
+    const nowM = today.getMonth();
+    const nowD = today.getDate();
+    let y = year ?? nowY;
+    if (year == null && (month < nowM || (month === nowM && day < nowD))) y = nowY + 1;
+    const dt = new Date(Date.UTC(y, month, day));
+    if (dt.getUTCMonth() === month && dt.getUTCDate() === day) {
+      return `${y}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+  return parseWeekdayRelativeDay(t, today);
 }
 
 function isSpecificAttendableEventTitle(title: string): boolean {
@@ -154,7 +231,17 @@ export function isNamedDatedLifeEventCapture(title: string, sourceText: string):
   if (!hasUnambiguousStatedDate(sourceText)) return false;
   if (isCollapsedWorkForEvent(title)) return true;
   if (ADMIN_TASK_TITLE_RE.test(title.trim())) return false;
-  return isSpecificAttendableEventTitle(title);
+  if (isSpecificAttendableEventTitle(title)) return true;
+  const fromText = statedEventFromOffload(sourceText);
+  if (fromText && (titlesAlign(fromText, title) || titlesLooselyMatch(fromText, title))) return true;
+  return false;
+}
+
+function titlesLooselyMatch(a: string, b: string): boolean {
+  const na = a.replace(/\s+/g, ' ').replace(/['’]/g, '').trim().toLowerCase();
+  const nb = b.replace(/\s+/g, ' ').replace(/['’]/g, '').trim().toLowerCase();
+  if (!na || !nb) return false;
+  return na.includes(nb) || nb.includes(na);
 }
 
 export function parseIsoDateTime(value: unknown): string | null {
@@ -181,6 +268,111 @@ const MONTH_NAME =
   'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';
 const ORDINAL_DAY = '\\d{1,2}(?:st|nd|rd|th)?';
 const WEEKDAY = 'monday|tuesday|wednesday|thursday|friday|saturday|sunday';
+const WEEKDAY_NUM: Record<string, number> = {
+  sunday: 0,
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6,
+};
+
+/** "Wednesday next week" / "next week on Wednesday" / "next Wednesday" — not "Friday" or "next week" alone. */
+function weekdayRelativePattern(): string {
+  return `(?:${WEEKDAY})\\s+(?:this|next)\\s+week|(?:this|next)\\s+week(?:\\s+on)?\\s+(?:${WEEKDAY})|next\\s+(?:${WEEKDAY})`;
+}
+
+export function hasWeekdayRelativeDate(text: string): boolean {
+  return new RegExp(`\\b(?:on\\s+)?(?:${weekdayRelativePattern()})\\b`, 'i').test(text.replace(/\s+/g, ' '));
+}
+
+function utcYmd(today: Date): Date {
+  return new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+}
+
+function formatUtcYmd(dt: Date): string {
+  const y = dt.getUTCFullYear();
+  const m = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(dt.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function mondayOfContainingWeek(utcDay: Date, weekOffset: number): Date {
+  const dow = utcDay.getUTCDay();
+  const toMonday = dow === 0 ? -6 : 1 - dow;
+  return new Date(Date.UTC(utcDay.getUTCFullYear(), utcDay.getUTCMonth(), utcDay.getUTCDate() + toMonday + weekOffset * 7));
+}
+
+function ymdOnWeekday(monday: Date, weekday: number): string {
+  const fromMonday = weekday === 0 ? 6 : weekday - 1;
+  return formatUtcYmd(
+    new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + fromMonday)),
+  );
+}
+
+/** Resolve "Wednesday next week" against a UK week (Monday start). */
+export function parseWeekdayRelativeDay(text: string, today = new Date()): string | null {
+  const t = text.replace(/\s+/g, ' ');
+  const named = (match: RegExpMatchArray | null, a: number, b: number): string | null => {
+    const raw = match?.[a] || match?.[b];
+    if (!raw) return null;
+    return raw.toLowerCase();
+  };
+
+  const inWeek = t.match(
+    new RegExp(`\\b(?:on\\s+)?(${WEEKDAY})\\s+(this|next)\\s+week\\b|\\b(this|next)\\s+week(?:\\s+on)?\\s+(${WEEKDAY})\\b`, 'i'),
+  );
+  if (inWeek) {
+    const weekdayName = named(inWeek, 1, 4);
+    const which = (inWeek[2] || inWeek[3] || '').toLowerCase();
+    const weekday = weekdayName ? WEEKDAY_NUM[weekdayName] : undefined;
+    if (weekday == null) return null;
+    const monday = mondayOfContainingWeek(utcYmd(today), which === 'next' ? 1 : 0);
+    return ymdOnWeekday(monday, weekday);
+  }
+
+  const nextWeekday = t.match(new RegExp(`\\bnext\\s+(${WEEKDAY})\\b`, 'i'));
+  if (nextWeekday) {
+    const weekday = WEEKDAY_NUM[nextWeekday[1].toLowerCase()];
+    if (weekday == null) return null;
+    const start = utcYmd(today);
+    let delta = (weekday - start.getUTCDay() + 7) % 7;
+    if (delta === 0) delta = 7;
+    return formatUtcYmd(
+      new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate() + delta)),
+    );
+  }
+
+  return null;
+}
+
+/** "by 7:30" / "at 7:30am" → HH:MM. Do not treat "by the 19th" as a clock. */
+export function parseStatedClock(text: string): string | null {
+  const t = text.replace(/\s+/g, ' ');
+  const colon =
+    t.match(/\b(?:arrive\s+)?(?:by|at|before)\s+(\d{1,2}):(\d{2})\s*(am|pm)?\b/i) ||
+    t.match(/\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/i);
+  const meridiem = colon ? null : t.match(/\b(?:arrive\s+)?(?:by|at|before)\s+(\d{1,2})\s*(am|pm)\b/i);
+  const match = colon || meridiem;
+  if (!match) return null;
+  let hour = Number.parseInt(match[1], 10);
+  const minute = colon ? Number.parseInt(match[2], 10) : 0;
+  const suff = ((colon ? match[3] : match[2]) || '').toLowerCase();
+  if (Number.isNaN(hour) || hour > 23 || Number.isNaN(minute) || minute > 59) return null;
+  if (suff === 'pm' && hour < 12) hour += 12;
+  if (suff === 'am' && hour === 12) hour = 0;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function withStatedClock(ymd: string, text: string): string {
+  const day = dateOnly(ymd);
+  if (!day) return ymd;
+  if (/T\d{2}:\d{2}/.test(ymd) && !/T00:00/.test(ymd)) return ymd;
+  const clock = parseStatedClock(text);
+  if (!clock) return day;
+  return `${day}T${clock}:00`;
+}
 
 /** A specific calendar day named as fact — not "Friday" or "next week" alone. */
 export function hasUnambiguousStatedDate(text: string): boolean {
@@ -189,10 +381,81 @@ export function hasUnambiguousStatedDate(text: string): boolean {
   if (new RegExp(`\\b${ORDINAL_DAY}\\s+(?:of\\s+)?(?:${MONTH_NAME})\\b`, 'i').test(t)) return true;
   if (new RegExp(`\\b(?:${MONTH_NAME})\\s+${ORDINAL_DAY}\\b`, 'i').test(t)) return true;
   if (/\b20\d{2}-\d{2}-\d{2}\b/.test(t)) return true;
+  if (hasWeekdayRelativeDate(t)) return true;
   return false;
 }
 
-/** Hedged / estimated timing — blocks the Schedule carve-out even if the model invented a day. */
+/** A calendar-day span as written: 23rd October, October 23, 2026-10-23, Wednesday next week. */
+function calendarDayPattern(): string {
+  return `(?:the\\s+)?${ORDINAL_DAY}\\s+(?:of\\s+)?(?:${MONTH_NAME})|(?:${MONTH_NAME})\\s+${ORDINAL_DAY}|20\\d{2}-\\d{2}-\\d{2}|${weekdayRelativePattern()}`;
+}
+
+function cleanEventPhrase(raw: string): string {
+  return raw
+    .replace(/^(?:oh\s+)?(?:also\s+)?(?:btw\s+)?/i, '')
+    .replace(/^(?:there(?:'s| is)|it(?:'s| is)|a|an|the)\s+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isConcreteEventPhrase(title: string): boolean {
+  const t = title.replace(/\s+/g, ' ').trim();
+  if (!t || t.length < 3 || t.length > 60) return false;
+  if (BARE_EVENT_NOUN_RE.test(t)) return false;
+  if (/^(form|email|call|reminder|deadline|flights?|tickets?|shoes?)$/i.test(t)) return false;
+  return true;
+}
+
+function titlesAlign(a: string, b: string): boolean {
+  const norm = (value: string) => value.replace(/\s+/g, ' ').replace(/['’]/g, '').trim().toLowerCase();
+  return norm(a) === norm(b);
+}
+
+/**
+ * The date in this offload is attached to something that happens that day
+ * ("X is on 23 October", "spa day on 12 June") — not a chore deadline
+ * ("book the eye test on…", "return the form by…").
+ */
+export function statedEventFromOffload(text: string): string | null {
+  if (hasSoftOrInferredDateLanguage(text)) return null;
+  if (!hasUnambiguousStatedDate(text)) return null;
+
+  const possessive = namedPossessiveLifeEvent(text);
+  if (possessive) return possessive;
+
+  const datePat = calendarDayPattern();
+  const clauses = text.split(/[.;\n]|\s+[-–—]\s+/);
+  for (const clause of clauses) {
+    const title = eventTitleFromClause(clause, datePat);
+    if (title) return title;
+  }
+
+  const forEvent = text.match(new RegExp(`\\bfor\\s+(.+?)\\s+(?:is\\s+)?on\\s+(?:${datePat})\\b`, 'i'));
+  if (forEvent) {
+    const title = cleanEventPhrase(forEvent[1]);
+    if (title && !ADMIN_TASK_TITLE_RE.test(title) && isConcreteEventPhrase(title)) {
+      return titleCaseLabel(title);
+    }
+  }
+
+  return null;
+}
+
+function eventTitleFromClause(clause: string, datePat: string): string | null {
+  const c = clause.replace(/\s+/g, ' ').trim();
+  if (!c) return null;
+  if (ADMIN_TASK_TITLE_RE.test(c)) return null;
+  const hasStatedDay = new RegExp(`\\bis(?:\\s+on)?\\s+(?:${datePat})\\b`, 'i').test(c);
+  if (/\b(by|due)\s+(?:the\s+)?\d/i.test(c) && !hasStatedDay) return null;
+
+  const isOn = c.match(new RegExp(`^(.+?)\\s+(?:is|it'?s)\\s+(?:on\\s+)?(?:${datePat})\\b`, 'i'));
+  const on = isOn || c.match(new RegExp(`^(.+?)\\s+on\\s+(?:${datePat})\\b`, 'i'));
+  if (!on) return null;
+  const title = cleanEventPhrase(on[1]);
+  if (!title || ADMIN_TASK_TITLE_RE.test(title) || !isConcreteEventPhrase(title)) return null;
+  return titleCaseLabel(title);
+}
+
 export function hasSoftOrInferredDateLanguage(text: string): boolean {
   const t = text.replace(/\s+/g, ' ');
   if (/\b(sometime|some\s+time)\b/i.test(t)) return true;
@@ -246,11 +509,12 @@ function statedCalendarDay(params: {
   sourceText: string;
   candidate: string | null;
 }): string | null {
-  const date = dateOnly(params.candidate);
-  if (!date) return null;
   if (hasSoftOrInferredDateLanguage(params.sourceText)) return null;
   if (!hasUnambiguousStatedDate(params.sourceText)) return null;
-  return date;
+  const fromWeekday = parseWeekdayRelativeDay(params.sourceText);
+  if (fromWeekday) return withStatedClock(fromWeekday, params.sourceText);
+  const date = dateOnly(params.candidate) || parseUkCalendarDay(params.sourceText);
+  return date ? withStatedClock(date, params.sourceText) : null;
 }
 
 export function hasPersistableKind(items: IntakeItem[]): boolean {
@@ -404,8 +668,22 @@ export function normalizeIntakeItem(
       title,
       candidate,
     });
-    if (!occurs_at) kind = due_at ? 'obligation' : 'context_only';
-    else due_at = null;
+    if (!occurs_at) {
+      const day = statedCalendarDay({
+        source: opts.source,
+        sourceText: opts.sourceText,
+        candidate,
+      });
+      if (day && isNamedDatedLifeEventCapture(title, opts.sourceText)) {
+        occurs_at = day;
+      } else if (day && confidence === 'high') {
+        occurs_at = day;
+        kind = 'occurrence';
+      } else {
+        kind = due_at ? 'obligation' : 'context_only';
+      }
+    }
+    if (occurs_at) due_at = null;
   } else if (kind === 'context_only') {
     occurs_at = informationalScheduleOccursAt({
       kind,
@@ -498,7 +776,7 @@ export function intakeRowFields(item: IntakeItem): Record<string, unknown> {
 
 export function eventDateFromIntake(item: IntakeItem, source: IntakeSource): string | null {
   if (source === 'calendar') return item.occurs_at;
-  return item.occurs_at || item.due_at;
+  return dateOnly(item.occurs_at || item.due_at);
 }
 
 export function finalizeSourceItems(params: {
@@ -541,7 +819,9 @@ export function finalizeSourceItems(params: {
   }
 
   if (params.extraLabels?.length) {
-    const extra = params.extraLabels.map((title) => ({
+    const extra = params.extraLabels
+      .filter((title) => !isAttendanceRestatement(title))
+      .map((title) => ({
       title,
       kind: 'obligation',
       occurs_at: null,
@@ -557,7 +837,9 @@ export function finalizeSourceItems(params: {
     ];
   }
 
-  items = expandCollapsedLifeEvent(items, params.sourceText, params.date ?? null);
+  items = dropRedundantEventWork(
+    expandCollapsedLifeEvent(items, params.sourceText, params.date ?? null),
+  );
 
   const parent = items[0];
   const due = parent?.due_at ?? params.date ?? null;
@@ -589,13 +871,14 @@ function promoteStatedLifeEvent(items: IntakeItem[], sourceText: string): Intake
   return items.map((item) => {
     if (item.kind !== 'context_only') return item;
     if (item.confidence === 'low') return item;
-    if (!isSpecificAttendableEventTitle(item.title)) return item;
-    const day = dateOnly(item.occurs_at) || dateOnly(item.due_at);
+    if (!isNamedDatedLifeEventCapture(item.title, sourceText)) return item;
+    const day =
+      parseWeekdayRelativeDay(sourceText) || dateOnly(item.occurs_at) || dateOnly(item.due_at);
     if (!day) return item;
     return {
       ...item,
       kind: 'occurrence',
-      occurs_at: day,
+      occurs_at: withStatedClock(day, sourceText),
       due_at: null,
       actionable: 'no',
     };
@@ -681,22 +964,58 @@ export function expandCollapsedLifeEvent(
   sourceText: string,
   fallbackDate?: string | null,
 ): IntakeItem[] {
-  if (items.some((item) => item.kind === 'occurrence')) return items;
-  const idx = items.findIndex(
+  const sourceEvent = statedEventFromOffload(sourceText);
+  if (items.some((item) => item.kind === 'occurrence')) {
+    return withNeedToWork(items, sourceText, fallbackDate ?? null);
+  }
+
+  let idx = items.findIndex(
     (item) => item.kind === 'obligation' && isNamedDatedLifeEventCapture(item.title, sourceText),
   );
-  if (idx < 0) return items;
+  if (idx < 0 && sourceEvent) {
+    idx = items.findIndex((item) => item.kind === 'obligation');
+  }
+
+  const dateFromSource = (() => {
+    const day =
+      parseWeekdayRelativeDay(sourceText) || dateOnly(fallbackDate ?? null) || parseUkCalendarDay(sourceText);
+    return day ? withStatedClock(day, sourceText) : null;
+  })();
+
+  if (idx < 0) {
+    if (!sourceEvent || !dateFromSource) return items;
+    const seed = items[0];
+    const occurrence = withSurfaceWindow({
+      title: sourceEvent,
+      kind: 'occurrence',
+      occurs_at: dateFromSource,
+      due_at: null,
+      actionable: 'no',
+      prep_implied: 'none',
+      confidence: 'high',
+      evidence: sourceText,
+      surface_from: seed?.surface_from ?? null,
+      surface_until: seed?.surface_until ?? null,
+    });
+    const rest = items.filter((row) => !titlesAlign(row.title, sourceEvent));
+    return withNeedToWork([occurrence, ...rest], sourceText, dateFromSource);
+  }
+
   const item = items[idx];
-  const date = dateOnly(item.due_at) || dateOnly(item.occurs_at) || dateOnly(fallbackDate ?? null);
+  const date = dateFromSource || dateOnly(item.due_at) || dateOnly(item.occurs_at);
   if (!date) return items;
 
   const split = splitCollapsedEventTitle(item.title, sourceText);
-  if (!split.eventTitle) return items;
+  const eventTitle = sourceEvent || split.eventTitle;
+  if (!eventTitle) return items;
+  const actionTitle =
+    split.actionTitle ||
+    (sourceEvent && item.title.toLowerCase() !== eventTitle.toLowerCase() ? item.title : null);
 
   const rest = items.filter((_, i) => i !== idx).filter((row) => row.title.toLowerCase() !== item.title.toLowerCase());
   const occurrence = withSurfaceWindow({
     ...item,
-    title: split.eventTitle,
+    title: eventTitle,
     kind: 'occurrence',
     occurs_at: date,
     due_at: null,
@@ -704,7 +1023,6 @@ export function expandCollapsedLifeEvent(
     prep_implied: 'none',
   });
   const hasWork = rest.some((row) => row.kind === 'obligation');
-  const actionTitle = split.actionTitle;
   if (!hasWork && actionTitle && actionTitle.toLowerCase() !== occurrence.title.toLowerCase()) {
     const obligation = withSurfaceWindow({
       ...item,
@@ -715,9 +1033,69 @@ export function expandCollapsedLifeEvent(
       actionable: 'yes',
       prep_implied: 'stated',
     });
-    return [occurrence, obligation, ...rest];
+    return withNeedToWork([occurrence, obligation, ...rest], sourceText, date);
   }
-  return [occurrence, ...rest];
+  return withNeedToWork([occurrence, ...rest], sourceText, date);
+}
+
+function withNeedToWork(items: IntakeItem[], sourceText: string, due: string | null): IntakeItem[] {
+  if (!items.some((item) => item.kind === 'occurrence')) return items;
+  if (items.some((item) => item.kind === 'obligation')) return items;
+  const work = statedNeedToWork(sourceText, due);
+  return work ? [...items, work] : items;
+}
+
+const DISTINCT_EVENT_WORK_RE =
+  /\b(book|email|call|text|pack|buy|write|rsvp|form|pay|order|pick\s*up|arrange|organise|organize|confirm|speech|flights?)\b/i;
+const ATTEND_EVENT_RE =
+  /^(arrive|be there|get there|get to|go to|go along to|attend|turn up|show up|be at|make it to|head(?:\s+over)?\s+to)\b/i;
+
+/** Showing up to the event is the event — not a Radar checklist line. */
+export function isAttendanceRestatement(title: string): boolean {
+  const t = title
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^(please\s+)?(?:i\s+)?(?:still\s+)?(?:need to |need |have to |gotta )/i, '');
+  if (!t) return false;
+  if (DISTINCT_EVENT_WORK_RE.test(t) && !/\barrive\b/i.test(t)) return false;
+  if (ATTEND_EVENT_RE.test(t)) return true;
+  if (/\barrive\b/i.test(t) && /\b(by|at|before)\b/i.test(t)) return true;
+  return false;
+}
+
+function dropRedundantEventWork(items: IntakeItem[]): IntakeItem[] {
+  const event = items.find(
+    (item) => item.kind === 'occurrence' || (item.kind === 'context_only' && !!item.occurs_at),
+  );
+  if (!event) return items;
+  return items.filter((item) => {
+    if (item === event || item.kind !== 'obligation') return true;
+    if (titlesAlign(item.title, event.title)) return false;
+    if (isAttendanceRestatement(item.title)) return false;
+    return true;
+  });
+}
+
+function statedNeedToWork(sourceText: string, due: string | null): IntakeItem | null {
+  const match = sourceText.match(/\bneed to\s+([^.—\n]+)/i);
+  if (!match) return null;
+  let title = match[1].replace(/\s+/g, ' ').trim().replace(/\basap\b/gi, '').replace(/[.]+$/, '').trim();
+  if (!title || title.length > 48) return null;
+  if (isSpecificAttendableEventTitle(title)) return null;
+  if (isAttendanceRestatement(title)) return null;
+  title = titleCaseLabel(title);
+  return withSurfaceWindow({
+    title,
+    kind: 'obligation',
+    occurs_at: null,
+    due_at: due,
+    actionable: 'yes',
+    prep_implied: 'stated',
+    confidence: 'high',
+    evidence: match[0],
+    surface_from: null,
+    surface_until: null,
+  });
 }
 
 export function splitParentAndChildren(

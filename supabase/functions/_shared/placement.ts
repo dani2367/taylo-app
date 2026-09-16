@@ -1,5 +1,7 @@
 /** Placement is derived only from typed fields. `source` is provenance, never a switch. */
 
+import { titleNamesAttendableEvent } from './intake-contract.ts';
+
 /** Home visibility cap. Extra relevant actions go to See all (oldest-on-Home first). */
 export const HOME_VISIBLE_MAX = 5;
 export const HOME_ACTION_MAX = HOME_VISIBLE_MAX;
@@ -172,7 +174,20 @@ function isPackingChildOfParent(item: PlacementItem, today = new Date()): boolea
   return isEventKitTitle(item.title);
 }
 
-/** Radar "Keeping an eye on": holds, or obligations not yet due / whose window has not opened. */
+function eventDayYmd(item: PlacementItem): string | null {
+  return dateOnly(item.event_date) || dateOnly(item.occurs_at);
+}
+
+/** Named family event still ahead — operation, party, gala — not a generic calendar meeting. */
+function isUpcomingNamedLifeEvent(item: PlacementItem, today: Date): boolean {
+  if (item.kind !== 'occurrence') return false;
+  if (!titleNamesAttendableEvent(item.title || '')) return false;
+  const day = eventDayYmd(item);
+  if (!day) return false;
+  return day >= todayYmd(today);
+}
+
+/** Radar "Keeping an eye on": holds, upcoming named events, or obligations not yet due / whose window has not opened. */
 export function isRadarWatchItem(
   item: PlacementItem,
   today = new Date(),
@@ -182,6 +197,7 @@ export function isRadarWatchItem(
   if (closedParentStatus(item, byId)) return false;
   if (isBarePrepChild(item)) return false;
   if (item.kind === 'hold') return true;
+  if (isUpcomingNamedLifeEvent(item, today)) return true;
   if (item.kind !== 'obligation') return false;
   if (isPackingChildOfParent(item, today)) {
     const parent = unwrapPlacementParent(item.parent);

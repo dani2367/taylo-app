@@ -9,6 +9,7 @@ import {
   shouldRegenerateSpotlight,
   type HomeSurfaced,
 } from '../_shared/placement.ts';
+import { loadViewerContext, restrictVisibleItems } from '../_shared/item-visibility.ts';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-sonnet-5';
@@ -152,12 +153,15 @@ Deno.serve(async (req: Request) => {
         ? cachedHomeIds.map((id) => ({ id, at: generatedAt }))
         : [];
 
-    const { data: itemRows, error: itemsError } = await supabase
-      .from('items')
-      .select(
-        'id, title, body, detail, category, action_description, event_date, due_at, occurs_at, kind, confidence, surface_from, surface_until, parent_id, who_it_affects, urgency_level, source, created_at, collection_id, status, collections(status, type), parent:items!parent_id(id, title, kind, status, collection_id, occurs_at, event_date, due_at)',
-      )
-      .eq('user_id', userId)
+    const viewer = await loadViewerContext(supabase, userId);
+    const { data: itemRows, error: itemsError } = await restrictVisibleItems(
+      supabase
+        .from('items')
+        .select(
+          'id, title, body, detail, category, action_description, event_date, due_at, occurs_at, kind, confidence, surface_from, surface_until, parent_id, who_it_affects, urgency_level, source, created_at, collection_id, status, collections(status, type), parent:items!parent_id(id, title, kind, status, collection_id, occurs_at, event_date, due_at)',
+        ),
+      viewer,
+    )
       .eq('status', 'open')
       .in('kind', [...HOME_RADAR_LOAD_KINDS])
       .order('created_at', { ascending: false });

@@ -2,6 +2,7 @@ import { MoreSubHeader } from '@/components/app/MoreSubHeader';
 import { appStyles as s } from '@/components/app/styles';
 import { colors, fonts, fontSizes, radii, space } from '@/constants/theme';
 import { memberPalette } from '@/lib/demo-data';
+import { viewerForUser, visibleFamilyMembersSelect } from '@/lib/item-visibility';
 import { supabase } from '@/lib/supabase';
 import { useEffect, useState } from 'react';
 import {
@@ -124,10 +125,11 @@ export default function FamilyScreen() {
       } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data } = await supabase
-        .from('family_members')
-        .select('id, role, first_name, last_name, birthday, school, invited')
-        .eq('user_id', user.id);
+      const viewer = await viewerForUser(user.id);
+      const { data } = await visibleFamilyMembersSelect(
+        'id, role, first_name, last_name, birthday, school, invited',
+        viewer,
+      );
 
       setMembers((data as FamilyMember[] | null) ?? []);
       setLoading(false);

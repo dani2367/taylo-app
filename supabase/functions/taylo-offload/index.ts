@@ -10,6 +10,8 @@ import {
 import { findOrCreateShoppingListItem, findOrCreateTodoCollection } from '../_shared/collections.ts';
 import { groceryLabelsFromText, isGroceryCapture, looksLikeGroceryProduct } from '../_shared/shopping.ts';
 import { householdVoiceBlock, loadHousehold, type Household } from '../_shared/household.ts';
+import { defaultVisibilityForWho } from '../_shared/item-visibility.ts';
+import { linkIncomingItem } from '../_shared/cross-source.ts';
 import {
   eventDateFromIntake,
   finalizeSourceItems,
@@ -197,21 +199,27 @@ Deno.serve(async (req: Request) => {
       if (hasNonGroceryTask(userText) && !extracted.items.some((row) => row.kind === 'obligation')) {
         const taskTitle = taskTitleFromMixedText(userText);
         if (taskTitle) {
-          extracted.title = taskTitle;
-          extracted.items = [
-            {
-              title: taskTitle,
-              kind: 'obligation',
-              occurs_at: null,
-              due_at: null,
-              actionable: 'yes',
-              prep_implied: 'stated',
-              confidence: 'high',
-              evidence: userText,
-              surface_from: null,
-              surface_until: null,
-            },
-          ];
+          const work: IntakeItem = {
+            title: taskTitle,
+            kind: 'obligation',
+            occurs_at: null,
+            due_at: extracted.event_date,
+            actionable: 'yes',
+            prep_implied: 'stated',
+            confidence: 'high',
+            evidence: userText,
+            surface_from: null,
+            surface_until: null,
+          };
+          const keep = extracted.items.filter(
+            (row) => row.kind === 'occurrence' || row.kind === 'context_only',
+          );
+          if (keep.length) {
+            extracted.items = [...keep, work];
+          } else {
+            extracted.title = taskTitle;
+            extracted.items = [work];
+          }
         }
       }
       if (!extracted.items.length) {
@@ -222,6 +230,32 @@ Deno.serve(async (req: Request) => {
       } else {
       const { parent, children } = splitParentAndChildren(extracted.items, extracted.title);
       extracted.title = parent.title;
+      const linked = await linkIncomingItem(supabase, user.id, {
+        title: parent.title,
+        kind: parent.kind,
+        source: 'chat',
+        who_it_affects: extracted.who_it_affects,
+        occurs_at: parent.occurs_at,
+        due_at: parent.due_at,
+        event_date: eventDateFromIntake(parent, 'chat') ?? extracted.event_date,
+        parent_id: null,
+        status: 'open',
+        evidence: parent.evidence,
+        body: extracted.body,
+        detail: extracted.body,
+        action_description: extracted.title,
+        category: extracted.category,
+        user_id: user.id,
+        created_by: user.id,
+      });
+      if (linked.merged && linked.canonicalId) {
+        await insertIntakeChildren(supabase, {
+          userId: user.id,
+          itemId: linked.canonicalId,
+          items: children,
+        });
+        itemId = linked.canonicalId;
+      } else {
       const listBound =
         parent.kind === 'occurrence' || parent.kind === 'context_only'
           ? null
@@ -243,6 +277,7 @@ Deno.serve(async (req: Request) => {
           source_label: 'Added from Ask',
           event_date: eventDateFromIntake(parent, 'chat') ?? extracted.event_date,
           who_it_affects: extracted.who_it_affects,
+          visibility: defaultVisibilityForWho(extracted.who_it_affects, household),
           urgency_level: extracted.urgency_level,
           action_description: extracted.title,
           ...intakeRowFields(parent),
@@ -261,6 +296,7 @@ Deno.serve(async (req: Request) => {
         items: children,
       });
       itemId = item.id;
+      }
       }
     }
     const nextTitle = titleFromUserText(userText);
@@ -336,7 +372,11 @@ function hasNonGroceryTask(text: string): boolean {
 }
 
 function taskTitleFromMixedText(text: string): string | null {
-  const parts = text.split(/\s+and\s+(?:i\s+)?(?:still\s+)?/i).map((part) => part.trim()).filter(Boolean);
+  const parts = text
+    .split(/\s+and\s+(?:i\s+)?(?:still\s+)?/i)
+    .flatMap((part) => part.split(/\s+[-–—]\s+/))
+    .map((part) => part.trim())
+    .filter(Boolean);
   const task = parts.find((part) => hasNonGroceryTask(part) && !isGroceryCapture(part));
   if (!task) return null;
   const cleaned = task.replace(/^(i\s+)?(still\s+)?(need to |need |want to |gotta )/i, '').trim();
@@ -424,7 +464,7 @@ Rules
 - event_date / due_at: convert relative dates using today (${today}). "in three weeks" means about 21 days from today. If no date is implied, null. Never invent a deadline for a hold.
 - who_it_affects: a known household name if it is about them; "Dad"/"Mum" if they said that; "family" if it is for everyone; null if it is just the parent's errand with no named person.
 - urgency_level: today if it is needed now/today; this_week if this week or within the next 3 days; upcoming if a date 4–21 days out is known; none if there is no time pressure (standing errand, staple, hold). Shopping defaults to none unless they imply sooner ("for dinner tomorrow").
-- Lists: only supermarket products go on the shopping list. Dated chores and admin ("book the eye test", "email the teacher", "return the form") go on General to do even if they mention a trip or wedding. Named dated events they attend (wedding, birthday party, school trip on 5 December) are occurrence + child obligations — not a General to do row. Never treat a booking, stay, form, or arrangement as shopping because they said "need".
+- Lists: only supermarket products go on the shopping list. Dated chores and admin ("book the eye test", "email the teacher", "return the form by the 19th") go on General to do. If they say a thing happens on a calendar day ("X is on 23 October", "spa day on 12 June", "on Wednesday next week"), that is an occurrence on Schedule plus any stated extra work as a child — not only weddings/birthdays. Never add a child that just restates attending ("arrive at the hospital", "need to arrive by 7:30") — that clock belongs on the event. Never treat a booking, stay, form, or arrangement as shopping because they said "need".
 - reply: you are Taylo talking to them — a warm, organised friend. One short sentence, like a text, contractions, first person. Confirm you added it. Shopping: "Got it — turmeric is on your shopping list." To-dos: "Got it — that's on your to-do list." Named events: "Got it — that's on your schedule" (mention the speech/RSVP if you also captured it). Never say "Today" (that screen is called Home). Never say "saved" or "got your message".
 ${CHECKLIST_PROMPT_RULE}
 

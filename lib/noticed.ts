@@ -1,5 +1,6 @@
 import { isSameLondonDay } from '@/lib/placement';
 import { supabase } from '@/lib/supabase';
+import { viewerForUser, visibleItemsSelect } from '@/lib/item-visibility';
 import {
   insightRepeatsCaptured,
   isUsableInsight,
@@ -37,6 +38,7 @@ async function doRefresh(force: boolean): Promise<{ regenerated: boolean }> {
 
   let shouldForce = force;
   if (!shouldForce) {
+    const viewer = await viewerForUser(session.user.id);
     const [{ data }, { data: openRows }] = await Promise.all([
       supabase
         .from('home_noticed')
@@ -45,7 +47,7 @@ async function doRefresh(force: boolean): Promise<{ regenerated: boolean }> {
         .order('generated_at', { ascending: false })
         .limit(1)
         .maybeSingle(),
-      supabase.from('items').select('title').eq('user_id', session.user.id).eq('status', 'open').limit(80),
+      visibleItemsSelect('title', viewer).eq('status', 'open').limit(80),
     ]);
     const row = data as { generated_at?: string; insight_text?: string } | null;
     const generatedAt = row?.generated_at;

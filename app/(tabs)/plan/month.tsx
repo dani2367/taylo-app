@@ -11,6 +11,7 @@ import {
   type AgendaRow,
   type ScheduleSourceItem,
 } from '@/lib/schedule';
+import { viewerForUser, visibleItemsSelect } from '@/lib/item-visibility';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -42,10 +43,11 @@ export default function ScheduleMonthScreen() {
       return;
     }
 
-    const { data, error } = await supabase
-      .from('items')
-      .select('id, title, body, category, icon, occurs_at, who_it_affects, kind, status, confidence')
-      .eq('user_id', user.id)
+    const viewer = await viewerForUser(user.id);
+    const { data, error } = await visibleItemsSelect(
+      'id, title, body, category, icon, occurs_at, who_it_affects, kind, status, confidence',
+      viewer,
+    )
       .eq('status', 'open')
       .in('kind', ['occurrence', 'context_only'])
       .not('occurs_at', 'is', null);

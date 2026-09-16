@@ -35,6 +35,8 @@ export type PlanItemRow = {
   urgency_level: string | null;
   source_label: string | null;
   source_email_subject: string | null;
+  created_by?: string | null;
+  visibility?: string | null;
   parent?: PlacementParent | PlacementParent[] | null;
   prep_children?: PrepChildRow[] | PrepChildRow | null;
 };
@@ -77,6 +79,8 @@ export function mapPlanItemRow(row: PlanItemRow, today = new Date()): PlanItemCa
     checklistId: null,
     checklist: entries,
     informational: row.kind === 'context_only',
+    createdBy: row.created_by ?? null,
+    visibility: row.visibility === 'shared' ? 'shared' : 'private',
   };
 }
 
@@ -89,7 +93,6 @@ export function mapRadarWatchCard(
     const childTitles = card.children.map((row) => (row.title || '').trim() || 'Untitled');
     return {
       ...mapPlanItemRow(card.item, today),
-      id: `radar-group:${card.item.id}`,
       title: shortEventTitle(card.item.title) || (card.item.title || '').trim() || 'Untitled',
       context: radarGroupedContext(
         card.children.length,
@@ -122,6 +125,6 @@ export const PREP_CHILDREN_EMBED = 'prep_children:items!parent_id(id, title, sta
 export const PARENT_EMBED = 'parent:items!parent_id(id, title, kind, status, collection_id, occurs_at, event_date, due_at)';
 
 export const PLAN_ITEM_SELECT =
-  `id, title, body, detail, suggestion, category, icon, action_description, event_date, due_at, occurs_at, kind, confidence, surface_from, surface_until, parent_id, status, urgency_level, source_label, source_email_subject, ${PARENT_EMBED}, ${PREP_CHILDREN_EMBED}`;
+  `id, title, body, detail, suggestion, category, icon, action_description, event_date, due_at, occurs_at, kind, confidence, surface_from, surface_until, parent_id, status, urgency_level, source_label, source_email_subject, created_by, visibility, ${PARENT_EMBED}, ${PREP_CHILDREN_EMBED}`;
 
 export const ITEM_COUNT_SELECT = `id, title, collection_id, ${PREP_CHILDREN_EMBED}`;

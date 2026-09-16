@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { householdVoiceBlock, loadHousehold, whoForPrompt, type Household } from '../_shared/household.ts';
+import { loadViewerContext, restrictVisibleItems } from '../_shared/item-visibility.ts';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-haiku-4-5';
@@ -21,7 +22,7 @@ How you sound
 Not like this: "Don't forget Arlo's birthday!" / "You need to buy a birthday card!" / "Urgent: pack the sports kit."
 
 What you know
-- If this thread is about an item, you get a brief: title, body, detail, dates, who it affects, related prep, and the original email if there is one. Treat that as ground truth. Use it — don't wait to be reminded.
+- If this thread is about an item, you get a brief: what they said, the card title and sub, dates, who it affects, related prep, and the original email if there is one. That is ground truth. Use it on the first message and every follow-up. Do not wait to be reminded. Do not ask what the item is.
 - You may also get the source email body. Use it to answer follow-up questions. If a detail still isn't there, say so — don't invent it.
 - If this is a general chat (no item), only use this thread, household names, and any known family facts you are given. Don't invent extra kids or appointments.
 
@@ -35,20 +36,20 @@ How you help
 - A few short sentences is fine. Use a short list when they asked for options. Don't pad, and don't collapse a real request into a one-line nudge.
 - If you're unsure, ask one clear question instead of guessing.`;
 
-const OPENER_STYLE = `This turn is the opener only — one short plain sentence (~15 words), observational, like a text from a friend. No urgency, no "don't forget", no exclamation marks. Start with a specific, useful observation or question. Address the parent as you. Use a child's name if the item is about that child.
+const OPENER_STYLE = `This turn is the opener only — one short plain sentence (~15 words), observational, like a text from a friend. No urgency, no "don't forget", no exclamation marks. Start from the brief you already have: name the thing, and the day if you have one. Never ask what this is about. Never say you don't have the details if they are in the brief.
 
 Sound like this:
 - "Arlo's birthday is Saturday. You might want to pick up a card."
 - "Sports day is Thursday. Kit is still on the list if you want to pack tonight."
-- "The dentist is booked for the 19th. Nothing needed until then."`;
+- "Tay's operation is Wednesday next week. Nothing extra on the list unless you want help packing a bag."`;
 
-const OPENER_USER_PROMPT = `The parent just opened this chat about the item in your brief. Return ONLY a JSON object, nothing else:
+const OPENER_USER_PROMPT = `The parent just opened Ask on the item in your brief. You already know what it is. Return ONLY a JSON object, nothing else:
 {
   "reply": "your first message",
   "chips": [{ "label": "short button", "msg": "what the parent will send you if they tap it" }]
 }
 
-reply: follow the opener style — one short plain sentence.
+reply: follow the opener style — one short plain sentence that uses the brief (title, their words, the date). Do not ask them to explain the item.
 
 chips: 0 to 3 suggested questions THE PARENT would tap to ask YOU. Only include a chip if it would actually help with THIS item — e.g. draft a reply, what to pack, when the deadline is, gift ideas for a birthday. Label max ~5 words.
 
@@ -147,9 +148,10 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'Invalid or expired session' }, 401);
     }
 
-    const body = await req.json() as { conversation_id?: string; opener?: boolean };
+    const body = await req.json() as { conversation_id?: string; opener?: boolean; item_id?: string };
     const conversationId = body.conversation_id;
     const opener = Boolean(body.opener);
+    const requestedItemId = typeof body.item_id === 'string' ? body.item_id : null;
     if (!conversationId) {
       return json({ error: 'Missing conversation_id' }, 400);
     }
@@ -180,14 +182,18 @@ Deno.serve(async (req: Request) => {
     let nudge: ItemRow | null = null;
     let sourceEmailBody: string | null = null;
     let related: RelatedRow[] = [];
-    if (conv.kind === 'item' && conv.related_item_id) {
-      const { data: nudgeRow } = await supabase
-        .from('items')
-        .select(
-          'title, body, detail, suggestion, category, action_description, event_date, due_at, occurs_at, who_it_affects, urgency_level, source, kind, evidence, source_email_subject, source_email_sender',
-        )
-        .eq('id', conv.related_item_id)
-        .eq('user_id', user.id)
+    const relatedId = linkedItemId(conv.related_item_id, requestedItemId);
+    const viewer = await loadViewerContext(supabase, user.id);
+    if (relatedId && (conv.kind === 'item' || requestedItemId)) {
+      const { data: nudgeRow } = await restrictVisibleItems(
+        supabase
+          .from('items')
+          .select(
+            'title, body, detail, suggestion, category, action_description, event_date, due_at, occurs_at, who_it_affects, urgency_level, source, kind, evidence, source_email_subject, source_email_sender',
+          ),
+        viewer,
+      )
+        .eq('id', relatedId)
         .maybeSingle();
       nudge = (nudgeRow as ItemRow | null) ?? null;
 
@@ -196,16 +202,16 @@ Deno.serve(async (req: Request) => {
           supabase
             .from('source_emails')
             .select('body_text')
-            .eq('item_id', conv.related_item_id)
+            .eq('item_id', relatedId)
             .eq('user_id', user.id)
             .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle(),
-          supabase
-            .from('items')
-            .select('title, kind, prep_origin, status')
-            .eq('parent_id', conv.related_item_id)
-            .eq('user_id', user.id)
+          restrictVisibleItems(
+            supabase.from('items').select('title, kind, prep_origin, status'),
+            viewer,
+          )
+            .eq('parent_id', relatedId)
             .neq('status', 'dismissed')
             .limit(20),
         ]);
@@ -382,6 +388,47 @@ function familyFactsBlock(facts: FamilyFactRow[]): string {
   return `Known family context (treat as true unless they correct you; do not dump this list unless asked):\n${lines.join('\n')}`;
 }
 
+function linkedItemId(...candidates: Array<string | null | undefined>): string | null {
+  for (const raw of candidates) {
+    const id = (raw || '').replace(/^radar-group:/, '').trim();
+    if (id) return id;
+  }
+  return null;
+}
+
+function itemBriefBlock(nudge: ItemRow, conv: ConversationRow, household: Household): string {
+  const source =
+    (nudge.source || '').toLowerCase() === 'chat'
+      ? 'They added this in Offload. Their words are ground truth.'
+      : (nudge.source || '').toLowerCase() === 'email'
+        ? 'This came from an email.'
+        : (nudge.source || '').toLowerCase() === 'calendar'
+          ? 'This came from their calendar.'
+          : 'This is a saved household item.';
+  const theySaid = (nudge.evidence || '').trim();
+  const cardSub = (nudge.body || nudge.detail || conv.subtitle || '').trim();
+  return `This thread is about a specific household item. You already have the brief — use it on every turn. The parent may ask for ideas, drafts, packing lists, dates, or just talk it through.
+
+${source}
+
+Item brief:
+Title: ${nudge.title ?? conv.title}
+On the card: ${cardSub || 'not specified'}
+What they said: ${theySaid || 'not specified'}
+Suggested next step: ${nudge.suggestion ?? 'not specified'}
+Category: ${nudge.category ?? 'unknown'}
+Kind: ${nudge.kind ?? 'not specified'}
+Source: ${nudge.source ?? 'not specified'}
+Action: ${nudge.action_description ?? 'not specified'}
+Event date: ${nudge.event_date ?? 'not specified'}
+Happens at: ${nudge.occurs_at ?? 'not specified'}
+Due: ${nudge.due_at ?? 'not specified'}
+Who it affects: ${whoForPrompt(nudge.who_it_affects, household)}
+Urgency: ${nudge.urgency_level ?? 'not specified'}
+Email subject: ${nudge.source_email_subject ?? 'not specified'}
+Email from: ${nudge.source_email_sender ?? 'not specified'}`;
+}
+
 function buildSystemPrompt(
   conv: ConversationRow,
   nudge: ItemRow | null,
@@ -397,27 +444,7 @@ function buildSystemPrompt(
   if (facts) parts.push(facts);
 
   if (nudge) {
-    parts.push(
-      `This thread is about a specific household item. You already have the brief — use it. The parent may ask for ideas, drafts, packing lists, dates, or just talk it through.
-
-Item brief:
-Title: ${nudge.title ?? conv.title}
-What you told them: ${nudge.body ?? ''}
-Detail: ${nudge.detail ?? ''}
-Suggested next step: ${nudge.suggestion ?? 'not specified'}
-Category: ${nudge.category ?? 'unknown'}
-Kind: ${nudge.kind ?? 'not specified'}
-Source: ${nudge.source ?? 'not specified'}
-Action: ${nudge.action_description ?? 'not specified'}
-Event date: ${nudge.event_date ?? 'not specified'}
-Happens at: ${nudge.occurs_at ?? 'not specified'}
-Due: ${nudge.due_at ?? 'not specified'}
-Who it affects: ${whoForPrompt(nudge.who_it_affects, household)}
-Urgency: ${nudge.urgency_level ?? 'not specified'}
-Evidence: ${nudge.evidence ?? 'not specified'}
-Email subject: ${nudge.source_email_subject ?? 'not specified'}
-Email from: ${nudge.source_email_sender ?? 'not specified'}`,
-    );
+    parts.push(itemBriefBlock(nudge, conv, household));
     if (related.length) {
       const lines = related
         .map((row) => {
@@ -436,7 +463,7 @@ Email from: ${nudge.source_email_sender ?? 'not specified'}`,
     }
   } else if (conv.kind === 'item') {
     parts.push(
-      `This thread is about: ${conv.title}${conv.subtitle ? ` (${conv.subtitle})` : ''}. You don't have a linked email snapshot — only this title. Still help as a capable assistant using the title and anything they tell you.`,
+      `This thread is about: ${conv.title}${conv.subtitle ? ` — ${conv.subtitle}` : ''}. Use the title and subtitle as the brief. Do not ask what it is. If a date or detail is missing, say so once — don't invent it.`,
     );
   } else {
     parts.push('This is a general chat. No item is attached. Help with whatever family admin they bring up.');

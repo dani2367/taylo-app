@@ -565,6 +565,7 @@ export const appStyles = StyleSheet.create({
     ...cardLift,
   },
   planCard: {
+    position: 'relative',
     flexDirection: 'column',
     alignItems: 'stretch',
     gap: 0,
@@ -1079,6 +1080,39 @@ export const appStyles = StyleSheet.create({
   },
   tknobOn: {
     left: 16,
+  },
+  sharedHouseCorner: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    zIndex: 2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.blush,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shareToggleRow: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  shareToggleCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  shareToggleLabel: {
+    fontSize: fontSizes.label,
+    fontFamily: fonts.sansMedium,
+    color: colors.navy,
+  },
+  shareToggleSub: {
+    marginTop: 1,
+    fontSize: fontSizes.caption,
+    fontFamily: fonts.sansRegular,
+    color: colors.textHint,
   },
   chatRoot: {
     flex: 1,
@@ -1778,6 +1812,7 @@ export const appStyles = StyleSheet.create({
     backgroundColor: colors.cream,
   },
   homeHeroRow: {
+    position: 'relative',
     paddingVertical: 16,
     paddingHorizontal: 14,
     borderBottomWidth: 1,

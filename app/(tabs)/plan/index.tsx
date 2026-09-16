@@ -18,6 +18,7 @@ import { resolvePlanIcon, type PlanIconSpec } from '@/lib/plan-icon';
 import { nestedListCount, isListHubTitle } from '@/lib/radar-organize';
 import { RADAR_PREVIEW, type RadarItem } from '@/lib/radar';
 import { exceptHomeActions, HOME_RADAR_LOAD_KINDS, selectHomeActions, selectRadarWatch } from '@/lib/placement';
+import { viewerForUser, visibleItemsSelect } from '@/lib/item-visibility';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect, router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -180,10 +181,10 @@ export default function PlanScreen() {
         ),
     );
 
-    const { data: itemData, error } = await supabase
-      .from('items')
-      .select(`${PLAN_ITEM_SELECT}, created_at, source, collection_id, parent_id`)
-      .eq('user_id', user.id)
+    const { data: itemData, error } = await visibleItemsSelect(
+      `${PLAN_ITEM_SELECT}, created_at, source, collection_id, parent_id`,
+      await viewerForUser(user.id),
+    )
       .eq('status', 'open')
       .in('kind', [...HOME_RADAR_LOAD_KINDS]);
 

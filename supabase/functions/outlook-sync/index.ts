@@ -1,10 +1,12 @@
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { insertIntakeChildren } from '../_shared/checklists.ts';
 import { householdVoiceBlock, loadHousehold, type Household } from '../_shared/household.ts';
+import { defaultVisibilityForWho } from '../_shared/item-visibility.ts';
 import {
   buildEmailIntakePrompt,
   parseEmailIntake,
 } from '../_shared/email-ingest.ts';
+import { linkIncomingItem } from '../_shared/cross-source.ts';
 import {
   eventDateFromIntake,
   intakeRowFields,
@@ -315,11 +317,44 @@ async function processEmail(
     return false;
   }
 
+  const incomingTitle = extracted.nudge_title || parent.title;
+  const linked = await linkIncomingItem(supabase, userId, {
+    title: incomingTitle,
+    kind: parent.kind,
+    source: 'email',
+    who_it_affects: extracted.who_it_affects,
+    occurs_at: parent.occurs_at,
+    due_at: parent.due_at,
+    event_date: eventDateFromIntake(parent, 'email') ?? extracted.date,
+    parent_id: null,
+    status: 'open',
+    evidence: parent.evidence,
+    body: extracted.nudge_body,
+    detail: extracted.nudge_detail || help,
+    suggestion: extracted.suggestion || help,
+    action_description: extracted.action_description || help,
+    source_email_subject: subject,
+    source_email_sender: sender,
+    category: extracted.category,
+    user_id: userId,
+    created_by: userId,
+  });
+  if (linked.merged && linked.canonicalId) {
+    await ensureSourceEmail(supabase, userId, linked.canonicalId, email);
+    await markEmailSeen(supabase, userId, email, 'created');
+    await insertIntakeChildren(supabase, {
+      userId,
+      itemId: linked.canonicalId,
+      items: children,
+    });
+    return true;
+  }
+
   const { data: inserted, error: insertError } = await supabase
     .from('items')
     .insert({
       user_id: userId,
-      title: extracted.nudge_title || parent.title,
+      title: incomingTitle,
       body: extracted.nudge_body,
       detail: extracted.nudge_detail || help,
       suggestion: extracted.suggestion || help,
@@ -327,6 +362,7 @@ async function processEmail(
       action_description: extracted.action_description || help,
       event_date: eventDateFromIntake(parent, 'email') ?? extracted.date,
       who_it_affects: extracted.who_it_affects,
+      visibility: defaultVisibilityForWho(extracted.who_it_affects, household),
       urgency_level: extracted.urgency,
       source: 'email',
       source_email_subject: subject,

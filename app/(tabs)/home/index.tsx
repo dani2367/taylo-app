@@ -1,6 +1,7 @@
 import { BrandGlyph, BrandIconDisc } from '@/components/app/BrandIcon';
 import { useChat } from '@/components/app/ChatProvider';
 import { DayTimelineCard } from '@/components/app/DayTimelineCard';
+import { HouseholdShareToggle, SharedHouseCorner } from '@/components/app/HouseholdShareMark';
 import { ItemPrepChecklist, type PrepCheckItem } from '@/components/app/ItemPrepChecklist';
 import { appStyles as s, iconBg } from '@/components/app/styles';
 import { NoticedStar, TayloMark } from '@/components/app/TayloMark';
@@ -10,6 +11,7 @@ import { isActiveCollection, organizeStandaloneItems } from '@/lib/collections';
 import { happenSortKey, happenTimeLabel, isHappeningToday, type HappenItem } from '@/lib/happening';
 import { daysUntil, humanizeEventDate } from '@/lib/human-date';
 import { closeItems } from '@/lib/item-status';
+import { persistItemVisibility, viewerForUser, visibleFamilyMembersSelect, visibleItemsSelect } from '@/lib/item-visibility';
 import {
   displayItemTitle,
   HOME_OVERFLOW_RANK_BASE,
@@ -95,6 +97,8 @@ type ItemRow = {
   source_label: string | null;
   source: 'email' | 'chat' | 'manual' | 'calendar' | null;
   suggestion: string | null;
+  created_by?: string | null;
+  visibility?: string | null;
   parent?: PlacementParent | PlacementParent[] | null;
   collections: { status: string | null } | { status: string | null }[] | null;
 };
@@ -126,6 +130,8 @@ type NudgeCard = {
   addedByUser: boolean;
   checklistId: string | null;
   checklist: PrepCheckItem[];
+  createdBy: string | null;
+  visibility: 'private' | 'shared';
 };
 
 const categoryMeta: Record<string, { icon: PlanIconSpec; cls: keyof typeof iconBg; label: string }> = {
@@ -179,6 +185,8 @@ function mapActionCard(item: ItemRow, children: ItemRow[], reason: string, spotl
       .filter((row) => row.status !== 'dismissed')
       .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))
       .map((row) => ({ id: row.id, text: row.title || '', done: row.status === 'done' })),
+    createdBy: item.created_by ?? null,
+    visibility: item.visibility === 'shared' ? 'shared' : 'private',
   };
 }
 
@@ -276,6 +284,7 @@ export default function HomeScreen() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [editingPrep, setEditingPrep] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
+  const [viewerId, setViewerId] = useState<string | null>(null);
   const { openItem } = useChat();
 
   const load = useCallback(async () => {
@@ -288,12 +297,16 @@ export default function HomeScreen() {
       setFamily([]);
       setNoticed(null);
       setNoticedOpen(false);
+      setViewerId(null);
       setLoading(false);
       return;
     }
 
+    setViewerId(user.id);
+
     await organizeStandaloneItems(user.id);
 
+    const viewer = await viewerForUser(user.id);
     const [{ data: profile }, { data: spotlightData }, { data: itemData }, { data: members }, { data: noticedRow }] =
       await Promise.all([
         supabase.from('profiles').select('first_name').eq('id', user.id).maybeSingle(),
@@ -302,15 +315,13 @@ export default function HomeScreen() {
           .select('id, item_id, reason_text, rank, generated_at')
           .eq('user_id', user.id)
           .order('rank', { ascending: true }),
-        supabase
-          .from('items')
-          .select(
-            'id, title, body, detail, suggestion, category, action_description, event_date, due_at, occurs_at, kind, confidence, surface_from, surface_until, parent_id, created_at, who_it_affects, urgency_level, status, source_email_subject, source_label, source, parent:items!parent_id(id, title, kind, status, collection_id, occurs_at, event_date, due_at), collections(status)',
+        visibleItemsSelect(
+            'id, title, body, detail, suggestion, category, action_description, event_date, due_at, occurs_at, kind, confidence, surface_from, surface_until, parent_id, created_at, who_it_affects, urgency_level, status, source_email_subject, source_label, source, created_by, visibility, parent:items!parent_id(id, title, kind, status, collection_id, occurs_at, event_date, due_at), collections(status)',
+            viewer,
           )
-          .eq('user_id', user.id)
           .eq('status', 'open')
           .in('kind', [...HOME_RADAR_LOAD_KINDS]),
-        supabase.from('family_members').select('id, role, first_name, last_name').eq('user_id', user.id),
+        visibleFamilyMembersSelect('id, role, first_name, last_name', viewer),
         supabase.from('home_noticed').select('insight_text').eq('user_id', user.id).maybeSingle(),
       ]);
 
@@ -456,6 +467,13 @@ export default function HomeScreen() {
     if (error) restoreCard(nudge);
   }
 
+  async function toggleShare(nudge: NudgeCard) {
+    const next = nudge.visibility === 'shared' ? 'private' : 'shared';
+    patchCard(nudge.id, (card) => ({ ...card, visibility: next }));
+    const { error } = await persistItemVisibility(nudge.id, next);
+    if (error) patchCard(nudge.id, (card) => ({ ...card, visibility: nudge.visibility }));
+  }
+
   function patchCard(itemId: string, update: (nudge: NudgeCard) => NudgeCard) {
     setSpotlight((list) => list.map((nudge) => (nudge.id === itemId ? update(nudge) : nudge)));
   }
@@ -525,7 +543,7 @@ export default function HomeScreen() {
     await openItem(nudge.id, {
       icon: nudge.icon.name,
       title: nudge.title,
-      sub: nudge.src,
+      sub: extraEventContext(nudge.title, nudge.detail || nudge.body) || nudge.src,
       opener: nudge.opener,
       chips: [],
       generateOpener: true,
@@ -534,8 +552,12 @@ export default function HomeScreen() {
   }
 
   function renderActionPills(n: NudgeCard) {
+    const canShare = !!(viewerId && (!n.createdBy || n.createdBy === viewerId));
+    const shared = n.visibility === 'shared';
     return (
-      <View style={s.nactions}>
+      <>
+        <HouseholdShareToggle shared={shared} onToggle={canShare ? () => void toggleShare(n) : undefined} />
+        <View style={s.nactions}>
         <Pressable
           style={[s.pill, s.pillTeal]}
           onPress={(e) => {
@@ -560,7 +582,8 @@ export default function HomeScreen() {
           }}>
           <Text style={[s.pillText, s.pillTextChat]}>Ask</Text>
         </Pressable>
-      </View>
+        </View>
+      </>
     );
   }
 
@@ -581,7 +604,8 @@ export default function HomeScreen() {
         <Pressable
           style={[s.homeHeroRow, last && !isOpen && s.homeHeroRowLast]}
           onPress={() => setExpanded((p) => ({ ...p, [n.id]: !p[n.id] }))}>
-          <View style={s.nrow}>
+          <SharedHouseCorner shared={n.visibility === 'shared'} />
+          <View style={[s.nrow, n.visibility === 'shared' && { paddingRight: 22 }]}>
             <View style={{ flexShrink: 0 }}>
               <BrandIconDisc name={n.icon.name} wash={n.icon.wash} size={36} />
             </View>

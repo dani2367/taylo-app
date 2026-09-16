@@ -42,6 +42,7 @@ type ParentRow = {
   source_label: string | null;
   category: string | null;
   who_it_affects: string | null;
+  visibility?: string | null;
 };
 
 export async function insertIntakeChildren(
@@ -54,7 +55,7 @@ export async function insertIntakeChildren(
   const [{ data: parent }, { data: existing, error: existingError }] = await Promise.all([
     supabase
       .from('items')
-      .select('source, source_label, category, who_it_affects')
+      .select('source, source_label, category, who_it_affects, visibility')
       .eq('id', params.itemId)
       .maybeSingle(),
     supabase.from('items').select('title').eq('parent_id', params.itemId),
@@ -91,6 +92,7 @@ export async function insertIntakeChildren(
       source_label: meta?.source_label ?? 'Prep',
       category: meta?.category ?? null,
       who_it_affects: meta?.who_it_affects ?? null,
+      visibility: meta?.visibility === 'shared' ? 'shared' : 'private',
       ...intakeRowFields(item),
       kind: params.listItem ? 'list_item' : item.kind,
     })),

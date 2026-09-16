@@ -3,6 +3,7 @@ import { appStyles as s } from '@/components/app/styles';
 import { colors } from '@/constants/theme';
 import { PLAN_ITEM_SELECT, mapRadarWatchCard, type PlanItemRow } from '@/lib/plan-item-map';
 import { exceptHomeActions, HOME_RADAR_LOAD_KINDS, selectHomeActions, selectRadarWatch } from '@/lib/placement';
+import { viewerForUser, visibleItemsSelect } from '@/lib/item-visibility';
 import type { RadarItem } from '@/lib/radar';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from 'expo-router';
@@ -24,10 +25,11 @@ export default function LaterRadarScreen() {
       return;
     }
 
-    const { data, error } = await supabase
-      .from('items')
-      .select(`${PLAN_ITEM_SELECT}, collection_id, created_at, source, parent_id`)
-      .eq('user_id', user.id)
+    const viewer = await viewerForUser(user.id);
+    const { data, error } = await visibleItemsSelect(
+      `${PLAN_ITEM_SELECT}, collection_id, created_at, source, parent_id`,
+      viewer,
+    )
       .eq('status', 'open')
       .in('kind', [...HOME_RADAR_LOAD_KINDS]);
 

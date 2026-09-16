@@ -1,4 +1,5 @@
 import type { SupabaseClient } from 'jsr:@supabase/supabase-js@2';
+import { loadViewerContext, restrictHouseholdFamilyMembers } from './item-visibility.ts';
 
 export type Household = {
   userName: string | null;
@@ -12,9 +13,13 @@ type MemberRow = {
 };
 
 export async function loadHousehold(supabase: SupabaseClient, userId: string): Promise<Household> {
+  const viewer = await loadViewerContext(supabase, userId);
   const [{ data: profile }, { data: members }] = await Promise.all([
     supabase.from('profiles').select('first_name').eq('id', userId).maybeSingle(),
-    supabase.from('family_members').select('role, first_name').eq('user_id', userId),
+    restrictHouseholdFamilyMembers(
+      supabase.from('family_members').select('role, first_name'),
+      viewer,
+    ),
   ]);
 
   const children: string[] = [];

@@ -3,6 +3,7 @@ import { appStyles as s } from '@/components/app/styles';
 import { colors } from '@/constants/theme';
 import { isActiveCollection } from '@/lib/collections';
 import { PLAN_ITEM_SELECT, mapPlanItemRow, type PlanItemRow } from '@/lib/plan-item-map';
+import { viewerForUser, visibleItemsSelect } from '@/lib/item-visibility';
 import {
   HOME_OVERFLOW_RANK_BASE,
   HOME_RADAR_LOAD_KINDS,
@@ -41,16 +42,14 @@ export default function TodaysActionsScreen() {
     await refreshSpotlight();
 
     const today = new Date();
+    const viewer = await viewerForUser(user.id);
     const [{ data: spotlightData }, { data: itemData }] = await Promise.all([
       supabase
         .from('home_spotlight')
         .select('item_id, reason_text, rank, generated_at')
         .eq('user_id', user.id)
         .order('rank', { ascending: true }),
-      supabase
-        .from('items')
-        .select(`${PLAN_ITEM_SELECT}, collection_id, created_at, source, parent_id, collections(status)`)
-        .eq('user_id', user.id)
+      visibleItemsSelect(`${PLAN_ITEM_SELECT}, collection_id, created_at, source, parent_id, collections(status)`, viewer)
         .eq('status', 'open')
         .in('kind', [...HOME_RADAR_LOAD_KINDS]),
     ]);

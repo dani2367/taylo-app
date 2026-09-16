@@ -10,6 +10,8 @@ import {
   persistChecklistText,
   persistChecklistToggle,
 } from '@/lib/prep-checklists';
+import { persistItemVisibility } from '@/lib/item-visibility';
+import { extraEventContext } from '@/lib/suggestion';
 import { supabase } from '@/lib/supabase';
 import { router } from 'expo-router';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -36,7 +38,12 @@ export function PlanItemFeed({
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [editingPrep, setEditingPrep] = useState<Record<string, boolean>>({});
+  const [viewerId, setViewerId] = useState<string | null>(null);
   const { openItem } = useChat();
+
+  useEffect(() => {
+    void supabase.auth.getUser().then(({ data }) => setViewerId(data.user?.id ?? null));
+  }, []);
 
   useEffect(() => {
     if (!startExpanded) return;
@@ -64,6 +71,13 @@ export function PlanItemFeed({
     }
     await retireListIfEmpty(card, []);
     if (!card.listMode && remaining.length === 0) onBecameEmpty?.();
+  }
+
+  async function toggleShare(card: PlanItemCardModel) {
+    const next = card.visibility === 'shared' ? 'private' : 'shared';
+    patchItem(card.id, (row) => ({ ...row, visibility: next }));
+    const { error } = await persistItemVisibility(card.id, next);
+    if (error) patchItem(card.id, (row) => ({ ...row, visibility: card.visibility }));
   }
 
   async function retireListIfEmpty(card: PlanItemCardModel, remainingChecklist: { id: string }[]) {
@@ -221,7 +235,7 @@ export function PlanItemFeed({
     await openItem(card.id, {
       icon: card.icon.name,
       title: card.title,
-      sub: card.src,
+      sub: extraEventContext(card.title, card.detail) || card.context || card.src,
       opener: card.opener,
       chips: [],
       generateOpener: true,
@@ -241,6 +255,7 @@ export function PlanItemFeed({
       onToggleExpand={() => setExpanded((p) => ({ ...p, [card.id]: !p[card.id] }))}
       onDismiss={() => void setStatus(card, 'dismissed')}
       onDone={() => void setStatus(card, 'done')}
+      onShare={viewerId && (!card.createdBy || card.createdBy === viewerId) ? () => void toggleShare(card) : undefined}
       onDelegate={() => void setStatus(card, 'delegated')}
       onChat={() => void onChat(card)}
       onTogglePrepEditing={() => setEditingPrep((p) => ({ ...p, [card.id]: !p[card.id] }))}

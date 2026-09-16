@@ -1,0 +1,16 @@
+export {
+  CROSS_SOURCE_DATE_SLACK_DAYS,
+  TITLE_HIGH,
+  applyCrossSourcePlan,
+  eventAnchorDay,
+  isLinkableParent,
+  linkIncomingItem,
+  linkInsertedCalendarItems,
+  loadLinkCandidates,
+  planCrossSourceLink,
+  provenance,
+  scoreCrossSourceMatch,
+  titleSimilarity,
+  type CrossSourcePlan,
+  type LinkableItem,
+} from '../supabase/functions/_shared/cross-source.ts';

@@ -1,6 +1,6 @@
 ---
 description: Email, Offload, and calendar capture — what to persist, not how one row looks today
-globs: "{supabase/functions/taylo-offload/**,supabase/functions/_shared/intake-contract.ts,supabase/functions/_shared/email-ingest.ts,supabase/functions/_shared/calendar-classify.ts,supabase/functions/_shared/checklists.ts,supabase/functions/_shared/shopping.ts,lib/shopping.ts,lib/radar-organize.ts,lib/collections.ts,lib/intake-contract.selftest.ts,lib/shopping.selftest.ts,lib/radar-organize.selftest.ts}"
+globs: "{supabase/functions/taylo-offload/**,supabase/functions/_shared/intake-contract.ts,supabase/functions/_shared/email-ingest.ts,supabase/functions/_shared/calendar-classify.ts,supabase/functions/_shared/cross-source.ts,supabase/functions/_shared/checklists.ts,supabase/functions/_shared/shopping.ts,lib/shopping.ts,lib/radar-organize.ts,lib/collections.ts,lib/intake-contract.selftest.ts,lib/shopping.selftest.ts,lib/radar-organize.selftest.ts,lib/cross-source.selftest.ts}"
 alwaysApply: false
 ---
 
@@ -10,15 +10,12 @@ Capture the kind, then let placement put it on a surface. Do not invent a third 
 
 ## Offload (chat / manual)
 
-Default is a list. Only a named dated **event they attend** leaves the list.
+Default is a list. A dated **event** (the day something happens) goes on Schedule. A dated **chore** stays on the list.
 
 - Groceries → Shopping.
-- Ordinary tasks, even with a date → **General to do** (`collection_id`). “Book the eye test on Tuesday”, “email the teacher about the trip”, “return the form by the 19th”, “buy shoes for the wedding”. Never skip the to-do list because there are 2+ children.
-- **Occurrence** only when all of these hold (`isNamedDatedLifeEventCapture`):
-  1. Unambiguous calendar day in the text (5 December / 20 September / ISO) — not “Tuesday”, not “sometime next week”.
-  2. The **title** is the event (`Oliver's wedding`, `Maya's birthday`, `Year 2 farm trip`) **or** collapsed work-for-event (`Write chairman speech for Oliver's wedding`).
-  3. The title is not a standalone admin verb (`email`, `book`, `call`, `return`, `buy`…) unless that verb is clearly “X for [event]”.
-- Then: parent `occurrence` + `occurs_at`, **no** `collection_id`. Named work (speech, RSVP) → **child obligations**. Outlook/Apple can merge later on title+day.
+- Ordinary tasks, even with a date → **General to do** (`collection_id`). “Book the eye test on 5 December”, “email the teacher about the trip”, “return the form by the 19th”, “buy shoes for the wedding”. Never skip the to-do list because there are 2+ children.
+- **Occurrence** when the date is clearly the day something happens (`statedEventFromOffload`): “X is on 23 October”, “spa day on 12 June”, “on Wednesday next week”. Not a closed list of event words. Bare “Friday” or “next week” alone is not enough. Code also recovers this when the model titles the work (`Book flights`) but the sentence dates the event.
+- Then: parent `occurrence` + `occurs_at`, **no** `collection_id`. Named work (speech, RSVP, book flights) → **child obligations**. Showing up is not work — drop “arrive at the hospital”, “arrive by 7:30”, “attend the appointment”. Put the clock on `occurs_at`. Headline + sub is enough. Admin-led sentences stay on the list. High-confidence email/chat vs calendar matches merge (`_shared/cross-source.ts`); the calendar `occurrence` is canonical. Medium matches stay separate.
 - Mixed line (“out of oat milk and email Taya’s teacher”) **splits**. `isGroceryOffload` is false when the text also has email/teacher/call/book. Do not let the model title (`Oat milk`) swallow the task.
 
 ## Email / calendar

@@ -13,6 +13,7 @@ export type FamilyCollection = {
 };
 
 export const HOUSEHOLD_KEY = 'household';
+export const YOURS_KEY = 'yours';
 export const PREVIEW_ITEM_COUNT = 3;
 
 const HOUSEHOLD_WHO = new Set(['family', 'whole family', 'everyone', 'household', 'all', 'shared', 'both', 'us']);
@@ -90,7 +91,9 @@ export type FamilyPlan = {
   people: FamilyPerson[];
   buckets: PersonBucket[];
   householdItems: FamilySourceItem[];
+  yoursItems: FamilySourceItem[];
   householdTiles: HouseholdTile[];
+  yoursTiles: HouseholdTile[];
 };
 
 export function normalizeWho(raw: string | null | undefined): string {
@@ -197,13 +200,16 @@ function namedPeopleInText(raw: string | null | undefined, people: FamilyPerson[
 export function assignItem(
   item: FamilySourceItem,
   people: FamilyPerson[],
-): { kind: 'person'; key: string } | { kind: 'household' } {
+): { kind: 'person'; key: string } | { kind: 'household' } | { kind: 'yours' } {
   const whoMatches = namedPeopleInText(item.who_it_affects, people);
   if (whoMatches.length === 1) return { kind: 'person', key: whoMatches[0].key };
   const parent = unwrapParent(item.parent);
   const titleMatches = namedPeopleInText([item.title, parent?.title].filter(Boolean).join(' '), people);
   if (titleMatches.length === 1) return { kind: 'person', key: titleMatches[0].key };
-  return { kind: 'household' };
+  if (whoMatches.length > 1 || titleMatches.length > 1) return { kind: 'household' };
+  const who = normalizeWho(item.who_it_affects);
+  if (who && HOUSEHOLD_WHO.has(who)) return { kind: 'household' };
+  return { kind: 'yours' };
 }
 
 export function isInCurrentWeek(eventDate: string | null | undefined, today = new Date()): boolean {
@@ -352,11 +358,13 @@ export function buildFamilyPlan(
   const byPerson = new Map<string, FamilySourceItem[]>();
   for (const person of people) byPerson.set(person.key, []);
   const householdItems: FamilySourceItem[] = [];
+  const yoursItems: FamilySourceItem[] = [];
 
   for (const item of attributable) {
     const assigned = assignItem(item, people);
     if (assigned.kind === 'person') byPerson.get(assigned.key)?.push(item);
-    else householdItems.push(item);
+    else if (assigned.kind === 'household') householdItems.push(item);
+    else yoursItems.push(item);
   }
 
   const buckets: PersonBucket[] = people.map((person) => {
@@ -376,14 +384,24 @@ export function buildFamilyPlan(
     people,
     buckets,
     householdItems,
+    yoursItems,
     householdTiles: buildHouseholdTiles(collections, counts, householdItems, today),
+    yoursTiles: buildHouseholdTiles([], new Map(), yoursItems, today),
   };
 }
 
 export const householdPerson: FamilyPerson = {
   key: HOUSEHOLD_KEY,
-  name: 'Household',
-  initial: 'H',
+  name: 'Family',
+  initial: 'F',
   wash: 'paleBlue',
   role: 'household',
+};
+
+export const yoursPerson: FamilyPerson = {
+  key: YOURS_KEY,
+  name: 'Yours',
+  initial: 'Y',
+  wash: 'blush',
+  role: 'yours',
 };

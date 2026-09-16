@@ -62,6 +62,7 @@ Deno.serve(async (req: Request) => {
     const classified = await classifyCalendarEvents(anthropicKey, events, household);
     const checklists = await applyCalendarClassification(supabase, {
       userId: user.id,
+      household,
       events,
       classified,
     });

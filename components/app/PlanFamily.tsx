@@ -11,7 +11,9 @@ import { cachedFamilyWeek, localFamilyWeekSummaries, refreshFamilyWeek } from '@
 import {
   buildFamilyPlan,
   HOUSEHOLD_KEY,
+  YOURS_KEY,
   householdPerson,
+  yoursPerson,
   weekFingerprint,
   weekStartYmd,
   type FamilyMemberSource,
@@ -23,6 +25,7 @@ import {
 import { resolvePlanIcon, washColor, type Wash } from '@/lib/plan-icon';
 import { ITEM_COUNT_SELECT } from '@/lib/plan-item-map';
 import { nestedListCount, isListHubTitle } from '@/lib/radar-organize';
+import { viewerForUser, visibleFamilyMembersSelect, visibleItemsSelect } from '@/lib/item-visibility';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect, router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
@@ -143,21 +146,27 @@ function HouseholdCard({
   tiles,
   selected,
   onSelect,
+  person,
+  summary,
+  empty,
 }: {
   tiles: HouseholdTile[];
   selected: boolean;
   onSelect: () => void;
+  person: typeof householdPerson;
+  summary: string;
+  empty: string;
 }) {
   return (
     <View style={s.familyCard}>
       <Pressable style={s.familyCardHead} onPress={onSelect}>
-        <InitialsAvatar name="Household" initial="H" wash={householdPerson.wash} size={40} selected={selected} />
+        <InitialsAvatar name={person.name} initial={person.initial} wash={person.wash} size={40} selected={selected} />
         <View style={s.familyCardHeadCopy}>
-          <Text style={s.familyCardName}>Household</Text>
-          <Text style={s.familyCardSummary}>Shared lists and anything that isn't tagged to someone.</Text>
+          <Text style={s.familyCardName}>{person.name}</Text>
+          <Text style={s.familyCardSummary}>{summary}</Text>
         </View>
         <Pressable
-          onPress={() => router.push({ pathname: '/plan/person/[personId]', params: { personId: HOUSEHOLD_KEY } })}
+          onPress={() => router.push({ pathname: '/plan/person/[personId]', params: { personId: person.key } })}
           hitSlop={8}>
           <Text style={s.homeSeeAll}>View all</Text>
         </Pressable>
@@ -205,7 +214,7 @@ function HouseholdCard({
               })}
             </ScrollView>
           ) : (
-            <Text style={s.familyEmptyLine}>Nothing sitting with the household just now.</Text>
+            <Text style={s.familyEmptyLine}>{empty}</Text>
           )}
         </View>
       ) : null}
@@ -235,12 +244,13 @@ export function PlanFamily({ focusPerson }: { focusPerson?: string | null } = {}
 
     await organizeStandaloneItems(user.id);
 
+    const viewer = await viewerForUser(user.id);
     const collections = await listActiveCollections(user.id);
     const ids = collections.map((row) => row.id);
     const [{ data: profile }, { data: members }, { data: itemData }, countRes] = await Promise.all([
       supabase.from('profiles').select('first_name').eq('id', user.id).maybeSingle(),
-      supabase.from('family_members').select('id, role, first_name, last_name').eq('user_id', user.id),
-      supabase.from('items').select(SELECT).eq('user_id', user.id).eq('status', 'open'),
+      visibleFamilyMembersSelect('id, role, first_name, last_name', viewer),
+      visibleItemsSelect(SELECT, viewer).eq('status', 'open'),
       ids.length
         ? supabase
             .from('items')
@@ -305,7 +315,7 @@ export function PlanFamily({ focusPerson }: { focusPerson?: string | null } = {}
     );
   }
 
-  if (!plan || (!plan.people.length && !plan.householdTiles.length)) {
+  if (!plan || (!plan.people.length && !plan.householdTiles.length && !plan.yoursTiles.length)) {
     return (
       <View style={s.emptyState}>
         <Text style={s.emptyStateText}>Add your family in More and I’ll sort who needs what.</Text>
@@ -313,17 +323,18 @@ export function PlanFamily({ focusPerson }: { focusPerson?: string | null } = {}
     );
   }
 
-  const strip = [...plan.people, householdPerson];
+  const strip = [...plan.people, householdPerson, yoursPerson];
   function toggleFocus(key: string) {
     setFocus((prev) => (prev === key ? null : key));
   }
 
   const visibleBuckets = !focus
     ? plan.buckets
-    : focus === HOUSEHOLD_KEY
+    : focus === HOUSEHOLD_KEY || focus === YOURS_KEY
       ? []
       : plan.buckets.filter((bucket) => bucket.person.key === focus);
   const showHousehold = !focus || focus === HOUSEHOLD_KEY;
+  const showYours = !focus || focus === YOURS_KEY;
 
   return (
     <>
@@ -375,6 +386,19 @@ export function PlanFamily({ focusPerson }: { focusPerson?: string | null } = {}
           tiles={plan.householdTiles}
           selected={focus === HOUSEHOLD_KEY}
           onSelect={() => toggleFocus(HOUSEHOLD_KEY)}
+          person={householdPerson}
+          summary="Shared lists and things that are for everyone."
+          empty="Nothing sitting with the family just now."
+        />
+      ) : null}
+      {showYours ? (
+        <HouseholdCard
+          tiles={plan.yoursTiles}
+          selected={focus === YOURS_KEY}
+          onSelect={() => toggleFocus(YOURS_KEY)}
+          person={yoursPerson}
+          summary="Your jobs that aren't tagged to someone in the family."
+          empty="Nothing sitting with you just now."
         />
       ) : null}
     </>

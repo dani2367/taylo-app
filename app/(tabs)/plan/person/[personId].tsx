@@ -11,6 +11,7 @@ import {
 import {
   buildFamilyPlan,
   HOUSEHOLD_KEY,
+  YOURS_KEY,
   type FamilyMemberSource,
   type FamilySourceItem,
 } from '@/lib/plan-family';
@@ -18,6 +19,7 @@ import { ITEM_COUNT_SELECT, mapPlanItemRow, PLAN_ITEM_SELECT, type PlanItemRow }
 import { nestedListCount, isListHubTitle } from '@/lib/radar-organize';
 import { compareRadarItems, radarStatusLine, type RadarItem } from '@/lib/radar';
 import { resolvePlanIcon } from '@/lib/plan-icon';
+import { viewerForUser, visibleFamilyMembersSelect, visibleItemsSelect } from '@/lib/item-visibility';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect, useLocalSearchParams, router } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -65,14 +67,14 @@ export default function FamilyPersonScreen() {
     const collections = await listActiveCollections(user.id);
     const ids = collections.map((row) => row.id);
 
+    const viewer = await viewerForUser(user.id);
     const [{ data: profile }, { data: members }, { data: itemData }, countRes] = await Promise.all([
       supabase.from('profiles').select('first_name').eq('id', user.id).maybeSingle(),
-      supabase.from('family_members').select('id, role, first_name, last_name').eq('user_id', user.id),
-      supabase
-        .from('items')
-        .select(`${PLAN_ITEM_SELECT}, who_it_affects, source, collection_id, created_at, parent_id`)
-        .eq('user_id', user.id)
-        .eq('status', 'open'),
+      visibleFamilyMembersSelect('id, role, first_name, last_name', viewer),
+      visibleItemsSelect(`${PLAN_ITEM_SELECT}, who_it_affects, source, collection_id, created_at, parent_id`, viewer).eq(
+        'status',
+        'open',
+      ),
       ids.length
         ? supabase
             .from('items')
@@ -111,9 +113,21 @@ export default function FamilyPersonScreen() {
     const byId = new Map(rows.map((row) => [row.id, row]));
 
     if (key === HOUSEHOLD_KEY) {
-      setTitle('Household');
+      setTitle('Family');
       setHouseholdTiles(plan.householdTiles);
       const mapped = plan.householdItems
+        .map((item) => byId.get(item.id))
+        .filter((row): row is PlanItemRow & RadarItem => !!row)
+        .sort((a, b) => compareRadarItems(a, b))
+        .map((row) => ({
+          ...mapPlanItemRow(row, today),
+          context: radarStatusLine(row, today),
+        }));
+      setItems(mapped);
+    } else if (key === YOURS_KEY) {
+      setTitle('Yours');
+      setHouseholdTiles([]);
+      const mapped = plan.yoursItems
         .map((item) => byId.get(item.id))
         .filter((row): row is PlanItemRow & RadarItem => !!row)
         .sort((a, b) => compareRadarItems(a, b))
@@ -194,7 +208,13 @@ export default function FamilyPersonScreen() {
           <PlanItemFeed
             items={items}
             setItems={setItems}
-            empty={key === HOUSEHOLD_KEY ? 'Nothing sitting with the household.' : `Nothing tagged to ${title} just now.`}
+            empty={
+              key === HOUSEHOLD_KEY
+                ? 'Nothing sitting with the family.'
+                : key === YOURS_KEY
+                  ? 'Nothing sitting with you just now.'
+                  : `Nothing tagged to ${title} just now.`
+            }
             variant="hero"
           />
         </>

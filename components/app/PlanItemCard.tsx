@@ -1,4 +1,5 @@
 import { BrandIconDisc } from '@/components/app/BrandIcon';
+import { HouseholdShareToggle, SharedHouseCorner } from '@/components/app/HouseholdShareMark';
 import { ItemPrepChecklist, type PrepCheckItem } from '@/components/app/ItemPrepChecklist';
 import { appStyles as s } from '@/components/app/styles';
 import { TayloMark } from '@/components/app/TayloMark';
@@ -25,6 +26,8 @@ export type PlanItemCardModel = {
   checklistRowsAreItems?: boolean;
   collectionId?: string;
   informational?: boolean;
+  createdBy?: string | null;
+  visibility?: 'private' | 'shared';
 };
 
 export function PlanItemCard({
@@ -36,6 +39,7 @@ export function PlanItemCard({
   onToggleExpand,
   onDismiss,
   onDone,
+  onShare,
   onDelegate,
   onChat,
   onTogglePrepEditing,
@@ -53,6 +57,7 @@ export function PlanItemCard({
   onToggleExpand: () => void;
   onDismiss: () => void;
   onDone: () => void;
+  onShare?: () => void;
   onDelegate: () => void;
   onChat: () => void;
   onTogglePrepEditing: () => void;
@@ -75,11 +80,13 @@ export function PlanItemCard({
     card.suggestion !== eventContext &&
     card.suggestion !== card.title;
   const support = card.context && !card.listMode ? card.context : !isOpen && card.prepLabel ? card.prepLabel : null;
+  const shared = card.visibility === 'shared';
 
   const body = (
     <>
+      <SharedHouseCorner shared={shared} />
       {card.hideTitle ? null : (
-        <View style={s.nrow}>
+        <View style={[s.nrow, shared && { paddingRight: 22 }]}>
           <View style={{ flexShrink: 0 }}>
             <BrandIconDisc name={card.icon.name} wash={card.icon.wash} size={hero ? 36 : undefined} />
           </View>
@@ -124,7 +131,9 @@ export function PlanItemCard({
             onDelete={onDeleteChecklist}
           />
           {card.listMode || informational ? null : (
-            <View style={hero ? s.nactions : s.uactions}>
+            <>
+              <HouseholdShareToggle shared={shared} onToggle={onShare} />
+              <View style={hero ? s.nactions : s.uactions}>
               <Pressable
                 style={[s.pill, s.pillTeal]}
                 onPress={(e) => {
@@ -150,6 +159,7 @@ export function PlanItemCard({
                 <Text style={[s.pillText, s.pillTextChat]}>Ask</Text>
               </Pressable>
             </View>
+            </>
           )}
         </>
       ) : null}

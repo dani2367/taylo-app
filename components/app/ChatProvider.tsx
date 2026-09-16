@@ -196,11 +196,12 @@ async function invokeTayloFunction(
 
 async function fetchTayloReply(
   conversationId: string,
-  opts?: { opener?: boolean },
+  opts?: { opener?: boolean; itemId?: string },
 ): Promise<{ reply: string; title?: string; message_id?: string; chips?: Chip[]; item_id?: string }> {
   return invokeTayloFunction('taylo-chat', {
     conversation_id: conversationId,
     ...(opts?.opener ? { opener: true } : {}),
+    ...(opts?.itemId ? { item_id: opts.itemId } : {}),
   });
 }
 
@@ -330,7 +331,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setTyping(true);
         try {
           try {
-            const result = await fetchTayloReply(conversationId, { opener: true });
+            const result = await fetchTayloReply(conversationId, { opener: true, itemId: id });
             setConversations((prev) =>
               prev.map((c) =>
                 c.id === conversationId && result.chips
@@ -553,8 +554,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
       const userMsg: ChatMsg = { id: inserted.id, from: 'user', text: trimmed };
       let namedTitle: string | undefined;
+      let relatedItemId: string | undefined;
       setConversations((prev) => {
         const existing = prev.find((c) => c.id === id);
+        relatedItemId = existing?.relatedItemId ?? undefined;
         if (existing && isPlaceholderTitle(existing.title, existing.sub)) {
           namedTitle = conversationTitleFromText(trimmed);
         }
@@ -584,7 +587,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       try {
         const { reply, title, item_id: createdItemId } = offload
           ? await fetchOffloadReply(id)
-          : await fetchTayloReply(id);
+          : await fetchTayloReply(id, { itemId: relatedItemId });
         if (offload && createdItemId) void refreshSpotlight();
         setConversations((prev) =>
           prev.map((c) =>

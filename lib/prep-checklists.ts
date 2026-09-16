@@ -22,7 +22,7 @@ export async function persistChecklistAdd(params: {
 }): Promise<{ checklistId: string; entry: PrepCheckItem } | { error: string }> {
   const { data: parent } = await supabase
     .from('items')
-    .select('source, source_label, category, who_it_affects')
+    .select('source, source_label, category, who_it_affects, visibility')
     .eq('id', params.itemId)
     .maybeSingle();
 
@@ -46,6 +46,7 @@ export async function persistChecklistAdd(params: {
       source_label: 'Added by you',
       category: parent?.category ?? null,
       who_it_affects: parent?.who_it_affects ?? null,
+      visibility: parent?.visibility === 'shared' ? 'shared' : 'private',
     })
     .select('id, title, status')
     .single();

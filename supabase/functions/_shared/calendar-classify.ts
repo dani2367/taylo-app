@@ -1,6 +1,8 @@
 import type { SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { insertIntakeChildren } from './checklists.ts';
+import { linkInsertedCalendarItems } from './cross-source.ts';
 import { householdVoiceBlock, type Household } from './household.ts';
+import { defaultVisibilityForWho } from './item-visibility.ts';
 import {
   birthdayTypeDefaults,
   defaultSurfaceWindow,
@@ -74,11 +76,13 @@ export async function applyCalendarClassification(
   supabase: SupabaseClient,
   params: {
     userId: string;
+    household: Household;
     events: CalendarIncoming[];
     classified: CalendarClassified[];
   },
 ): Promise<number> {
   let children = 0;
+  const classifiedIds: string[] = [];
   for (const row of params.classified) {
     const event = params.events.find((item) => item.id === row.id);
     if (!event) continue;
@@ -88,6 +92,7 @@ export async function applyCalendarClassification(
       .update({
         category: row.category,
         who_it_affects: row.who_it_affects,
+        visibility: defaultVisibilityForWho(row.who_it_affects, params.household),
         urgency_level: row.urgency,
         action_description: row.action_description,
         suggestion: row.action_description,
@@ -95,12 +100,12 @@ export async function applyCalendarClassification(
         ...intakeRowFields(row.occurrence),
         event_date: eventDateFromIntake(row.occurrence, 'calendar') ?? event.start,
       })
-      .eq('id', row.id)
-      .eq('user_id', params.userId);
+      .eq('id', row.id);
     if (updateError) {
       console.error('Failed to update classified calendar item:', updateError.message);
       continue;
     }
+    classifiedIds.push(row.id);
 
     if (!row.obligations.length) continue;
     const added = await insertIntakeChildren(supabase, {
@@ -109,6 +114,9 @@ export async function applyCalendarClassification(
       items: row.obligations,
     });
     children += added.length;
+  }
+  if (classifiedIds.length) {
+    await linkInsertedCalendarItems(supabase, params.userId, classifiedIds);
   }
   return children;
 }
@@ -139,6 +147,7 @@ export async function classifyAndApplyCalendarItems(
     }
     checklists += await applyCalendarClassification(supabase, {
       userId,
+      household,
       events: batch,
       classified: results,
     });

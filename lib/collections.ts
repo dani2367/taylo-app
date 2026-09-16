@@ -186,7 +186,7 @@ async function appendShoppingLabels(
   if (!unique.length) return null;
 
   const [{ data: parent }, { data: existing }] = await Promise.all([
-    supabase.from('items').select('source, source_label, category, who_it_affects').eq('id', itemId).maybeSingle(),
+    supabase.from('items').select('source, source_label, category, who_it_affects, visibility').eq('id', itemId).maybeSingle(),
     supabase.from('items').select('title').eq('parent_id', itemId),
   ]);
 
@@ -217,6 +217,7 @@ async function appendShoppingLabels(
       source_label: parent?.source_label ?? 'Prep',
       category: parent?.category ?? 'errand',
       who_it_affects: parent?.who_it_affects ?? null,
+      visibility: parent?.visibility === 'shared' ? 'shared' : 'private',
     })),
   );
   return error?.message ?? null;

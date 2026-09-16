@@ -5,7 +5,12 @@ import {
   hasUnambiguousStatedDate,
   intakeContractRules,
   isExcludedPrep,
+  isAttendanceRestatement,
   isNamedDatedLifeEventCapture,
+  namedPossessiveLifeEvent,
+  parseStatedClock,
+  parseUkCalendarDay,
+  statedEventFromOffload,
   informationalScheduleOccursAt,
   normalizeIntakeItem,
   shouldPersistObligation,
@@ -664,5 +669,276 @@ expect(
   isNamedDatedLifeEventCapture("Buy Arlo's shoes for the wedding", shoesText),
   false,
 );
+expect(
+  'named event capture: stag',
+  isNamedDatedLifeEventCapture("Oliver's stag", "oliver's stag is on the 23rd october"),
+  true,
+);
+expect(
+  'possessive event from offload sentence',
+  namedPossessiveLifeEvent("oliver's stag is on the 23rd october - need to book flights asap"),
+  "Oliver's stag",
+);
+expect(
+  'parse 23rd october from today in September 2026',
+  parseUkCalendarDay('on the 23rd october', new Date('2026-09-15T12:00:00Z')),
+  '2026-10-23',
+);
+
+const stagText = "oliver's stag is on the 23rd october - need to book flights asap";
+const stag = finalizeSourceItems({
+  source: 'chat',
+  sourceText: stagText,
+  fallbackTitle: 'Book flights',
+  date: '2026-10-23',
+  rawItems: [
+    {
+      title: 'Book flights',
+      kind: 'obligation',
+      due_at: '2026-10-23',
+      actionable: 'yes',
+      prep_implied: 'stated',
+      confidence: 'high',
+      evidence: stagText,
+    },
+  ],
+});
+const stagSplit = splitParentAndChildren(stag, 'Book flights');
+expect('stag offload parent is an occurrence', stagSplit.parent.kind, 'occurrence');
+expect('stag offload title is the event', stagSplit.parent.title, "Oliver's stag");
+expect('stag offload sits on 23 October', stagSplit.parent.occurs_at, '2026-10-23');
+expect('stag offload parent is not list-bound work', stagSplit.parent.due_at, null);
+expect(
+  'stag offload keeps book flights as a child',
+  stagSplit.children.map((item) => item.title),
+  ['Book flights'],
+);
+expect(
+  'spa day on a date is an event in the sentence',
+  statedEventFromOffload('spa day on 12 June'),
+  'Spa day',
+);
+expect(
+  'parents evening is on a date is an event in the sentence',
+  statedEventFromOffload("parents evening is on 4 November"),
+  'Parents evening',
+);
+expect(
+  'book eye test is not an event in the sentence',
+  statedEventFromOffload('Book the eye test on 5 December'),
+  null,
+);
+
+const spaText = 'spa day on 12 June';
+const spa = finalizeSourceItems({
+  source: 'chat',
+  sourceText: spaText,
+  fallbackTitle: 'Spa day',
+  date: '2026-06-12',
+  rawItems: [
+    {
+      title: 'Spa day',
+      kind: 'obligation',
+      due_at: '2026-06-12',
+      actionable: 'yes',
+      prep_implied: 'stated',
+      confidence: 'high',
+      evidence: spaText,
+    },
+  ],
+});
+expect('spa day offload is an occurrence', spa[0]?.kind, 'occurrence');
+expect('spa day offload sits on 12 June', spa[0]?.occurs_at, '2026-06-12');
+
+const wed = new Date('2026-09-16T12:00:00Z');
+expect(
+  'wednesday next week from a Wednesday is the following Wednesday',
+  parseUkCalendarDay('tays operation on wednesday next week', wed),
+  '2026-09-23',
+);
+expect(
+  'next week on wednesday is the same day',
+  parseUkCalendarDay('next week on wednesday', wed),
+  '2026-09-23',
+);
+expect(
+  'next wednesday from a Wednesday skips this week',
+  parseUkCalendarDay('next wednesday', wed),
+  '2026-09-23',
+);
+expect(
+  'wednesday next week from a Monday is next week not this week',
+  parseUkCalendarDay('on wednesday next week', new Date('2026-09-14T12:00:00Z')),
+  '2026-09-23',
+);
+expect(
+  'next wednesday from a Monday is this week',
+  parseUkCalendarDay('next wednesday', new Date('2026-09-14T12:00:00Z')),
+  '2026-09-16',
+);
+expect(
+  'wednesday next week is a stated day',
+  hasUnambiguousStatedDate('tays operation on wednesday next week'),
+  true,
+);
+expect(
+  'friday alone is not a stated day',
+  hasUnambiguousStatedDate('Year 2 farm trip on Friday'),
+  false,
+);
+expect(
+  'next week alone is still soft',
+  hasSoftOrInferredDateLanguage('tays operation next week'),
+  true,
+);
+expect(
+  'wednesday next week is not soft',
+  hasSoftOrInferredDateLanguage('tays operation on wednesday next week'),
+  false,
+);
+expect(
+  'operation on wednesday next week is an event in the sentence',
+  statedEventFromOffload("Tay's operation on wednesday next week"),
+  "Tay's operation",
+);
+
+const opText = "Tay's operation on wednesday next week";
+const op = finalizeSourceItems({
+  source: 'chat',
+  sourceText: opText,
+  fallbackTitle: "Tay's operation",
+  date: '2026-09-16',
+  rawItems: [
+    {
+      title: "Tay's operation",
+      kind: 'hold',
+      due_at: '2026-09-16',
+      actionable: 'maybe',
+      prep_implied: 'none',
+      confidence: 'medium',
+      evidence: opText,
+    },
+  ],
+});
+expect('operation next-week-wednesday is an occurrence', op[0]?.kind, 'occurrence');
+expect(
+  'operation uses wednesday next week not the model guess',
+  op[0]?.occurs_at,
+  parseUkCalendarDay(opText),
+);
+expect('arrive at the hospital is just showing up', isAttendanceRestatement('Arrive at the hospital'), true);
+expect('book flights is real extra work', isAttendanceRestatement('Book flights'), false);
+
+const opArrive = finalizeSourceItems({
+  source: 'chat',
+  sourceText: opText,
+  fallbackTitle: "Tay's operation",
+  date: parseUkCalendarDay(opText),
+  rawItems: [
+    {
+      title: "Tay's operation",
+      kind: 'occurrence',
+      occurs_at: parseUkCalendarDay(opText),
+      actionable: 'no',
+      prep_implied: 'none',
+      confidence: 'high',
+      evidence: opText,
+    },
+    {
+      title: 'Arrive at the hospital',
+      kind: 'obligation',
+      due_at: parseUkCalendarDay(opText),
+      actionable: 'yes',
+      prep_implied: 'stated',
+      confidence: 'high',
+      evidence: 'arrive at the hospital',
+    },
+  ],
+});
+const opArriveSplit = splitParentAndChildren(opArrive, "Tay's operation");
+expect('operation does not keep an arrive child', opArriveSplit.children.map((item) => item.title), []);
+expect('operation parent stays the event', opArriveSplit.parent.kind, 'occurrence');
+
+const timedOpText = "tayas operation is on wednesday next week - need to arrive by 7:30";
+expect('arrive by 7:30 is showing up', isAttendanceRestatement('Need to arrive by 7:30'), true);
+expect('arrive by 7:30 clock', parseStatedClock(timedOpText), '07:30');
+expect(
+  'form by the 19th is not a clock',
+  parseStatedClock('Please return the trip form by the 19th.'),
+  null,
+);
+expect(
+  'timed operation is an event in the sentence',
+  statedEventFromOffload(timedOpText),
+  'Tayas operation',
+);
+
+const timedOp = finalizeSourceItems({
+  source: 'chat',
+  sourceText: timedOpText,
+  fallbackTitle: "Taya's operation",
+  date: '2026-09-16',
+  extraLabels: ['Arrive by 7:30'],
+  rawItems: [
+    {
+      title: "Taya's operation",
+      kind: 'obligation',
+      due_at: '2026-09-16',
+      actionable: 'yes',
+      prep_implied: 'stated',
+      confidence: 'high',
+      evidence: timedOpText,
+    },
+    {
+      title: 'Need to arrive by 7:30',
+      kind: 'obligation',
+      due_at: '2026-09-16',
+      actionable: 'yes',
+      prep_implied: 'stated',
+      confidence: 'high',
+      evidence: 'need to arrive by 7:30',
+    },
+  ],
+});
+const timedSplit = splitParentAndChildren(timedOp, "Taya's operation");
+expect('timed operation is an occurrence', timedSplit.parent.kind, 'occurrence');
+expect(
+  'timed operation sits on next Wednesday at 7:30',
+  timedSplit.parent.occurs_at,
+  `${parseUkCalendarDay(timedOpText)}T07:30:00`,
+);
+expect('timed operation has no arrive child', timedSplit.children.map((item) => item.title), []);
+
+const nextWedText = "tayas operation is next Wednesday - need to arrive by 7:30am";
+expect(
+  'is next Wednesday names the event',
+  statedEventFromOffload(nextWedText),
+  'Tayas operation',
+);
+const nextWed = finalizeSourceItems({
+  source: 'chat',
+  sourceText: nextWedText,
+  fallbackTitle: "Taya's operation",
+  date: '2026-09-23',
+  rawItems: [
+    {
+      title: "Taya's operation",
+      kind: 'context_only',
+      occurs_at: '2026-09-23',
+      actionable: 'no',
+      prep_implied: 'none',
+      confidence: 'high',
+      evidence: 'operation is next Wednesday',
+    },
+  ],
+});
+expect('next-Wednesday operation is an occurrence', nextWed[0]?.kind, 'occurrence');
+expect(
+  'next-Wednesday operation keeps the day',
+  String(nextWed[0]?.occurs_at || '').slice(0, 10),
+  parseUkCalendarDay(nextWedText),
+);
+expect('next-Wednesday operation has the 7:30 clock', String(nextWed[0]?.occurs_at || '').includes('T07:30'), true);
+expect('next-Wednesday operation has no children', nextWed.filter((item) => item.kind === 'obligation').length, 0);
 
 if (!process.exitCode) console.log('intake-contract self-test passed');

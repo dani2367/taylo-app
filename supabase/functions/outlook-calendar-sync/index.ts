@@ -5,6 +5,7 @@ import {
   syncedCalendarItemStatus,
   type CalendarIncoming,
 } from '../_shared/calendar-classify.ts';
+import { linkInsertedCalendarItems } from '../_shared/cross-source.ts';
 import { loadHousehold } from '../_shared/household.ts';
 import {
   getFreshMicrosoftAccessToken,
@@ -219,6 +220,7 @@ async function syncUser(
     if (!existing) {
       toInsert.push({
         user_id: connection.user_id,
+        created_by: connection.user_id,
         title,
         body: location,
         event_date: eventDate,
@@ -277,6 +279,11 @@ async function syncUser(
       throw new Error(`Failed to upsert calendar items: ${insertError.message}`);
     }
     created = inserted?.length ?? 0;
+    await linkInsertedCalendarItems(
+      supabase,
+      connection.user_id,
+      (inserted ?? []).map((row) => row.id),
+    );
     for (const row of inserted ?? []) {
       console.log('Created calendar item:', row.title, '->', row.event_date);
       const start = typeof row.event_date === 'string' ? row.event_date : '';

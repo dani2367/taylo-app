@@ -24,6 +24,7 @@ import {
   type BusyDay,
   type ScheduleSourceItem,
 } from '@/lib/schedule';
+import { viewerForUser, visibleItemsSelect } from '@/lib/item-visibility';
 import { supabase } from '@/lib/supabase';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, router } from 'expo-router';
@@ -143,10 +144,8 @@ export function PlanSchedule({
       return;
     }
 
-    const { data, error } = await supabase
-      .from('items')
-      .select(SELECT)
-      .eq('user_id', user.id)
+    const viewer = await viewerForUser(user.id);
+    const { data, error } = await visibleItemsSelect(SELECT, viewer)
       .eq('status', 'open')
       .in('kind', ['occurrence', 'context_only'])
       .not('occurs_at', 'is', null);

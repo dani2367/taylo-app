@@ -148,7 +148,24 @@ expect('undated context_only is not a family hiding place', isFamilyVisible(item
 
 expect('party occurrence is schedule', isScheduleItem(party), true);
 expect('party occurrence not home', isHomeEligible(party, today), false);
-expect('party occurrence not radar', isRadarWatchItem(party, today), false);
+expect('named party occurrence is also radar', isRadarWatchItem(party, today), true);
+
+const operation = item({
+  id: 'operation',
+  title: "Taya's operation",
+  kind: 'occurrence',
+  occurs_at: '2026-09-23T07:30:00',
+  due_at: null,
+  confidence: 'high',
+});
+expect('operation is schedule', isScheduleItem(operation), true);
+expect('operation is radar', isRadarWatchItem(operation, today), true);
+expect('operation is not home', isHomeEligible(operation, today), false);
+expect(
+  'operation lands on keeping an eye on',
+  selectRadarWatch([operation], today).some((card) => card.item.id === 'operation'),
+  true,
+);
 
 expect('child obligation with open window is home', isHomeEligible(buyCardOpen, today), true);
 expect('child obligation with open window not radar', isRadarWatchItem(buyCardOpen, today), false);
@@ -578,6 +595,7 @@ const leftoverGift = item({
   created_at: '2026-09-01T10:00:00Z',
 });
 expect('leftover child after parent date stays with siblings on radar', isHomeEligible(leftoverGift, today), false);
+expect('past named event is not radar once the day has gone', isRadarWatchItem(pastParty, today), false);
 expect('leftover packing child is a radar watch item', isRadarWatchItem(leftoverGift, today), true);
 expect(
   'leftover child does not take a home slot',

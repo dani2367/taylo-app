@@ -102,14 +102,14 @@ expect(
   { kind: 'household' },
 );
 expect(
-  'null → household',
+  'null → yours',
   assignItem(item({ id: '3', title: 'Parcel', who_it_affects: null }), people),
-  { kind: 'household' },
+  { kind: 'yours' },
 );
 expect(
-  'unknown name → household',
+  'unknown name → yours',
   assignItem(item({ id: '4', title: 'Visit', who_it_affects: 'Grandma' }), people),
-  { kind: 'household' },
+  { kind: 'yours' },
 );
 expect(
   'two names → household',
@@ -174,6 +174,7 @@ const plan = buildFamilyPlan(
     item({ id: 'form', title: 'Trip form', collection_id: 'todo', who_it_affects: 'Taya', kind: 'obligation', due_at: '2026-09-05' }),
     item({ id: 'party', title: 'Joint party', who_it_affects: 'Arlo and Taya', kind: 'occurrence', occurs_at: '2026-09-12' }),
     item({ id: 'you', title: 'Book GP checkup', who_it_affects: 'you', kind: 'obligation', due_at: '2026-09-11' }),
+    item({ id: 'speech', title: "Oliver's speech", who_it_affects: null, kind: 'obligation', due_at: '2026-09-09' }),
   ],
   [shopping, todo],
   new Map([['shop', 4]]),
@@ -205,9 +206,14 @@ expect(
   ['you'],
 );
 expect(
-  'household unmatched not dropped',
+  'true family items stay on family',
   plan.householdItems.map((i) => i.id).sort(),
-  ['parcel', 'party', 'radar'],
+  ['party', 'radar'],
+);
+expect(
+  'untagged and unknown names sit on yours',
+  plan.yoursItems.map((i) => i.id).sort(),
+  ['parcel', 'speech'],
 );
 expect(
   'shopping is a household collection tile',
@@ -215,12 +221,17 @@ expect(
   true,
 );
 expect(
-  'parcel is a household item tile',
-  plan.householdTiles.some((t) => t.itemId === 'parcel' && t.status !== 'On your radar'),
+  'parcel is a yours item tile',
+  plan.yoursTiles.some((t) => t.itemId === 'parcel' && t.status !== 'On your radar'),
   true,
 );
 expect(
-  'undated household uses on your radar',
+  'untagged speech sits on yours not family',
+  plan.yoursTiles.some((t) => t.itemId === 'speech') && !plan.householdTiles.some((t) => t.itemId === 'speech'),
+  true,
+);
+expect(
+  'undated family hold uses on your radar',
   plan.householdTiles.some((t) => t.itemId === 'radar' && t.status === 'On your radar'),
   true,
 );

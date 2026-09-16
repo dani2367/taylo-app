@@ -6,6 +6,7 @@ import {
   looksLikeMentalLoad,
 } from '../_shared/noticed.ts';
 import { HOME_OVERFLOW_RANK_BASE, isSameLondonDay } from '../_shared/placement.ts';
+import { loadViewerContext, restrictHouseholdFamilyMembers, restrictVisibleItems } from '../_shared/item-visibility.ts';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-sonnet-5';
@@ -95,10 +96,11 @@ Deno.serve(async (req: Request) => {
     const latestRow = await loadLatestNoticed(supabase, user.id);
     const lastInsight = cachedInsight(latestRow);
 
-    const { data: itemRows, error: itemsError } = await supabase
-      .from('items')
-      .select('id, title, category, event_date, who_it_affects, collections(status)')
-      .eq('user_id', user.id)
+    const viewer = await loadViewerContext(supabase, user.id);
+    const { data: itemRows, error: itemsError } = await restrictVisibleItems(
+      supabase.from('items').select('id, title, category, event_date, who_it_affects, collections(status)'),
+      viewer,
+    )
       .eq('status', 'open')
       .order('created_at', { ascending: false })
       .limit(80);
@@ -304,10 +306,11 @@ function cachedInsight(row: NoticedRow | null): string | null {
 }
 
 async function loadPeople(supabase: SupabaseClient, userId: string): Promise<PersonContext[]> {
-  const { data, error } = await supabase
-    .from('family_members')
-    .select('role, first_name, birthday, school')
-    .eq('user_id', userId);
+  const viewer = await loadViewerContext(supabase, userId);
+  const { data, error } = await restrictHouseholdFamilyMembers(
+    supabase.from('family_members').select('role, first_name, birthday, school'),
+    viewer,
+  );
 
   if (error) {
     console.error('Failed to load family members:', error.message);
