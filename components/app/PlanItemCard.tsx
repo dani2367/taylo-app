@@ -25,6 +25,7 @@ export type PlanItemCardModel = {
   hideTitle?: boolean;
   checklistRowsAreItems?: boolean;
   collectionId?: string;
+  collectionType?: string | null;
   informational?: boolean;
   createdBy?: string | null;
   visibility?: 'private' | 'shared';
@@ -130,9 +131,10 @@ export function PlanItemCard({
             onAdd={onAddChecklist}
             onDelete={onDeleteChecklist}
           />
-          {card.listMode || informational ? null : (
+          {informational ? null : (
             <>
               <HouseholdShareToggle shared={shared} onToggle={onShare} />
+              {card.listMode ? null : (
               <View style={hero ? s.nactions : s.uactions}>
               <Pressable
                 style={[s.pill, s.pillTeal]}
@@ -159,6 +161,7 @@ export function PlanItemCard({
                 <Text style={[s.pillText, s.pillTextChat]}>Ask</Text>
               </Pressable>
             </View>
+              )}
             </>
           )}
         </>

@@ -178,7 +178,7 @@ function eventDayYmd(item: PlacementItem): string | null {
   return dateOnly(item.event_date) || dateOnly(item.occurs_at);
 }
 
-/** Named family event still ahead — operation, party, gala — not a generic calendar meeting. */
+/** Named upcoming occurrence — not a generic diary meeting. Showing up is not a Home action. */
 function isUpcomingNamedLifeEvent(item: PlacementItem, today: Date): boolean {
   if (item.kind !== 'occurrence') return false;
   if (!titleNamesAttendableEvent(item.title || '')) return false;

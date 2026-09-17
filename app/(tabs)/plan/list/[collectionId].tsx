@@ -3,6 +3,7 @@ import { PlanItemFeed } from '@/components/app/PlanItemFeed';
 import { appStyles as s } from '@/components/app/styles';
 import { colors } from '@/constants/theme';
 import { GENERAL_TODO_TITLE } from '@/lib/collections';
+import { isHouseholdList } from '@/lib/item-visibility';
 import { mapPlanItemRow, PLAN_ITEM_SELECT, type PlanItemRow } from '@/lib/plan-item-map';
 import { resolvePlanIcon } from '@/lib/plan-icon';
 import { isListHubTitle } from '@/lib/radar-organize';
@@ -27,7 +28,7 @@ export default function CollectionScreen() {
   const load = useCallback(async () => {
     if (!collectionId) return;
     const [{ data: col }, { data: rows, error }] = await Promise.all([
-      supabase.from('collections').select('id, title, emoji, type').eq('id', collectionId).maybeSingle(),
+      supabase.from('collections').select('id, title, emoji, type, visibility, user_id').eq('id', collectionId).maybeSingle(),
       supabase
         .from('items')
         .select(PLAN_ITEM_SELECT)
@@ -38,20 +39,28 @@ export default function CollectionScreen() {
     ]);
 
     if (error) console.error('Failed to load list:', error.message);
-    const meta = col as { title: string | null; emoji: string | null; type: string | null } | null;
+    const meta = col as {
+      title: string | null;
+      emoji: string | null;
+      type: string | null;
+      visibility?: string | null;
+      user_id?: string | null;
+    } | null;
     const listTitle = meta?.title || 'List';
+    const listVisibility = meta?.visibility === 'shared' || isHouseholdList(meta?.type, listTitle) ? 'shared' : 'private';
     setTitle(listTitle);
     setIconName(resolvePlanIcon({ title: meta?.title, collectionType: meta?.type, stored: meta?.emoji }));
     const today = new Date();
     const mapped = ((rows as PlanItemRow[] | null) ?? []).map((row) => mapPlanItemRow(row, today));
     const members = mapped.filter((card) => !isListHubTitle(card.title));
-    const isTodoList = listTitle === GENERAL_TODO_TITLE;
+    const isTodoList = listTitle === GENERAL_TODO_TITLE || meta?.type === 'todo';
 
     if (isTodoList) {
       setItems([
         {
           id: collectionId,
           collectionId,
+          collectionType: meta?.type,
           title: listTitle,
           context: null,
           detail: '',
@@ -65,6 +74,8 @@ export default function CollectionScreen() {
           listMode: true,
           hideTitle: true,
           checklistRowsAreItems: true,
+          createdBy: meta?.user_id ?? null,
+          visibility: listVisibility,
         },
       ]);
     } else {
@@ -73,6 +84,7 @@ export default function CollectionScreen() {
         mapped.map((card) => ({
           ...card,
           collectionId,
+          collectionType: meta?.type,
           listMode: true,
           context: null,
           detail: '',
@@ -80,6 +92,8 @@ export default function CollectionScreen() {
           hideTitle: hideEveryTitle || sameTitle(card.title, listTitle),
           checklistHeading: meta?.type === 'shopping' ? 'To pick up' : undefined,
           checklistRowsAreItems: meta?.type === 'shopping',
+          visibility: listVisibility,
+          createdBy: card.createdBy || meta?.user_id || null,
         })),
       );
     }

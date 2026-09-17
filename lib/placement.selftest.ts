@@ -167,6 +167,59 @@ expect(
   true,
 );
 
+const preOp = item({
+  id: 'pre-op',
+  title: "Taya's pre-op appointment",
+  kind: 'occurrence',
+  occurs_at: '2026-09-08T10:00:00',
+  due_at: null,
+  confidence: 'high',
+});
+expect('pre-op appointment is schedule', isScheduleItem(preOp), true);
+expect('pre-op appointment is radar', isRadarWatchItem(preOp, today), true);
+expect('pre-op appointment is not a home action', isHomeEligible(preOp, today), false);
+expect(
+  'pre-op appointment is keeping an eye on',
+  selectRadarWatch([preOp], today).some((card) => card.item.id === 'pre-op'),
+  true,
+);
+expect(
+  'pre-op appointment does not take a home slot',
+  selectHomeActions([preOp], { today }).map((card) => card.item.id),
+  [],
+);
+
+const spaDay = item({
+  id: 'spa',
+  title: 'Spa day',
+  kind: 'occurrence',
+  occurs_at: '2026-09-12',
+  due_at: null,
+  confidence: 'high',
+});
+const parentsEvening = item({
+  id: 'parents',
+  title: 'Parents evening',
+  kind: 'occurrence',
+  occurs_at: '2026-09-10T18:00:00',
+  due_at: null,
+  confidence: 'high',
+});
+const swimming = item({
+  id: 'swim',
+  title: "Taya's swimming lesson",
+  kind: 'occurrence',
+  occurs_at: '2026-09-09T16:00:00',
+  due_at: null,
+  confidence: 'high',
+});
+expect('spa day is radar not home', isRadarWatchItem(spaDay, today), true);
+expect('spa day is not a home action', isHomeEligible(spaDay, today), false);
+expect('parents evening is radar not home', isRadarWatchItem(parentsEvening, today), true);
+expect('parents evening is not a home action', isHomeEligible(parentsEvening, today), false);
+expect('swimming lesson is radar not home', isRadarWatchItem(swimming, today), true);
+expect('swimming lesson is not a home action', isHomeEligible(swimming, today), false);
+
 expect('child obligation with open window is home', isHomeEligible(buyCardOpen, today), true);
 expect('child obligation with open window not radar', isRadarWatchItem(buyCardOpen, today), false);
 expect('child obligation is family', isFamilyVisible(buyCardOpen, today), true);

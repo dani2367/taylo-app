@@ -6,6 +6,7 @@ import {
   intakeContractRules,
   isExcludedPrep,
   isAttendanceRestatement,
+  isGenericDiaryTitle,
   isNamedDatedLifeEventCapture,
   namedPossessiveLifeEvent,
   parseStatedClock,
@@ -15,6 +16,7 @@ import {
   normalizeIntakeItem,
   shouldPersistObligation,
   splitParentAndChildren,
+  titleNamesAttendableEvent,
 } from '../supabase/functions/_shared/intake-contract.ts';
 
 function expect(name: string, got: unknown, want: unknown) {
@@ -870,7 +872,7 @@ expect(
 expect(
   'timed operation is an event in the sentence',
   statedEventFromOffload(timedOpText),
-  'Tayas operation',
+  "Taya's operation",
 );
 
 const timedOp = finalizeSourceItems({
@@ -913,7 +915,7 @@ const nextWedText = "tayas operation is next Wednesday - need to arrive by 7:30a
 expect(
   'is next Wednesday names the event',
   statedEventFromOffload(nextWedText),
-  'Tayas operation',
+  "Taya's operation",
 );
 const nextWed = finalizeSourceItems({
   source: 'chat',
@@ -940,5 +942,68 @@ expect(
 );
 expect('next-Wednesday operation has the 7:30 clock', String(nextWed[0]?.occurs_at || '').includes('T07:30'), true);
 expect('next-Wednesday operation has no children', nextWed.filter((item) => item.kind === 'obligation').length, 0);
+
+const preOpText = "Taya's pre opp appointment for next Tuesday";
+expect(
+  'pre-op appointment for next Tuesday is an event in the sentence',
+  statedEventFromOffload(preOpText),
+  "Taya's pre opp appointment",
+);
+expect(
+  'pre-op appointment is a named dated life event',
+  isNamedDatedLifeEventCapture("Taya's pre-op appointment", preOpText),
+  true,
+);
+expect(
+  'book the appointment stays a chore',
+  isNamedDatedLifeEventCapture('Book the appointment', 'Book the appointment on next Tuesday'),
+  false,
+);
+
+const preOp = finalizeSourceItems({
+  source: 'chat',
+  sourceText: preOpText,
+  fallbackTitle: "Taya's pre-op appointment",
+  date: parseUkCalendarDay(preOpText),
+  rawItems: [
+    {
+      title: "Taya's pre-op appointment for next Tuesday",
+      kind: 'obligation',
+      due_at: parseUkCalendarDay(preOpText),
+      actionable: 'yes',
+      prep_implied: 'stated',
+      confidence: 'high',
+      evidence: preOpText,
+    },
+  ],
+});
+const preOpSplit = splitParentAndChildren(preOp, "Taya's pre-op appointment");
+expect('pre-op offload is an occurrence', preOpSplit.parent.kind, 'occurrence');
+expect(
+  'pre-op offload keeps the Tuesday',
+  String(preOpSplit.parent.occurs_at || '').slice(0, 10),
+  parseUkCalendarDay(preOpText),
+);
+expect('pre-op offload has no attend child', preOpSplit.children.map((item) => item.title), []);
+
+expect('spa day is a named happening', titleNamesAttendableEvent('Spa day'), true);
+expect('parents evening is a named happening', titleNamesAttendableEvent('Parents evening'), true);
+expect('swimming lesson is a named happening', titleNamesAttendableEvent("Taya's swimming lesson"), true);
+expect('haircut is a named happening', titleNamesAttendableEvent('Haircut'), true);
+expect('standup is diary filler', isGenericDiaryTitle('Standup'), true);
+expect('standup is not a named happening', titleNamesAttendableEvent('Standup'), false);
+expect('weekly 1:1 is diary filler', isGenericDiaryTitle('Weekly 1:1'), true);
+expect('book the eye test is still a chore', titleNamesAttendableEvent('Book the eye test'), false);
+expect('nursery closed is context not an event they attend', titleNamesAttendableEvent('Nursery closed'), false);
+expect(
+  'spa day offload sentence is an event',
+  isNamedDatedLifeEventCapture('Spa day', 'spa day on 12 June'),
+  true,
+);
+expect(
+  'parents evening offload sentence is an event',
+  isNamedDatedLifeEventCapture('Parents evening', 'parents evening is on 4 November'),
+  true,
+);
 
 if (!process.exitCode) console.log('intake-contract self-test passed');

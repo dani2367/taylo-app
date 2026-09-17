@@ -1,5 +1,6 @@
 import type { SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { appendChecklistItems, looksLikeShoppingList } from './checklists.ts';
+import { defaultListVisibility, defaultShoppingVisibility } from './item-visibility.ts';
 
 const GENERAL_TODO_TITLE = 'General to do';
 
@@ -30,26 +31,32 @@ export async function findOrCreateTodoCollection(
   supabase: SupabaseClient,
   userId: string,
 ): Promise<string | null> {
+  const { data, error } = await supabase.rpc('find_or_create_todo_collection', {
+    p_user_id: userId,
+  });
+  if (data) return data as string;
+
   const existing = await lookupTodoCollection(supabase, userId);
   if (existing) return existing;
 
-  const { data, error } = await supabase
+  const { data: created, error: createError } = await supabase
     .from('collections')
     .insert({
       user_id: userId,
       title: GENERAL_TODO_TITLE,
       emoji: '📝',
-      type: 'custom',
+      type: 'todo',
       status: 'active',
+      visibility: defaultListVisibility('todo', GENERAL_TODO_TITLE),
     })
     .select('id')
     .single();
-  if (data?.id) return data.id as string;
+  if (created?.id) return created.id as string;
 
   const raced = await lookupTodoCollection(supabase, userId);
   if (raced) return raced;
 
-  console.error('Failed to find to-do collection:', error?.message);
+  console.error('Failed to find to-do collection:', error?.message || createError?.message);
   return null;
 }
 
@@ -76,8 +83,7 @@ export async function findOrCreateShoppingListItem(
 
   const { data: existing, error } = await supabase
     .from('items')
-    .select('id, title')
-    .eq('user_id', userId)
+    .select('id, title, visibility')
     .eq('collection_id', collectionId)
     .eq('status', 'open')
     .order('created_at', { ascending: true });
@@ -87,7 +93,7 @@ export async function findOrCreateShoppingListItem(
     return null;
   }
 
-  const open = (existing ?? []) as { id: string; title: string | null }[];
+  const open = (existing ?? []) as { id: string; title: string | null; visibility?: string | null }[];
   let list = open.find((row) => looksLikeShoppingList(row.title || '')) ?? null;
 
   if (!list) {
@@ -108,6 +114,8 @@ export async function findOrCreateShoppingListItem(
         source_label: 'Added from Ask',
         urgency_level: 'none',
         action_description: 'Shopping',
+        who_it_affects: 'family',
+        visibility: defaultShoppingVisibility(),
       })
       .select('id, title')
       .single();
@@ -116,9 +124,17 @@ export async function findOrCreateShoppingListItem(
       return null;
     }
     list = { id: created.id, title: created.title };
-  } else if ((list.title || '').trim().toLowerCase() !== 'shopping') {
-    await supabase.from('items').update({ title: 'Shopping', icon: 'cart-outline' }).eq('id', list.id);
-    list = { id: list.id, title: 'Shopping' };
+  } else {
+    if ((list.title || '').trim().toLowerCase() !== 'shopping') {
+      await supabase.from('items').update({ title: 'Shopping', icon: 'cart-outline' }).eq('id', list.id);
+      list = { id: list.id, title: 'Shopping' };
+    }
+    if (list.visibility !== 'shared') {
+      await supabase
+        .from('items')
+        .update({ visibility: defaultShoppingVisibility(), who_it_affects: 'family' })
+        .or(`id.eq.${list.id},parent_id.eq.${list.id}`);
+    }
   }
 
   const extras = open.filter((row) => row.id !== list.id);

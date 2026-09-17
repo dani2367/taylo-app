@@ -146,12 +146,10 @@ export default function PlanScreen() {
 
     const collections = await listActiveCollections(user.id);
     const ids = collections.map((row) => row.id);
+    const viewer = await viewerForUser(user.id);
     let members: ItemCountRow[] = [];
     if (ids.length) {
-      const { data } = await supabase
-        .from('items')
-        .select(ITEM_COUNT_SELECT)
-        .eq('user_id', user.id)
+      const { data } = await visibleItemsSelect(ITEM_COUNT_SELECT, viewer)
         .eq('status', 'open')
         .is('parent_id', null)
         .in('collection_id', ids);
@@ -183,7 +181,7 @@ export default function PlanScreen() {
 
     const { data: itemData, error } = await visibleItemsSelect(
       `${PLAN_ITEM_SELECT}, created_at, source, collection_id, parent_id`,
-      await viewerForUser(user.id),
+      viewer,
     )
       .eq('status', 'open')
       .in('kind', [...HOME_RADAR_LOAD_KINDS]);

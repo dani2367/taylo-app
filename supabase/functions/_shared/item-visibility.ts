@@ -28,6 +28,24 @@ export function defaultItemVisibility(): ItemVisibility {
   return ITEM_VISIBILITY.private;
 }
 
+/** Groceries are a household list — both logins see the same shopping. */
+export function defaultShoppingVisibility(): ItemVisibility {
+  return defaultListVisibility('shopping');
+}
+
+const HOUSEHOLD_LIST_TITLES = new Set(['general to do', 'shopping']);
+
+/** Shopping and General to do are household lists. Named lists stay private until shared. */
+export function isHouseholdList(type?: string | null, title?: string | null): boolean {
+  const kind = (type || '').trim().toLowerCase();
+  const name = (title || '').trim().toLowerCase();
+  return kind === 'shopping' || kind === 'todo' || HOUSEHOLD_LIST_TITLES.has(name);
+}
+
+export function defaultListVisibility(type?: string | null, title?: string | null): ItemVisibility {
+  return isHouseholdList(type, title) ? ITEM_VISIBILITY.shared : ITEM_VISIBILITY.private;
+}
+
 export type WhoHousehold = {
   userName: string | null;
   children: string[];
@@ -132,6 +150,13 @@ type FilterableQuery<T> = {
 export function restrictVisibleItems<T extends FilterableQuery<T>>(query: T, viewer: ViewerContext): T {
   return query.or(
     `created_by.eq.${viewer.userId},and(visibility.eq.${ITEM_VISIBILITY.shared},household_id.eq.${viewer.householdId})`,
+  );
+}
+
+/** Own lists, plus household-shared lists such as Shopping. */
+export function restrictVisibleCollections<T extends FilterableQuery<T>>(query: T, viewer: ViewerContext): T {
+  return query.or(
+    `user_id.eq.${viewer.userId},and(visibility.eq.${ITEM_VISIBILITY.shared},household_id.eq.${viewer.householdId})`,
   );
 }
 

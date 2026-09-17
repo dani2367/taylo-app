@@ -10,7 +10,7 @@ import {
   persistChecklistText,
   persistChecklistToggle,
 } from '@/lib/prep-checklists';
-import { persistItemVisibility } from '@/lib/item-visibility';
+import { isHouseholdList, persistItemVisibility, persistListVisibility } from '@/lib/item-visibility';
 import { extraEventContext } from '@/lib/suggestion';
 import { supabase } from '@/lib/supabase';
 import { router } from 'expo-router';
@@ -75,9 +75,25 @@ export function PlanItemFeed({
 
   async function toggleShare(card: PlanItemCardModel) {
     const next = card.visibility === 'shared' ? 'private' : 'shared';
-    patchItem(card.id, (row) => ({ ...row, visibility: next }));
-    const { error } = await persistItemVisibility(card.id, next);
-    if (error) patchItem(card.id, (row) => ({ ...row, visibility: card.visibility }));
+    const patchFeed = (visibility: 'private' | 'shared') => {
+      if (card.listMode && card.collectionId) {
+        setItems((prev) =>
+          prev.map((row) => (row.collectionId === card.collectionId ? { ...row, visibility } : row)),
+        );
+        return;
+      }
+      patchItem(card.id, (row) => ({ ...row, visibility }));
+    };
+    patchFeed(next);
+    const { error } =
+      card.listMode && card.collectionId
+        ? await persistListVisibility(
+            card.collectionId,
+            next,
+            !isHouseholdList(card.collectionType, card.title),
+          )
+        : await persistItemVisibility(card.id, next);
+    if (error) patchFeed(card.visibility === 'shared' ? 'shared' : 'private');
   }
 
   async function retireListIfEmpty(card: PlanItemCardModel, remainingChecklist: { id: string }[]) {
@@ -255,7 +271,14 @@ export function PlanItemFeed({
       onToggleExpand={() => setExpanded((p) => ({ ...p, [card.id]: !p[card.id] }))}
       onDismiss={() => void setStatus(card, 'dismissed')}
       onDone={() => void setStatus(card, 'done')}
-      onShare={viewerId && (!card.createdBy || card.createdBy === viewerId) ? () => void toggleShare(card) : undefined}
+      onShare={
+        viewerId &&
+        (!card.createdBy ||
+          card.createdBy === viewerId ||
+          (card.listMode && isHouseholdList(card.collectionType, card.title)))
+          ? () => void toggleShare(card)
+          : undefined
+      }
       onDelegate={() => void setStatus(card, 'delegated')}
       onChat={() => void onChat(card)}
       onTogglePrepEditing={() => setEditingPrep((p) => ({ ...p, [card.id]: !p[card.id] }))}

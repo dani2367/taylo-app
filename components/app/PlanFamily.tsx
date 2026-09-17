@@ -252,10 +252,7 @@ export function PlanFamily({ focusPerson }: { focusPerson?: string | null } = {}
       visibleFamilyMembersSelect('id, role, first_name, last_name', viewer),
       visibleItemsSelect(SELECT, viewer).eq('status', 'open'),
       ids.length
-        ? supabase
-            .from('items')
-            .select(ITEM_COUNT_SELECT)
-            .eq('user_id', user.id)
+        ? visibleItemsSelect(ITEM_COUNT_SELECT, viewer)
             .eq('status', 'open')
             .is('parent_id', null)
             .in('collection_id', ids)

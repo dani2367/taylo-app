@@ -59,6 +59,7 @@ export function intakeContractRules(source: IntakeSource): string {
 - kind=occurrence IS allowed for ${source} when they state that a thing happens on an unambiguous calendar day — "X is on 23 October", "spa day on 12 June", "parents evening on 4 November", "on Wednesday next week". The noun does not have to be wedding/birthday. occurs_at = that day. Confidence high.
 - Dated chores stay obligations: the date is a deadline or the sentence is the work ("book the eye test on 5 December", "email the teacher about the trip", "return the form by the 19th", "buy shoes for the wedding"). Those go on General to do from chat.
 - If they name the event AND extra work ("Oliver's stag is on the 23rd October — need to book flights"), return the event as occurrence AND the action as its own obligation. Do not collapse them into one to-do. Do not invent "arrive" / "attend" / "go to the hospital" as a child — the event on the card is enough.
+- A named thing that already happens that day (spa day, parents evening, haircut, pre-op, sports day) is the event. Showing up is not an obligation. "Book the eye test" is still the chore. Standups, 1:1s, and generic diary filler are not family events.
 - context_only MAY set occurs_at only for a stated fact that is not an event they attend (e.g. "nursery is closed on the 19th") AND confidence is high.
 - Never for inferred, hedged, or estimated dates ("might", "sometime next week", "Tuesday-ish", a weekday with no this/next week). "Wednesday next week" is a real day — keep it. Code will strip occurs_at unless that bar is met.`;
 
@@ -111,13 +112,14 @@ const BIRTHDAY_RE = /\b(birthday|bday|party)\b/i;
 const BIRTHDAY_DEFAULT_RE = /\bbirthdays?\b|\bbday\b/i;
 const FORM_RE = /\b(form|permission|slip|ofsted|return by|due)\b/i;
 const HOLIDAY_RE = /\b(holiday|holidays|passport|vacation|half[-\s]?term)\b/i;
-const APPOINT_RE = /\b(appointment|dentist|doctor|gp|hospital|checkup|injection|vaccine|optician|hearing)\b/i;
+const APPOINT_RE =
+  /\b(appointment|dentist|doctor|gp|hospital|checkup|injection|vaccine|optician|hearing|pre[- ]?opp?|pre[- ]?op(?:erative)?)\b/i;
 const ADMIN_TASK_TITLE_RE =
   /^(email|call|text|message|book|sign|return|pay|buy|get|order|pick\s*up|renew|apply|arrange|organise|organize|sort|print|tell|ask|chase|send)\b/i;
 const BARE_EVENT_NOUN_RE =
   /^(the\s+)?(wedding|funeral|christening|party|trip|concert|festival|gala|holiday|birthday|match|stag(?:\s+do)?|hen(?:\s+(?:do|party))?)$/i;
 const POSSESSIVE_LIFE_EVENT_NOUN =
-  'stag(?:\\s+do)?|hen(?:\\s+(?:do|party))?|wedding|funeral|christening|bar\\s+mitzvah|bat\\s+mitzvah|birthday(?:\\s+party)?';
+  'stag(?:\\s+do)?|hen(?:\\s+(?:do|party))?|wedding|funeral|christening|bar\\s+mitzvah|bat\\s+mitzvah|birthday(?:\\s+party)?|operation|surgery|appointment';
 const POSSESSIVE_NAME_STOP = /^(need|needs|this|his|its|us|as|is|was|has|does)$/i;
 const MONTH_INDEX: Record<string, number> = {
   jan: 0,
@@ -146,10 +148,52 @@ const MONTH_INDEX: Record<string, number> = {
   december: 11,
 };
 
-/** Something they attend — not a chore that merely mentions an event. */
+function stripLeadingNeed(title: string): string {
+  return title
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^(please\s+)?(?:i\s+)?(?:still\s+)?(?:need to |need |have to |gotta |must )/i, '')
+    .trim();
+}
+
+/** Work diary filler — stays on Schedule, never Radar or Home. */
+export function isGenericDiaryTitle(title: string): boolean {
+  const t = title.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!t) return true;
+  if (
+    /^(daily |weekly |morning |team |sprint )?(standup|stand-up|stand up)$/.test(t) ||
+    /^(daily |weekly |morning |team )?(sync|huddle)$/.test(t) ||
+    /^(all[-\s]?hands|sprint (planning|review|retro)|retrospective)$/.test(t) ||
+    /^(weekly |daily |team )?(catch[-\s]?up|check[-\s]?in)$/.test(t) ||
+    /^(meeting|call|zoom|teams|webex)$/.test(t) ||
+    /^(weekly|daily|team) meeting$/.test(t)
+  ) {
+    return true;
+  }
+  if (/\b(1\s*[:/.-]\s*1|one[-\s]?on[-\s]?one)\b/.test(t)) return true;
+  if (/\b(standup|stand-up|all[-\s]?hands|sprint (planning|review|retro))\b/.test(t)) return true;
+  return false;
+}
+
+function isInformationalContextTitle(title: string): boolean {
+  return /\b(closed|inset|no school|staff training|cancelled|canceled)\b/i.test(title);
+}
+
+function isChoreLikeTitle(title: string): boolean {
+  const t = stripLeadingNeed(title);
+  if (!t) return false;
+  if (ADMIN_TASK_TITLE_RE.test(t)) return true;
+  if (isEventKitTitle(t)) return true;
+  if (/^(a |the )?(card|present|gift)s?$/i.test(t)) return true;
+  if (isInformationalContextTitle(t)) return true;
+  return false;
+}
+
+/** Named thing they attend — not a chore, and not a generic diary meeting. */
 export function titleNamesAttendableEvent(title: string): boolean {
   const t = title.replace(/\s+/g, ' ').trim();
   if (!t) return false;
+  if (isGenericDiaryTitle(t) || isChoreLikeTitle(t) || BARE_EVENT_NOUN_RE.test(t)) return false;
   if (/\b(wedding|funeral|christening|bar\s+mitzvah|bat\s+mitzvah)\b/i.test(t)) return true;
   if (/\b(stag(?:\s+do)?|hen(?:\s+(?:do|party))?)\b/i.test(t)) return true;
   if (/\bbirthdays?\b|\bbday\b/i.test(t)) return true;
@@ -158,8 +202,9 @@ export function titleNamesAttendableEvent(title: string): boolean {
   if (/\b(concert|festival|gala)\b/i.test(t)) return true;
   if (/\b(football|netball|rugby|cricket|tennis)\s+match\b/i.test(t)) return true;
   if (/\b(operation|surgery)\b/i.test(t)) return true;
+  if (APPOINT_RE.test(t)) return true;
   if (/\bholiday\b/i.test(t) && !/\bpassport\b/i.test(t)) return true;
-  return false;
+  return isConcreteEventPhrase(t);
 }
 
 /** "Oliver's stag" / "olivers wedding" from the offload sentence itself. */
@@ -237,9 +282,18 @@ export function isNamedDatedLifeEventCapture(title: string, sourceText: string):
   return false;
 }
 
+function foldTitle(value: string): string {
+  return value
+    .replace(/\s+/g, ' ')
+    .replace(/['’]/g, '')
+    .replace(/\bpre[- ]?opp?\b/gi, 'preop')
+    .trim()
+    .toLowerCase();
+}
+
 function titlesLooselyMatch(a: string, b: string): boolean {
-  const na = a.replace(/\s+/g, ' ').replace(/['’]/g, '').trim().toLowerCase();
-  const nb = b.replace(/\s+/g, ' ').replace(/['’]/g, '').trim().toLowerCase();
+  const na = foldTitle(a);
+  const nb = foldTitle(b);
   if (!na || !nb) return false;
   return na.includes(nb) || nb.includes(na);
 }
@@ -402,6 +456,7 @@ function isConcreteEventPhrase(title: string): boolean {
   const t = title.replace(/\s+/g, ' ').trim();
   if (!t || t.length < 3 || t.length > 60) return false;
   if (BARE_EVENT_NOUN_RE.test(t)) return false;
+  if (isGenericDiaryTitle(t) || isChoreLikeTitle(t)) return false;
   if (/^(form|email|call|reminder|deadline|flights?|tickets?|shoes?)$/i.test(t)) return false;
   return true;
 }
@@ -449,7 +504,7 @@ function eventTitleFromClause(clause: string, datePat: string): string | null {
   if (/\b(by|due)\s+(?:the\s+)?\d/i.test(c) && !hasStatedDay) return null;
 
   const isOn = c.match(new RegExp(`^(.+?)\\s+(?:is|it'?s)\\s+(?:on\\s+)?(?:${datePat})\\b`, 'i'));
-  const on = isOn || c.match(new RegExp(`^(.+?)\\s+on\\s+(?:${datePat})\\b`, 'i'));
+  const on = isOn || c.match(new RegExp(`^(.+?)\\s+(?:on|for)\\s+(?:${datePat})\\b`, 'i'));
   if (!on) return null;
   const title = cleanEventPhrase(on[1]);
   if (!title || ADMIN_TASK_TITLE_RE.test(title) || !isConcreteEventPhrase(title)) return null;
@@ -1010,7 +1065,11 @@ export function expandCollapsedLifeEvent(
   if (!eventTitle) return items;
   const actionTitle =
     split.actionTitle ||
-    (sourceEvent && item.title.toLowerCase() !== eventTitle.toLowerCase() ? item.title : null);
+    (sourceEvent &&
+    !titlesLooselyMatch(item.title, eventTitle) &&
+    !isAttendanceRestatement(item.title)
+      ? item.title
+      : null);
 
   const rest = items.filter((_, i) => i !== idx).filter((row) => row.title.toLowerCase() !== item.title.toLowerCase());
   const occurrence = withSurfaceWindow({
@@ -1070,7 +1129,7 @@ function dropRedundantEventWork(items: IntakeItem[]): IntakeItem[] {
   if (!event) return items;
   return items.filter((item) => {
     if (item === event || item.kind !== 'obligation') return true;
-    if (titlesAlign(item.title, event.title)) return false;
+    if (titlesAlign(item.title, event.title) || titlesLooselyMatch(item.title, event.title)) return false;
     if (isAttendanceRestatement(item.title)) return false;
     return true;
   });

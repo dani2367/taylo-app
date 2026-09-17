@@ -196,7 +196,14 @@ Deno.serve(async (req: Request) => {
         }
       }
       extracted.items = extracted.items.filter((row) => !looksLikeGroceryProduct(row.title, extracted.category));
-      if (hasNonGroceryTask(userText) && !extracted.items.some((row) => row.kind === 'obligation')) {
+      const alreadyHasEvent = extracted.items.some(
+        (row) => row.kind === 'occurrence' || (row.kind === 'context_only' && !!row.occurs_at),
+      );
+      if (
+        !alreadyHasEvent &&
+        hasNonGroceryTask(userText) &&
+        !extracted.items.some((row) => row.kind === 'obligation')
+      ) {
         const taskTitle = taskTitleFromMixedText(userText);
         if (taskTitle) {
           const work: IntakeItem = {

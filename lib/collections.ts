@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { classifyStandaloneItem, isListHubTitle } from '@/lib/radar-organize';
 import { looksLikeGroceryProduct, looksLikeShoppingList } from '@/lib/shopping';
 import { narrativeFromSourceEmail } from '@/lib/email-narrative';
+import { defaultListVisibility, defaultShoppingVisibility, viewerForUser, visibleCollectionsSelect, visibleItemsSelect } from '@/lib/item-visibility';
 
 export type CollectionType = 'shopping' | 'event' | 'trip' | 'other' | 'custom' | 'todo';
 
@@ -39,26 +40,31 @@ async function lookupTodoCollection(userId: string): Promise<string | null> {
 }
 
 export async function findOrCreateTodoCollection(userId: string): Promise<string | null> {
+  const { data, error } = await supabase.rpc('find_or_create_todo_collection', {
+    p_user_id: userId,
+  });
+  if (data) return data as string;
   const existing = await lookupTodoCollection(userId);
   if (existing) return existing;
 
-  const { data, error } = await supabase
+  const { data: created, error: createError } = await supabase
     .from('collections')
     .insert({
       user_id: userId,
       title: GENERAL_TODO_TITLE,
       emoji: DEFAULT_LIST_EMOJI,
-      type: 'custom',
+      type: 'todo',
       status: 'active',
+      visibility: defaultListVisibility('todo', GENERAL_TODO_TITLE),
     })
     .select('id')
     .single();
-  if (data?.id) return data.id as string;
+  if (created?.id) return created.id as string;
 
   const raced = await lookupTodoCollection(userId);
   if (raced) return raced;
 
-  console.error('Failed to find to-do collection:', error?.message);
+  console.error('Failed to find to-do collection:', error?.message || createError?.message);
   return null;
 }
 
@@ -77,6 +83,7 @@ export async function createCustomCollection(
       emoji: (emoji || DEFAULT_LIST_EMOJI).trim() || DEFAULT_LIST_EMOJI,
       type: 'custom',
       status: 'active',
+      visibility: defaultListVisibility('custom', name),
     })
     .select('id, user_id, title, emoji, type, status, created_at')
     .single();
@@ -121,13 +128,12 @@ export async function addProductsToShoppingList(
 
   const { data: existing } = await supabase
     .from('items')
-    .select('id, title')
-    .eq('user_id', userId)
+    .select('id, title, visibility')
     .eq('collection_id', collectionId)
     .eq('status', 'open')
     .order('created_at', { ascending: true });
 
-  const open = ((existing as { id: string; title: string | null }[] | null) ?? []);
+  const open = ((existing as { id: string; title: string | null; visibility?: string | null }[] | null) ?? []);
   let list = open.find((row) => looksLikeShoppingList(row.title || '')) ?? null;
 
   if (!list) {
@@ -148,11 +154,18 @@ export async function addProductsToShoppingList(
         status: 'open',
         urgency_level: 'none',
         action_description: 'Shopping',
+        who_it_affects: 'family',
+        visibility: defaultShoppingVisibility(),
       })
       .select('id, title')
       .single();
     if (error || !created) return error?.message || 'Failed to save shopping list';
     list = created;
+  } else if (list.visibility !== 'shared') {
+    await supabase
+      .from('items')
+      .update({ visibility: defaultShoppingVisibility(), who_it_affects: 'family' })
+      .or(`id.eq.${list.id},parent_id.eq.${list.id}`);
   }
 
   const extras = open.filter((row) => row.id !== list.id);
@@ -217,17 +230,18 @@ async function appendShoppingLabels(
       source_label: parent?.source_label ?? 'Prep',
       category: parent?.category ?? 'errand',
       who_it_affects: parent?.who_it_affects ?? null,
-      visibility: parent?.visibility === 'shared' ? 'shared' : 'private',
+      visibility: parent?.visibility === 'shared' ? 'shared' : defaultShoppingVisibility(),
     })),
   );
   return error?.message ?? null;
 }
 
 export async function listActiveCollections(userId: string): Promise<CollectionRow[]> {
-  const { data, error } = await supabase
-    .from('collections')
-    .select('id, user_id, title, emoji, type, status, created_at')
-    .eq('user_id', userId)
+  const viewer = await viewerForUser(userId);
+  const { data, error } = await visibleCollectionsSelect(
+    'id, user_id, title, emoji, type, status, created_at',
+    viewer,
+  )
     .eq('status', 'active')
     .order('created_at', { ascending: true });
 

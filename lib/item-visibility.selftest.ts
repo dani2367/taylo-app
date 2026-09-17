@@ -1,5 +1,7 @@
 import {
   defaultVisibilityForWho,
+  defaultShoppingVisibility,
+  defaultListVisibility,
   ITEM_VISIBILITY,
   completeItem,
   defaultItemVisibility,
@@ -61,6 +63,22 @@ expect('self who stays private', defaultVisibilityForWho('you', whoHousehold), I
 expect('own name stays private', defaultVisibilityForWho('Dani', whoHousehold), ITEM_VISIBILITY.private);
 expect('unknown who stays private', defaultVisibilityForWho('Oliver', whoHousehold), ITEM_VISIBILITY.private);
 expect('null who stays private', defaultVisibilityForWho(null, whoHousehold), ITEM_VISIBILITY.private);
+expect('shopping list is shared by default', defaultShoppingVisibility(), ITEM_VISIBILITY.shared);
+expect('general to do is a household list', defaultListVisibility('todo', 'General to do'), ITEM_VISIBILITY.shared);
+expect('named list stays private until shared', defaultListVisibility('custom', 'Holiday packing'), ITEM_VISIBILITY.private);
+expect(
+  'partner can see a household shopping hub',
+  isVisibleToMember(
+    row({
+      id: 'shop',
+      created_by: sophie.userId,
+      who_it_affects: 'family',
+      visibility: defaultShoppingVisibility(),
+    }),
+    dani,
+  ),
+  true,
+);
 expect(
   'new child item can insert already shared',
   newItemVisibilityFields(dani.userId, householdId, defaultVisibilityForWho('Taya', whoHousehold)).visibility,
