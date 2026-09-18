@@ -196,7 +196,6 @@ export function PlanItemFeed({
       userId: user.id,
       itemId: card.id,
       itemTitle: card.title,
-      checklistId: card.checklistId,
       nextOrder: card.checklist.length,
     });
     if ('error' in result) return;
@@ -205,7 +204,6 @@ export function PlanItemFeed({
       const incomplete = checklist.filter((entry) => !entry.done).length;
       return {
         ...row,
-        checklistId: result.checklistId,
         checklist,
         prepLabel: incomplete ? thingsToSortLabel(incomplete) : null,
       };
@@ -251,7 +249,7 @@ export function PlanItemFeed({
     await openItem(card.id, {
       icon: card.icon.name,
       title: card.title,
-      sub: extraEventContext(card.title, card.detail) || card.context || card.src,
+      sub: card.askSub || extraEventContext(card.title, card.detail) || card.context || card.src,
       opener: card.opener,
       chips: [],
       generateOpener: true,
@@ -262,7 +260,7 @@ export function PlanItemFeed({
   const shown = maxVisible ? items.slice(0, maxVisible) : items;
   const list = shown.map((card, index) => (
     <PlanItemCard
-      key={`${card.id}:${index}`}
+      key={card.rowKey || `${card.id}:${index}`}
       card={card}
       variant={variant}
       last={index === shown.length - 1}

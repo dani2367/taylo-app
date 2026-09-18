@@ -4,6 +4,15 @@ import { linkInsertedCalendarItems } from './cross-source.ts';
 import { householdVoiceBlock, type Household } from './household.ts';
 import { defaultVisibilityForWho } from './item-visibility.ts';
 import {
+  applyStandingFactsToIntake,
+  factsPromptBlockForPeople,
+  loadHouseholdFacts,
+  retrieveActiveFactsForPerson,
+  type FamilyFact,
+  type FamilyMemberRef,
+} from './family-facts.ts';
+import { distinctSuggestion, optionalCopy } from './item-copy.ts';
+import {
   birthdayTypeDefaults,
   defaultSurfaceWindow,
   eventDateFromIntake,
@@ -36,6 +45,7 @@ export type CalendarClassified = {
   who_it_affects: string | null;
   urgency: string | null;
   action_description: string | null;
+  suggestion: string | null;
   occurrence: IntakeItem;
   obligations: IntakeItem[];
 };
@@ -59,6 +69,7 @@ export async function classifyCalendarEvents(
   apiKey: string,
   events: CalendarIncoming[],
   household: Household,
+  knowledge?: { facts: FamilyFact[]; members: FamilyMemberRef[] },
 ): Promise<CalendarClassified[]> {
   if (!events.length) return [];
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
@@ -68,8 +79,26 @@ export async function classifyCalendarEvents(
     return `- id=${event.id} | title="${event.title}" | start=${event.start} | ${allDay} | ${where}`;
   });
 
-  const raw = await callClaude(apiKey, classifyPrompt(household, today), `Events:\n${lines.join('\n')}`);
-  return parseClassified(raw, events);
+  const factsBlock = knowledge
+    ? factsPromptBlockForPeople(knowledge.facts, knowledge.members)
+    : '';
+  const raw = await callClaude(
+    apiKey,
+    classifyPrompt(household, today, factsBlock),
+    `Events:\n${lines.join('\n')}`,
+  );
+  const classified = parseClassified(raw, events);
+  if (!knowledge) return classified;
+  return classified.map((row) => {
+    const relevant = retrieveActiveFactsForPerson(knowledge.facts, {
+      person_name: row.who_it_affects,
+      members: knowledge.members,
+    });
+    return {
+      ...row,
+      obligations: applyStandingFactsToIntake(row.obligations, relevant),
+    };
+  });
 }
 
 export async function applyCalendarClassification(
@@ -95,7 +124,7 @@ export async function applyCalendarClassification(
         visibility: defaultVisibilityForWho(row.who_it_affects, params.household),
         urgency_level: row.urgency,
         action_description: row.action_description,
-        suggestion: row.action_description,
+        suggestion: distinctSuggestion(row.suggestion, row.action_description, event.title),
         classified_at: new Date().toISOString(),
         ...intakeRowFields(row.occurrence),
         event_date: eventDateFromIntake(row.occurrence, 'calendar') ?? event.start,
@@ -128,11 +157,12 @@ export async function classifyAndApplyCalendarItems(
   household: Household,
   items: CalendarIncoming[],
 ): Promise<{ classified: number; checklists: number }> {
+  const knowledge = await loadHouseholdFacts(supabase, { userId });
   let classified = 0;
   let checklists = 0;
   for (let i = 0; i < items.length; i += CALENDAR_CLASSIFY_BATCH) {
     const batch = items.slice(i, i + CALENDAR_CLASSIFY_BATCH);
-    const results = await classifyCalendarEvents(apiKey, batch, household);
+    const results = await classifyCalendarEvents(apiKey, batch, household, knowledge);
     classified += results.length;
     for (const row of results) {
       const event = batch.find((item) => item.id === row.id);
@@ -155,7 +185,8 @@ export async function classifyAndApplyCalendarItems(
   return { classified, checklists };
 }
 
-function classifyPrompt(household: Household, today: string): string {
+function classifyPrompt(household: Household, today: string, factsBlock = ''): string {
+  const facts = factsBlock.trim() ? `\n${factsBlock.trim()}\n` : '';
   return `You are Taylo, a family assistant. Classify calendar events for a parent.
 
 Today (Europe/London) is ${today}.
@@ -170,7 +201,8 @@ Return ONLY a JSON object:
       "category": "school|medical|activity|home|errand|none",
       "who_it_affects": "family member name, family, or null",
       "urgency": "today|this_week|upcoming|none",
-      "action_description": "a helpful heads-up in plain English, or null",
+      "action_description": "one overview sentence for the expanded card, or null",
+      "suggestion": "a distinct next-step tip, or null",
       "item": { intake fields for the occurrence },
       "obligations": [ intake items for each separate implied action, or [] ]
     }
@@ -181,16 +213,18 @@ ${intakeContractRules('calendar')}
 
 The parent row is always kind=occurrence. occurs_at must equal the event start from the input. obligations[].occurs_at must be null. If an obligation has a deadline, put it on due_at (often the event day).
 
-action_description: required when actionable is yes or maybe, otherwise null. Write one or two short sentences like a friend putting it on their radar — not a nag and not a calendar echo.
+action_description: required when actionable is yes or maybe, otherwise null. Write one short sentence like a friend putting it on their radar — not a nag and not a calendar echo.
 - Name the event and when it is in human terms (this weekend, Tuesday, the 23rd).
 - Mention prep only if stated or a high-confidence type default. Never invent kit/gifts for a vague lunch or a generic meeting.
 - Interviews, 1:1s, standups, and generic work meetings: obligations must be []. Never invent "research the company", "prepare examples", or "review the job description".
 - Offer help, don't instruct. Never "don't forget", "you need to", "make sure", or exclamation marks.
 
+suggestion: only a genuine next step that is not already in action_description. Null is valid and preferred over restating action_description. Do not copy action_description into suggestion. Null for interviews, generic meetings, and events with no extra work.
+
 urgency: today if it is today; this_week if it falls in the next 7 days (including this weekend); upcoming if later; none when actionable is no.
 
 Do not rewrite the event title. Only classify.
-
+${facts}
 ${householdVoiceBlock(household)}`;
 }
 
@@ -263,6 +297,11 @@ function classifiedFromRow(row: Record<string, unknown>, event: CalendarIncoming
         ? 'upcoming'
         : 'none',
     action_description: actionable ? cleanText(row.action_description) : null,
+    suggestion: distinctSuggestion(
+      optionalCopy(row.suggestion),
+      actionable ? cleanText(row.action_description) : null,
+      event.title,
+    ),
     occurrence,
     obligations,
   };

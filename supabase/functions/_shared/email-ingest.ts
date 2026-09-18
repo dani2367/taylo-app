@@ -4,6 +4,8 @@ import {
   type IntakeItem,
 } from './intake-contract.ts';
 import { parseChecklistLabels } from './checklists.ts';
+import { parseStandingFacts, type ProposedFact } from './family-facts.ts';
+import { distinctSuggestion, optionalCopy } from './item-copy.ts';
 
 function extraLabels(value: unknown): string[] {
   return parseChecklistLabels(value);
@@ -15,19 +17,19 @@ export const EMAIL_INTAKE_PROMPT = `You are Taylo, a family assistant. Read this
   "capture": "keep|nothing_here",
   "category": "school|medical|activity|delivery|returns|financial|ignore",
   "action_required": true or false,
-  "action_description": "a helpful heads-up in plain English, or null",
   "date": "YYYY-MM-DD or null — due_at for obligations; the calendar day for a named occurrence or stated-fact context_only",
   "who_it_affects": "which family member or whole family",
   "urgency": "today|this_week|upcoming|none",
   "nudge_title": "short title under 8 words, or null",
-  "nudge_body": "one short subtitle under the title, maximum ~12 words, a single extra fact — or null",
-  "nudge_detail": "1-2 conversational sentences for the expanded card — or null",
-  "suggestion": "the helpful next step or radar line, no label — or null",
-  "items": [ parent intake item first, then each separate obligation ]
+  "body": "one short subtitle under the title, maximum ~12 words, a single extra fact — or null",
+  "detail": "one overview sentence for the expanded card — or null",
+  "suggestion": "a distinct helpful next step, or null",
+  "items": [ parent intake item first, then each separate obligation ],
+  "standing_facts": []
 }
 
 capture is the persist gate. Decide it in this same response — there is no earlier classifier.
-- nothing_here: marketing, promotions, social, generic newsletters, receipts/statements with nothing to do, tracking that is already fine. items must be [] and nudge_title/nudge_body null.
+- nothing_here: marketing, promotions, social, generic newsletters, receipts/statements with nothing to do, tracking that is already fine. items must be [] and nudge_title/body null.
 - keep: anything worth storing as occurrence, hold, context_only, obligation, or list_item. Undated awareness and stated facts with no action still count as keep.
 
 Do NOT discard a family heads-up because nothing is due today. Examples that MUST be keep (never nothing_here):
@@ -44,9 +46,9 @@ If capture is keep, always fill items with a valid kind:
 - hold: undated awareness ("trainers are getting small"). due_at and occurs_at null.
 - context_only: useful fact with no action. If the source states an unambiguous calendar day ("closed on the 19th"), set occurs_at to that day and confidence high. If the timing is hedged or vague ("sometime next week", "Tuesday-ish"), occurs_at must be null.
 - nudge_title: the thing, short. A hard action ("Sign Arlo's trip form") or the event ("Nursery closed").
-- nudge_body: one clipped extra fact (when, where, whose). No subordinate clauses.
-- suggestion and action_description: for holds/context, a calm note is enough — not an invented to-do.
-- nudge_detail: the same helpful voice when the card expands — not a recap of the subject line.
+- body: one clipped extra fact (when, where, whose). No subordinate clauses. Not a second overview.
+- detail: the one expanded-card sentence. A useful fact, not a recap of the subject line or of body.
+- suggestion: only a genuine next step that is not already in detail or body (e.g. "I can draft the reply if you want it sent"). Null is valid and preferred over restating detail. Do not invent a to-do for holds or context_only.
 
 Voice (this copy is shown on Home and Plan, not as an email summary):
 - Calm, capable-friend register. Never alarmed. No exclamation marks. Never "don't forget", "you need to", "make sure", or "urgent".
@@ -60,7 +62,9 @@ Sound like this:
 
 Not like this: "Don't forget Arlo's birthday!" / "You need to buy a birthday card!" / "This email is about sports day."
 
-category is metadata only (school / medical / activity / delivery / returns / financial / ignore). It must not be used to drop a keep item. Prefer school/medical/activity for family life even when there is no action today.`;
+category is metadata only (school / medical / activity / delivery / returns / financial / ignore). It must not be used to drop a keep item. Prefer school/medical/activity for family life even when there is no action today.
+
+standing_facts: durable family knowledge only — allergies, standing preferences ("no presents for birthdays"), who typically handles a category of admin. Not this email's one-off task. person is a household first name, or null for household-level. fact_type is person_attribute or household_pattern. Never invent. Empty array if none. Do not include behavioural patterns.`;
 
 export type EmailCapture = 'keep' | 'nothing_here';
 
@@ -68,21 +72,28 @@ export type ExtractedNudge = {
   capture: EmailCapture;
   category: string;
   action_required: boolean;
-  action_description: string | null;
   date: string | null;
   who_it_affects: string | null;
   urgency: string;
   nudge_title: string | null;
-  nudge_body: string | null;
-  nudge_detail: string | null;
+  body: string | null;
+  detail: string | null;
   suggestion: string | null;
   items: IntakeItem[];
+  standing_facts: ProposedFact[];
 };
 
-export function buildEmailIntakePrompt(params: { today: string; voiceBlock: string }): string {
+export function buildEmailIntakePrompt(params: {
+  today: string;
+  voiceBlock: string;
+  factsBlock?: string;
+}): string {
+  const facts = params.factsBlock?.trim()
+    ? `\n${params.factsBlock.trim()}\n`
+    : '';
   return `${EMAIL_INTAKE_PROMPT}
 
-${intakeContractRules('email')}
+${intakeContractRules('email')}${facts}
 
 Date rules:
 - Today is ${params.today} (Europe/London).
@@ -130,29 +141,33 @@ export function parseEmailIntake(raw: string, sourceText: string): ExtractedNudg
       capture,
       category: parsed.category || 'ignore',
       action_required: false,
-      action_description: null,
       date: null,
       who_it_affects: parsed.who_it_affects ?? null,
       urgency: parsed.urgency || 'none',
       nudge_title: null,
-      nudge_body: null,
-      nudge_detail: null,
+      body: null,
+      detail: null,
       suggestion: null,
       items: [],
+      standing_facts: parseStandingFacts(parsed.standing_facts),
     };
   }
   return {
     capture,
     category: parsed.category,
     action_required: Boolean(parsed.action_required),
-    action_description: parsed.action_description ?? null,
     date,
     who_it_affects: parsed.who_it_affects ?? null,
     urgency: parsed.urgency,
     nudge_title: parsed.nudge_title ?? null,
-    nudge_body: parsed.nudge_body ?? null,
-    nudge_detail: parsed.nudge_detail ?? null,
-    suggestion: parsed.suggestion ?? null,
+    body: optionalCopy(parsed.body ?? (parsed as { nudge_body?: unknown }).nudge_body, 160),
+    detail: optionalCopy(parsed.detail ?? (parsed as { nudge_detail?: unknown }).nudge_detail),
+    suggestion: distinctSuggestion(
+      optionalCopy(parsed.suggestion),
+      optionalCopy(parsed.detail ?? (parsed as { nudge_detail?: unknown }).nudge_detail),
+      optionalCopy(parsed.body ?? (parsed as { nudge_body?: unknown }).nudge_body, 160),
+      parsed.nudge_title ?? null,
+    ),
     items: finalizeSourceItems({
       source: 'email',
       sourceText,
@@ -161,5 +176,6 @@ export function parseEmailIntake(raw: string, sourceText: string): ExtractedNudg
       rawItems: parsed.items,
       extraLabels: extraLabels(parsed.checklist_items),
     }),
+    standing_facts: parseStandingFacts(parsed.standing_facts),
   };
 }

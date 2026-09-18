@@ -1,17 +1,14 @@
 import { BrandGlyph, BrandIconDisc } from '@/components/app/BrandIcon';
-import { useChat } from '@/components/app/ChatProvider';
 import { DayTimelineCard } from '@/components/app/DayTimelineCard';
-import { HouseholdShareToggle, SharedHouseCorner } from '@/components/app/HouseholdShareMark';
-import { ItemPrepChecklist, type PrepCheckItem } from '@/components/app/ItemPrepChecklist';
-import { appStyles as s, iconBg } from '@/components/app/styles';
+import { PlanItemFeed } from '@/components/app/PlanItemFeed';
+import { appStyles as s } from '@/components/app/styles';
 import { NoticedStar, TayloMark } from '@/components/app/TayloMark';
 import { colors } from '@/constants/theme';
 import { subscribeAppleCalendarSync } from '@/lib/apple-calendar';
 import { isActiveCollection, organizeStandaloneItems } from '@/lib/collections';
 import { happenSortKey, happenTimeLabel, isHappeningToday, type HappenItem } from '@/lib/happening';
 import { daysUntil, humanizeEventDate } from '@/lib/human-date';
-import { closeItems } from '@/lib/item-status';
-import { persistItemVisibility, viewerForUser, visibleFamilyMembersSelect, visibleItemsSelect } from '@/lib/item-visibility';
+import { viewerForUser, visibleFamilyMembersSelect, visibleItemsSelect } from '@/lib/item-visibility';
 import {
   displayItemTitle,
   HOME_OVERFLOW_RANK_BASE,
@@ -24,12 +21,6 @@ import {
   type PlacementParent,
 } from '@/lib/placement';
 import { isUsableInsight, insightRepeatsCaptured, looksLikeMentalLoad, refreshNoticed } from '@/lib/noticed';
-import {
-  persistChecklistAdd,
-  persistChecklistDelete,
-  persistChecklistText,
-  persistChecklistToggle,
-} from '@/lib/prep-checklists';
 import { resolvePlanIcon, type PlanIconSpec } from '@/lib/plan-icon';
 import { actionSupportLine, extraEventContext, firstCompleteSentence, helpfulSuggestion } from '@/lib/suggestion';
 import { latestSpotlightRows, refreshSpotlight } from '@/lib/spotlight';
@@ -37,6 +28,7 @@ import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from 'expo-router';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
+import type { PlanItemCardModel } from '@/components/app/PlanItemCard';
 import {
   ActivityIndicator,
   AppState,
@@ -47,7 +39,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Swipeable } from 'react-native-gesture-handler';
 
 type FamilyCard = {
   key: string;
@@ -112,75 +103,54 @@ type SpotlightJoin = {
   items: ItemRow | ItemRow[] | null;
 };
 
-type NudgeCard = {
-  id: string;
-  spotlightId: string;
-  title: string;
-  body: string;
-  detail: string;
-  reason: string;
-  eventDate: string | null;
-  category: string;
-  categoryLabel: string;
-  icon: PlanIconSpec;
-  cls: keyof typeof iconBg;
-  opener: string;
-  src: string;
-  suggestion: string | null;
-  addedByUser: boolean;
-  checklistId: string | null;
-  checklist: PrepCheckItem[];
-  createdBy: string | null;
-  visibility: 'private' | 'shared';
-};
-
-const categoryMeta: Record<string, { icon: PlanIconSpec; cls: keyof typeof iconBg; label: string }> = {
-  school: { icon: resolvePlanIcon({ category: 'school' }), cls: 'teal', label: 'School' },
-  medical: { icon: resolvePlanIcon({ category: 'medical' }), cls: 'amber', label: 'Medical' },
-  activity: { icon: resolvePlanIcon({ category: 'activity' }), cls: 'purple', label: 'Activity' },
-  delivery: { icon: resolvePlanIcon({ category: 'delivery' }), cls: 'amber', label: 'Delivery' },
-  returns: { icon: resolvePlanIcon({ category: 'returns' }), cls: 'amber', label: 'Returns' },
-  financial: { icon: resolvePlanIcon({ category: 'financial' }), cls: 'green', label: 'Financial' },
-  errand: { icon: resolvePlanIcon({ category: 'errand' }), cls: 'amber', label: 'Errand' },
-  home: { icon: resolvePlanIcon({ category: 'home' }), cls: 'rose', label: 'Home' },
+const categoryMeta: Record<string, { icon: PlanIconSpec; label: string }> = {
+  school: { icon: resolvePlanIcon({ category: 'school' }), label: 'School' },
+  medical: { icon: resolvePlanIcon({ category: 'medical' }), label: 'Medical' },
+  activity: { icon: resolvePlanIcon({ category: 'activity' }), label: 'Activity' },
+  delivery: { icon: resolvePlanIcon({ category: 'delivery' }), label: 'Delivery' },
+  returns: { icon: resolvePlanIcon({ category: 'returns' }), label: 'Returns' },
+  financial: { icon: resolvePlanIcon({ category: 'financial' }), label: 'Financial' },
+  errand: { icon: resolvePlanIcon({ category: 'errand' }), label: 'Errand' },
+  home: { icon: resolvePlanIcon({ category: 'home' }), label: 'Home' },
 };
 
 function formatCategory(category: string | null) {
   const key = (category || '').toLowerCase();
   if (categoryMeta[key]) return categoryMeta[key];
-  if (!category) return { icon: resolvePlanIcon({}), cls: 'rose' as const, label: 'Nudge' };
+  if (!category) return { icon: resolvePlanIcon({}), label: 'Nudge' };
   return {
     icon: resolvePlanIcon({ category }),
-    cls: 'rose' as const,
     label: category.charAt(0).toUpperCase() + category.slice(1),
   };
 }
 
-function mapActionCard(item: ItemRow, children: ItemRow[], reason: string, spotlightId: string): NudgeCard | null {
+function mapActionCard(item: ItemRow, children: ItemRow[], reason: string, spotlightId: string): PlanItemCardModel | null {
   if (item.status !== 'open') return null;
   if (!isActiveCollection(item.collections)) return null;
   const addedByUser = item.source === 'manual' || item.source === 'chat';
   const meta = formatCategory(item.category);
   const title = displayItemTitle(item);
   const body = item.body || '';
-  const detail = item.detail || item.action_description || body;
+  const detail = item.detail || item.action_description || '';
+  const src = addedByUser ? meta.label : item.source_label || item.source_email_subject || meta.label;
   return {
     id: item.id,
-    spotlightId,
+    rowKey: spotlightId,
     title,
-    body,
+    context: collapsedActionLine({
+      title,
+      body,
+      reason: reason.trim(),
+      category: item.category || '',
+      eventDate: item.due_at || item.event_date,
+    }),
     detail,
-    reason: reason.trim(),
-    eventDate: item.due_at || item.event_date,
-    category: item.category || '',
-    categoryLabel: meta.label,
+    suggestion: helpfulSuggestion({ ...item, detail }),
+    opener: item.detail || item.action_description || body || title,
+    src,
+    askSub: extraEventContext(title, detail || body) || src,
     icon: meta.icon,
-    cls: meta.cls,
-    opener: item.action_description || body || title,
-    src: addedByUser ? meta.label : item.source_label || item.source_email_subject || meta.label,
-    suggestion: helpfulSuggestion(item),
-    addedByUser,
-    checklistId: null,
+    prepLabel: null,
     checklist: children
       .filter((row) => row.status !== 'dismissed')
       .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))
@@ -208,7 +178,13 @@ function fewWords(raw: string | null | undefined, max = 7): string | null {
   return words.slice(0, max).join(' ');
 }
 
-function collapsedActionLine(card: NudgeCard): string | null {
+function collapsedActionLine(card: {
+  title: string;
+  body: string;
+  reason: string;
+  category: string;
+  eventDate: string | null;
+}): string | null {
   const when = humanizeEventDate(card.eventDate);
   const pastWhen = !when || when === 'Today' || /ago|yesterday/i.test(when);
   const support = actionSupportLine({
@@ -274,18 +250,14 @@ function pickItemForPerson(items: ItemRow[], name: string, role: string): ItemRo
 }
 
 export default function HomeScreen() {
-  const [spotlight, setSpotlight] = useState<NudgeCard[]>([]);
+  const [spotlight, setSpotlight] = useState<PlanItemCardModel[]>([]);
   const [happening, setHappening] = useState<HappenItem[]>([]);
   const [family, setFamily] = useState<FamilyCard[]>([]);
   const [noticed, setNoticed] = useState<string | null>(null);
   const [noticedSeen, setNoticedSeen] = useState<string | null>(null);
   const [noticedOpen, setNoticedOpen] = useState(false);
   const [firstName, setFirstName] = useState('');
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [editingPrep, setEditingPrep] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
-  const [viewerId, setViewerId] = useState<string | null>(null);
-  const { openItem } = useChat();
 
   const load = useCallback(async () => {
     const {
@@ -297,12 +269,9 @@ export default function HomeScreen() {
       setFamily([]);
       setNoticed(null);
       setNoticedOpen(false);
-      setViewerId(null);
       setLoading(false);
       return;
     }
-
-    setViewerId(user.id);
 
     await organizeStandaloneItems(user.id);
 
@@ -353,7 +322,7 @@ export default function HomeScreen() {
           spotlightIdByItem.get(card.item.id) || card.item.id,
         ),
       )
-      .filter((card): card is NudgeCard => !!card);
+      .filter((card): card is PlanItemCardModel => !!card);
     setSpotlight(actionCards);
     const actionIds = new Set(actionCards.map((card) => card.id));
     const realHappening = openItems
@@ -453,196 +422,6 @@ export default function HomeScreen() {
     return () => sub.remove();
   }, [loadAndMaybeRefresh]);
 
-  function removeCard(card: NudgeCard) {
-    setSpotlight((prev) => prev.filter((n) => n.id !== card.id));
-  }
-
-  function restoreCard(card: NudgeCard) {
-    setSpotlight((prev) => [...prev, card]);
-  }
-
-  async function setStatus(nudge: NudgeCard, status: Exclude<NudgeStatus, 'open'>) {
-    removeCard(nudge);
-    const { error } = await closeItems([nudge.id], status);
-    if (error) restoreCard(nudge);
-  }
-
-  async function toggleShare(nudge: NudgeCard) {
-    const next = nudge.visibility === 'shared' ? 'private' : 'shared';
-    patchCard(nudge.id, (card) => ({ ...card, visibility: next }));
-    const { error } = await persistItemVisibility(nudge.id, next);
-    if (error) patchCard(nudge.id, (card) => ({ ...card, visibility: nudge.visibility }));
-  }
-
-  function patchCard(itemId: string, update: (nudge: NudgeCard) => NudgeCard) {
-    setSpotlight((list) => list.map((nudge) => (nudge.id === itemId ? update(nudge) : nudge)));
-  }
-
-  async function toggleChecklist(nudgeId: string, entryId: string, done: boolean) {
-    patchCard(nudgeId, (nudge) => ({
-      ...nudge,
-      checklist: nudge.checklist.map((entry) => (entry.id === entryId ? { ...entry, done } : entry)),
-    }));
-    const { error } = await persistChecklistToggle(entryId, done);
-    if (error) {
-      patchCard(nudgeId, (nudge) => ({
-        ...nudge,
-        checklist: nudge.checklist.map((entry) => (entry.id === entryId ? { ...entry, done: !done } : entry)),
-      }));
-    }
-  }
-
-  function renameChecklist(nudgeId: string, entryId: string, text: string) {
-    patchCard(nudgeId, (nudge) => ({
-      ...nudge,
-      checklist: nudge.checklist.map((entry) => (entry.id === entryId ? { ...entry, text } : entry)),
-    }));
-  }
-
-  async function commitChecklistText(entryId: string, text: string) {
-    const { error } = await persistChecklistText(entryId, text);
-    if (error) console.error('Failed to rename checklist item:', error.message);
-  }
-
-  async function addChecklistRow(nudge: NudgeCard) {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
-    const result = await persistChecklistAdd({
-      userId: user.id,
-      itemId: nudge.id,
-      itemTitle: nudge.title,
-      checklistId: nudge.checklistId,
-      nextOrder: nudge.checklist.length,
-    });
-    if ('error' in result) {
-      console.error('Failed to add checklist item:', result.error);
-      return;
-    }
-    patchCard(nudge.id, (card) => ({
-      ...card,
-      checklistId: result.checklistId,
-      checklist: [...card.checklist, result.entry],
-    }));
-  }
-
-  async function removeChecklistRow(nudgeId: string, entryId: string) {
-    const snapshot = spotlight.find((card) => card.id === nudgeId)?.checklist ?? [];
-    patchCard(nudgeId, (nudge) => ({
-      ...nudge,
-      checklist: nudge.checklist.filter((entry) => entry.id !== entryId),
-    }));
-    const { error } = await persistChecklistDelete(entryId);
-    if (error) {
-      patchCard(nudgeId, (nudge) => ({ ...nudge, checklist: snapshot }));
-    }
-  }
-
-  async function onChat(nudge: { id: string; icon: PlanIconSpec; title: string; src: string; opener: string }) {
-    await openItem(nudge.id, {
-      icon: nudge.icon.name,
-      title: nudge.title,
-      sub: extraEventContext(nudge.title, nudge.detail || nudge.body) || nudge.src,
-      opener: nudge.opener,
-      chips: [],
-      generateOpener: true,
-    });
-    router.push('/chat');
-  }
-
-  function renderActionPills(n: NudgeCard) {
-    const canShare = !!(viewerId && (!n.createdBy || n.createdBy === viewerId));
-    const shared = n.visibility === 'shared';
-    return (
-      <>
-        <HouseholdShareToggle shared={shared} onToggle={canShare ? () => void toggleShare(n) : undefined} />
-        <View style={s.nactions}>
-        <Pressable
-          style={[s.pill, s.pillTeal]}
-          onPress={(e) => {
-            e.stopPropagation();
-            void setStatus(n, 'done');
-          }}>
-          <Text style={[s.pillText, s.pillTextTeal]}>Done</Text>
-        </Pressable>
-        <Pressable
-          style={[s.pill, s.pillDelegate]}
-          onPress={(e) => {
-            e.stopPropagation();
-            void setStatus(n, 'delegated');
-          }}>
-          <Text style={[s.pillText, s.pillTextBlue]}>Delegate</Text>
-        </Pressable>
-        <Pressable
-          style={[s.pill, s.pillChat]}
-          onPress={(e) => {
-            e.stopPropagation();
-            void onChat(n);
-          }}>
-          <Text style={[s.pillText, s.pillTextChat]}>Ask</Text>
-        </Pressable>
-        </View>
-      </>
-    );
-  }
-
-  function renderActionRow(n: NudgeCard, last: boolean) {
-    const isOpen = !!expanded[n.id];
-    const support = collapsedActionLine(n);
-    const eventContext = extraEventContext(n.title, n.detail || n.body);
-    const showSuggest = !!n.suggestion && n.suggestion !== eventContext;
-    return (
-      <Swipeable
-        key={n.spotlightId}
-        overshootRight={false}
-        renderRightActions={() => (
-          <Pressable style={s.nudgeSwipeDelete} onPress={() => void setStatus(n, 'dismissed')}>
-            <Text style={s.nudgeSwipeDeleteText}>Delete</Text>
-          </Pressable>
-        )}>
-        <Pressable
-          style={[s.homeHeroRow, last && !isOpen && s.homeHeroRowLast]}
-          onPress={() => setExpanded((p) => ({ ...p, [n.id]: !p[n.id] }))}>
-          <SharedHouseCorner shared={n.visibility === 'shared'} />
-          <View style={[s.nrow, n.visibility === 'shared' && { paddingRight: 22 }]}>
-            <View style={{ flexShrink: 0 }}>
-              <BrandIconDisc name={n.icon.name} wash={n.icon.wash} size={36} />
-            </View>
-            <View style={s.ncopy}>
-              <Text style={s.homeItemTitle}>
-                {n.title}
-              </Text>
-              {support ? <Text style={s.homeItemSub}>{support}</Text> : null}
-            </View>
-          </View>
-          {isOpen ? (
-            <>
-              {eventContext ? <Text style={s.homeExpandDetail}>{eventContext}</Text> : null}
-              {showSuggest ? (
-                <View style={s.nsuggestRow}>
-                  <TayloMark />
-                  <Text style={s.homeSuggest}>{n.suggestion}</Text>
-                </View>
-              ) : null}
-              <ItemPrepChecklist
-                items={n.checklist}
-                editing={!!editingPrep[n.id]}
-                onToggleEditing={() => setEditingPrep((p) => ({ ...p, [n.id]: !p[n.id] }))}
-                onToggle={(id, done) => void toggleChecklist(n.id, id, done)}
-                onChangeText={(id, text) => renameChecklist(n.id, id, text)}
-                onCommitText={(id, text) => void commitChecklistText(id, text)}
-                onAdd={() => void addChecklistRow(n)}
-                onDelete={(id) => void removeChecklistRow(n.id, id)}
-              />
-              {renderActionPills(n)}
-            </>
-          ) : null}
-        </Pressable>
-      </Swipeable>
-    );
-  }
-
   return (
     <View style={{ flex: 1 }}>
       <ScrollView
@@ -673,24 +452,23 @@ export default function HomeScreen() {
           </View>
         ) : (
           <>
-            <View style={s.homeHero}>
-              <View style={s.homeCardHead}>
-                <View style={s.homeCardHeadCopy}>
-                  <Text style={s.homeSectionLabel}>Today's actions</Text>
-                  <Text style={s.homeCardHint}>{actionsSummary(spotlight.length)}</Text>
+            <PlanItemFeed
+              items={spotlight}
+              setItems={setSpotlight}
+              empty="When something would be helpful to do, it'll show up here."
+              variant="hero"
+              header={
+                <View style={s.homeCardHead}>
+                  <View style={s.homeCardHeadCopy}>
+                    <Text style={s.homeSectionLabel}>Today's actions</Text>
+                    <Text style={s.homeCardHint}>{actionsSummary(spotlight.length)}</Text>
+                  </View>
+                  <Pressable onPress={() => router.push('/home/today')}>
+                    <Text style={s.homeSeeAll}>See all</Text>
+                  </Pressable>
                 </View>
-                <Pressable onPress={() => router.push('/home/today')}>
-                  <Text style={s.homeSeeAll}>See all</Text>
-                </Pressable>
-              </View>
-              {spotlight.length === 0 ? (
-                <View style={s.homeHeroRow}>
-                  <Text style={s.emptyStateText}>When something would be helpful to do, it'll show up here.</Text>
-                </View>
-              ) : (
-                spotlight.map((card, index) => renderActionRow(card, index === spotlight.length - 1))
-              )}
-            </View>
+              }
+            />
 
             <DayTimelineCard
               items={happening}

@@ -1,11 +1,21 @@
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { insertIntakeChildren } from '../_shared/checklists.ts';
 import { householdVoiceBlock, loadHousehold, type Household } from '../_shared/household.ts';
+import {
+  applyStandingFactsToIntake,
+  factsPromptBlockForPeople,
+  loadHouseholdFacts,
+  persistInferredFacts,
+  retrieveActiveFactsForPerson,
+  type FamilyFact,
+  type FamilyMemberRef,
+} from '../_shared/family-facts.ts';
 import { defaultVisibilityForWho } from '../_shared/item-visibility.ts';
 import {
   buildEmailIntakePrompt,
   parseEmailIntake,
 } from '../_shared/email-ingest.ts';
+import { distinctSuggestion } from '../_shared/item-copy.ts';
 import { linkIncomingItem } from '../_shared/cross-source.ts';
 import {
   eventDateFromIntake,
@@ -20,11 +30,12 @@ const CLAUDE_MODEL = 'claude-haiku-4-5';
 const SENDER_BLOCKLIST = ['noreply', 'no-reply', 'donotreply', 'marketing', 'newsletter'];
 const SUBJECT_BLOCKLIST = ['unsubscribe', '% off', 'sale', 'offer', 'deal', 'discount'];
 
-function extractPrompt(household: Household): string {
+function extractPrompt(household: Household, factsBlock: string): string {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
   return buildEmailIntakePrompt({
     today,
     voiceBlock: householdVoiceBlock(household),
+    factsBlock,
   });
 }
 
@@ -127,6 +138,7 @@ Deno.serve(async (req: Request) => {
         console.log('Emails fetched:', emails.length);
 
         const household = await loadHousehold(supabase, connection.user_id);
+        const knowledge = await loadHouseholdFacts(supabase, { userId: connection.user_id });
         const alreadySeen = await loadSeenMessageIds(
           supabase,
           connection.user_id,
@@ -147,6 +159,7 @@ Deno.serve(async (req: Request) => {
               email,
               windowDays,
               household,
+              knowledge,
             );
             if (messageId) alreadySeen.add(messageId);
             stats.processed += 1;
@@ -233,6 +246,12 @@ async function markEmailSeen(
   if (error) console.error('Failed to remember processed email:', error.message);
 }
 
+type FactsContext = {
+  householdId: string | null;
+  members: FamilyMemberRef[];
+  facts: FamilyFact[];
+};
+
 async function processEmail(
   supabase: SupabaseClient,
   anthropicKey: string,
@@ -240,6 +259,7 @@ async function processEmail(
   email: GraphEmail,
   windowDays: number,
   household: Household,
+  knowledge: FactsContext,
 ): Promise<boolean> {
   const dropReason = dropReasonForEmail(email, windowDays);
   if (dropReason) {
@@ -281,11 +301,26 @@ async function processEmail(
 
   const extractedRaw = await callClaude(
     anthropicKey,
-    extractPrompt(household),
+    extractPrompt(household, factsPromptBlockForPeople(knowledge.facts, knowledge.members)),
     userMessage,
     2200,
   );
   const extracted = parseEmailIntake(extractedRaw, userMessage);
+  const relevantFacts = retrieveActiveFactsForPerson(knowledge.facts, {
+    person_name: extracted.who_it_affects,
+    members: knowledge.members,
+  });
+  extracted.items = applyStandingFactsToIntake(extracted.items, relevantFacts);
+  if (extracted.standing_facts.length) {
+    const createdFacts = await persistInferredFacts(supabase, {
+      userId,
+      householdId: knowledge.householdId,
+      members: knowledge.members,
+      existing: knowledge.facts,
+      proposed: extracted.standing_facts.map((row) => ({ ...row, source: 'inferred_email' })),
+    });
+    knowledge.facts.push(...createdFacts);
+  }
 
   console.log(
     'Email intake:',
@@ -298,7 +333,6 @@ async function processEmail(
     extracted.items.map((item) => item.kind).join(',') || 'none',
   );
 
-  const help = (extracted.suggestion || extracted.action_description || '').trim() || null;
   if (extracted.capture === 'nothing_here') {
     await markEmailSeen(supabase, userId, email, 'ignored');
     return false;
@@ -329,10 +363,9 @@ async function processEmail(
     parent_id: null,
     status: 'open',
     evidence: parent.evidence,
-    body: extracted.nudge_body,
-    detail: extracted.nudge_detail || help,
-    suggestion: extracted.suggestion || help,
-    action_description: extracted.action_description || help,
+    body: extracted.body,
+    detail: extracted.detail,
+    suggestion: distinctSuggestion(extracted.suggestion, extracted.detail, extracted.body, incomingTitle),
     source_email_subject: subject,
     source_email_sender: sender,
     category: extracted.category,
@@ -355,11 +388,10 @@ async function processEmail(
     .insert({
       user_id: userId,
       title: incomingTitle,
-      body: extracted.nudge_body,
-      detail: extracted.nudge_detail || help,
-      suggestion: extracted.suggestion || help,
+      body: extracted.body,
+      detail: extracted.detail,
+      suggestion: distinctSuggestion(extracted.suggestion, extracted.detail, extracted.body, incomingTitle),
       category: extracted.category,
-      action_description: extracted.action_description || help,
       event_date: eventDateFromIntake(parent, 'email') ?? extracted.date,
       who_it_affects: extracted.who_it_affects,
       visibility: defaultVisibilityForWho(extracted.who_it_affects, household),

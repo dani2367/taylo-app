@@ -26,6 +26,10 @@ expect('merged prompt keeps staff-training context_only', /staff training/i.test
 expect('merged prompt keeps packed-lunch split', /Packed lunch/.test(prompt), true);
 expect('merged prompt keeps no-presents discipline', /no presents please/i.test(prompt), true);
 expect('merged prompt still includes Phase 3 prep discipline', prompt.includes('do NOT invent prep'), true);
+expect('prompt asks for one overview detail', /"detail":/.test(prompt), true);
+expect('prompt does not ask for nudge_detail', prompt.includes('nudge_detail'), false);
+expect('prompt does not ask for action_description', prompt.includes('action_description'), false);
+expect('prompt prefers null suggestion over restating', /Null is valid and preferred/.test(prompt), true);
 
 expect('explicit nothing_here wins', parseEmailCapture('nothing_here'), 'nothing_here');
 expect('missing capture defaults to keep', parseEmailCapture(undefined), 'keep');
@@ -209,5 +213,33 @@ expect(
   packedSplit.children.every((item) => item.confidence === 'high' && item.prep_implied === 'stated'),
   true,
 );
+
+const copy = parseEmailIntake(
+  JSON.stringify({
+    capture: 'keep',
+    category: 'school',
+    action_required: true,
+    nudge_title: 'Farm trip form',
+    body: 'Due Friday',
+    detail: 'Return the permission slip by Friday.',
+    suggestion: 'Return the permission slip by Friday.',
+    items: [{ title: 'Farm trip form', kind: 'obligation', due_at: '2026-09-11', actionable: 'yes', confidence: 'high' }],
+  }),
+  packedSource,
+);
+expect('duplicate suggestion is dropped', copy.suggestion, null);
+expect('detail is kept', copy.detail, 'Return the permission slip by Friday.');
+expect('legacy nudge_body still maps', parseEmailIntake(
+  JSON.stringify({
+    capture: 'keep',
+    category: 'school',
+    nudge_title: 'INSET',
+    nudge_body: 'Nursery closed Friday',
+    nudge_detail: 'Staff training day — no need to pack lunch.',
+    suggestion: null,
+    items: [{ title: 'INSET', kind: 'context_only', occurs_at: '2026-09-19', actionable: 'no', confidence: 'high' }],
+  }),
+  nurserySource,
+).body, 'Nursery closed Friday');
 
 if (!process.exitCode) console.log('email-ingest self-test passed');

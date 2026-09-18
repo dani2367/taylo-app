@@ -35,6 +35,6 @@ Mrs Patel`,
 expect('farm body mentions farm', /\bAshdown Farm\b/.test(farm.body || ''), true);
 expect('farm detail has slip', /permission slip/i.test(farm.detail || ''), true);
 expect('farm detail has kit', /packed lunch/i.test(farm.detail || ''), true);
-expect('farm suggestion is an action', /return/i.test(farm.suggestion || ''), true);
+expect('farm backfill does not invent a sparkle', farm.suggestion, null);
 
 if (!process.exitCode) console.log('email-narrative self-test passed');

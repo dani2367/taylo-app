@@ -10,7 +10,19 @@ import {
 import { findOrCreateShoppingListItem, findOrCreateTodoCollection } from '../_shared/collections.ts';
 import { groceryLabelsFromText, isGroceryCapture, looksLikeGroceryProduct } from '../_shared/shopping.ts';
 import { householdVoiceBlock, loadHousehold, type Household } from '../_shared/household.ts';
+import {
+  applyStandingFactsToIntake,
+  factsPromptBlockForPeople,
+  loadHouseholdFacts,
+  parseStandingFacts,
+  persistInferredFacts,
+  retrieveActiveFactsForPerson,
+  type FamilyFact,
+  type FamilyMemberRef,
+  type ProposedFact,
+} from '../_shared/family-facts.ts';
 import { defaultVisibilityForWho } from '../_shared/item-visibility.ts';
+import { distinctSuggestion, optionalCopy } from '../_shared/item-copy.ts';
 import { linkIncomingItem } from '../_shared/cross-source.ts';
 import {
   eventDateFromIntake,
@@ -54,12 +66,15 @@ type Urgency = (typeof URGENCIES)[number];
 type Extracted = {
   title: string;
   body: string | null;
+  detail: string | null;
+  suggestion: string | null;
   category: Category;
   event_date: string | null;
   who_it_affects: string | null;
   urgency_level: Urgency;
   checklist_items: string[];
   items: IntakeItem[];
+  standing_facts: ProposedFact[];
   reply: string;
 };
 
@@ -152,7 +167,22 @@ Deno.serve(async (req: Request) => {
 
     const userText = last.body.trim();
     const household = await loadHousehold(supabase, user.id);
-    const extracted = await extractItem(anthropicKey, userText, household);
+    const knowledge = await loadHouseholdFacts(supabase, { userId: user.id });
+    const extracted = await extractItem(anthropicKey, userText, household, knowledge);
+    const relevantFacts = retrieveActiveFactsForPerson(knowledge.facts, {
+      person_name: extracted.who_it_affects,
+      members: knowledge.members,
+    });
+    extracted.items = applyStandingFactsToIntake(extracted.items, relevantFacts);
+    if (extracted.standing_facts.length) {
+      await persistInferredFacts(supabase, {
+        userId: user.id,
+        householdId: knowledge.householdId,
+        members: knowledge.members,
+        existing: knowledge.facts,
+        proposed: extracted.standing_facts.map((row) => ({ ...row, source: 'inferred_chat' as const })),
+      });
+    }
     const grocery = isGroceryOffload(userText, extracted);
     if (grocery) {
       const originalTitle = extracted.title;
@@ -249,8 +279,8 @@ Deno.serve(async (req: Request) => {
         status: 'open',
         evidence: parent.evidence,
         body: extracted.body,
-        detail: extracted.body,
-        action_description: extracted.title,
+        detail: extracted.detail,
+        suggestion: extracted.suggestion,
         category: extracted.category,
         user_id: user.id,
         created_by: user.id,
@@ -274,8 +304,8 @@ Deno.serve(async (req: Request) => {
           collection_id: listBound,
           title: parent.title,
           body: extracted.body,
-          detail: extracted.body,
-          suggestion: null,
+          detail: extracted.detail,
+          suggestion: extracted.suggestion,
           category: extracted.category,
           icon: meta.icon,
           colour_class: meta.colour,
@@ -286,7 +316,6 @@ Deno.serve(async (req: Request) => {
           who_it_affects: extracted.who_it_affects,
           visibility: defaultVisibilityForWho(extracted.who_it_affects, household),
           urgency_level: extracted.urgency_level,
-          action_description: extracted.title,
           ...intakeRowFields(parent),
         })
         .select('id, title')
@@ -442,7 +471,8 @@ async function saveShoppingItems(
         event_date: extracted.event_date,
         urgency_level: extracted.urgency_level,
         body: extracted.body,
-        detail: extracted.body,
+        detail: extracted.detail,
+        suggestion: extracted.suggestion,
       })
       .eq('id', list.itemId);
   }
@@ -450,33 +480,44 @@ async function saveShoppingItems(
   return { itemId: list.itemId, added };
 }
 
-function extractPrompt(household: Household, today: string): string {
+function extractPrompt(
+  household: Household,
+  today: string,
+  factsBlock: string,
+): string {
+  const facts = factsBlock.trim() ? `\n${factsBlock.trim()}\n` : '';
   return `You extract one or more items from a parent's offload message for Taylo, a UK family assistant. Return ONLY a JSON object, nothing else:
 {
   "title": "short title for the parent item",
   "body": "one short subtitle for the Home card, or null",
+  "detail": "one overview sentence for the expanded card, distinct from body, or null",
+  "suggestion": "a distinct helpful next step, or null",
   "category": "school|medical|activity|delivery|returns|financial|errand|home",
   "event_date": "YYYY-MM-DD or null — due_at for obligations; the event day for a named occurrence",
   "who_it_affects": "family member name or 'family' or null",
   "urgency_level": "today|this_week|upcoming|none",
   "checklist_items": ["Chicken"] or null,
   "items": [ parent intake item first, then each separate obligation ],
+  "standing_facts": [],
   "reply": "your confirmation message to the parent"
 }
 
 Rules
 - title: the action or hold, under 8 words, like a Home list item. First letter capital. No quotes. Do not copy their sentence verbatim. Shopping/groceries: product name only ("Turmeric"), never "Buy turmeric" or "Shopping list".
 - body: one clipped extra fact (who, when, why) under ~12 words. Not a repeat of the title. null if the title already says it all.
+- detail: one expanded-card sentence that is not a restatement of body or title. Null if body already says everything useful.
+- suggestion: only a genuine next step that is not already in detail or body. Null is valid and preferred over restating detail. Do not invent a tip.
 - category: pick the best fit. Groceries and supermarket runs → errand. Bookings, accommodation, forms, calls, admin → the matching category (activity/school/home), not shopping.
 - event_date / due_at: convert relative dates using today (${today}). "in three weeks" means about 21 days from today. If no date is implied, null. Never invent a deadline for a hold.
 - who_it_affects: a known household name if it is about them; "Dad"/"Mum" if they said that; "family" if it is for everyone; null if it is just the parent's errand with no named person.
 - urgency_level: today if it is needed now/today; this_week if this week or within the next 3 days; upcoming if a date 4–21 days out is known; none if there is no time pressure (standing errand, staple, hold). Shopping defaults to none unless they imply sooner ("for dinner tomorrow").
 - Lists: only supermarket products go on the shopping list. Dated chores and admin ("book the eye test", "email the teacher", "return the form by the 19th") go on General to do. If they say a thing happens on a calendar day ("X is on 23 October", "spa day on 12 June", "on Wednesday next week"), that is an occurrence on Schedule plus any stated extra work as a child — not only weddings/birthdays. Never add a child that just restates attending ("arrive at the hospital", "need to arrive by 7:30") — that clock belongs on the event. Never treat a booking, stay, form, or arrangement as shopping because they said "need".
+- standing_facts: durable family knowledge only (allergies, standing preferences, who typically handles a category). Not this message's one-off task. Empty array if none. Do not include behavioural patterns.
 - reply: you are Taylo talking to them — a warm, organised friend. One short sentence, like a text, contractions, first person. Confirm you added it. Shopping: "Got it — turmeric is on your shopping list." To-dos: "Got it — that's on your to-do list." Named events: "Got it — that's on your schedule" (mention the speech/RSVP if you also captured it). Never say "Today" (that screen is called Home). Never say "saved" or "got your message".
 ${CHECKLIST_PROMPT_RULE}
 
 ${intakeContractRules('chat')}
-
+${facts}
 ${householdVoiceBlock(household)}`;
 }
 
@@ -484,9 +525,15 @@ async function extractItem(
   apiKey: string,
   userText: string,
   household: Household,
+  knowledge: { facts: FamilyFact[]; members: FamilyMemberRef[] },
 ): Promise<Extracted> {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
-  const raw = await callClaude(apiKey, extractPrompt(household, today), userText, 1200);
+  const raw = await callClaude(
+    apiKey,
+    extractPrompt(household, today, factsPromptBlockForPeople(knowledge.facts, knowledge.members)),
+    userText,
+    1200,
+  );
   return parseExtracted(raw, userText);
 }
 
@@ -502,6 +549,8 @@ function parseExtracted(raw: string, fallbackText: string): Extracted {
   const title = cleanTitle(typeof parsed.title === 'string' ? parsed.title : '') ||
     titleFromUserText(fallbackText);
   const body = cleanBody(parsed.body);
+  const detail = distinctSuggestion(optionalCopy(parsed.detail), body, title);
+  const suggestion = distinctSuggestion(optionalCopy(parsed.suggestion), detail, body, title);
   const category = CATEGORIES.includes(parsed.category as Category)
     ? (parsed.category as Category)
     : 'errand';
@@ -522,8 +571,9 @@ function parseExtracted(raw: string, fallbackText: string): Extracted {
     rawItems: (parsed as { items?: unknown }).items,
     extraLabels: checklist_items,
   });
+  const standing_facts = parseStandingFacts((parsed as { standing_facts?: unknown }).standing_facts);
 
-  return { title, body, category, event_date, who_it_affects, urgency_level, checklist_items, items, reply };
+  return { title, body, detail, suggestion, category, event_date, who_it_affects, urgency_level, checklist_items, items, standing_facts, reply };
 }
 
 function cleanTitle(value: string): string {

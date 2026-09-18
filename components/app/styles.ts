@@ -411,6 +411,40 @@ export const appStyles = StyleSheet.create({
     marginTop: 10,
     flexWrap: 'nowrap',
   },
+  itemActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+  },
+  itemActionPill: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.transparent,
+  },
+  itemActionPillOutline: {
+    backgroundColor: colors.cream,
+    borderColor: colors.navy,
+  },
+  itemActionPillText: {
+    fontSize: fontSizes.caption,
+    fontFamily: fonts.sansMedium,
+    color: colors.navy,
+    lineHeight: 18,
+  },
+  itemActionAdd: {
+    marginLeft: 'auto',
+    paddingVertical: 2,
+    flexShrink: 1,
+  },
+  itemActionAddText: {
+    fontSize: fontSizes.caption,
+    fontFamily: fonts.sansRegular,
+    color: colors.textHint,
+    lineHeight: 18,
+  },
   prepList: {
     marginTop: 8,
     paddingTop: 6,
@@ -477,18 +511,15 @@ export const appStyles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   prepInlineAdd: {
-    marginTop: 8,
-    paddingVertical: 4,
+    marginTop: 6,
+    paddingVertical: 2,
+    alignSelf: 'flex-start',
   },
   prepInlineAddText: {
-    fontSize: fontSizes.caption,
+    fontSize: fontSizes.micro,
     fontFamily: fonts.sansRegular,
-    color: colors.textMuted,
-    lineHeight: 18,
-  },
-  prepInlineAddLink: {
-    fontFamily: fonts.sansMedium,
-    color: colors.terracotta,
+    color: colors.textHint,
+    lineHeight: 16,
   },
   prepAdd: {
     paddingVertical: 6,

@@ -61,7 +61,7 @@ export function mapPlanItemRow(row: PlanItemRow, today = new Date()): PlanItemCa
   const entries = mapPrepChildren(row.prep_children);
   const title = displayItemTitle(row, today);
   const body = row.body || '';
-  const detail = row.detail || row.body || row.action_description || '';
+  const detail = row.detail || row.action_description || '';
   const incomplete = entries.filter((entry) => !entry.done).length;
   return {
     id: row.id,
@@ -71,12 +71,11 @@ export function mapPlanItemRow(row: PlanItemRow, today = new Date()): PlanItemCa
       today,
     ),
     detail,
-    suggestion: helpfulSuggestion(row),
-    opener: row.action_description || detail || body || title,
+    suggestion: helpfulSuggestion({ ...row, detail }),
+    opener: row.detail || row.action_description || body || title,
     src: row.source_label || row.source_email_subject || 'Plan',
     icon: resolvePlanIcon({ title, category: row.category, stored: row.icon }),
     prepLabel: incomplete ? thingsToSortLabel(incomplete) : null,
-    checklistId: null,
     checklist: entries,
     informational: row.kind === 'context_only',
     createdBy: row.created_by ?? null,

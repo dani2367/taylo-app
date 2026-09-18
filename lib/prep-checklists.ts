@@ -17,9 +17,8 @@ export async function persistChecklistAdd(params: {
   userId: string;
   itemId: string;
   itemTitle: string;
-  checklistId: string | null;
   nextOrder: number;
-}): Promise<{ checklistId: string; entry: PrepCheckItem } | { error: string }> {
+}): Promise<{ entry: PrepCheckItem } | { error: string }> {
   const { data: parent } = await supabase
     .from('items')
     .select('source, source_label, category, who_it_affects, visibility')
@@ -53,7 +52,6 @@ export async function persistChecklistAdd(params: {
 
   if (error || !entry) return { error: error?.message || 'Failed to add item' };
   return {
-    checklistId: params.itemId,
     entry: { id: entry.id as string, text: (entry.title as string) || 'New', done: false },
   };
 }

@@ -3,7 +3,7 @@ import { HouseholdShareToggle, SharedHouseCorner } from '@/components/app/Househ
 import { ItemPrepChecklist, type PrepCheckItem } from '@/components/app/ItemPrepChecklist';
 import { appStyles as s } from '@/components/app/styles';
 import { TayloMark } from '@/components/app/TayloMark';
-import type { PlanIconSpec } from '@/lib/plan-icon';
+import { washColor, type PlanIconSpec } from '@/lib/plan-icon';
 import { extraEventContext } from '@/lib/suggestion';
 import { Pressable, Text, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -16,9 +16,10 @@ export type PlanItemCardModel = {
   suggestion: string | null;
   opener: string;
   src: string;
+  askSub?: string | null;
+  rowKey?: string;
   icon: PlanIconSpec;
   prepLabel: string | null;
-  checklistId: string | null;
   checklist: PrepCheckItem[];
   checklistHeading?: string;
   listMode?: boolean;
@@ -121,9 +122,10 @@ export function PlanItemCard({
             </View>
           ) : null}
           <ItemPrepChecklist
-            heading={card.checklistHeading || (card.listMode || hero ? undefined : 'Getting ready')}
+            heading={card.checklistHeading}
             items={card.checklist}
             editing={editingPrep}
+            hideEmptyCta={!card.listMode}
             onToggleEditing={onTogglePrepEditing}
             onToggle={onToggleChecklist}
             onChangeText={onChangeChecklistText}
@@ -135,31 +137,44 @@ export function PlanItemCard({
             <>
               <HouseholdShareToggle shared={shared} onToggle={onShare} />
               {card.listMode ? null : (
-              <View style={hero ? s.nactions : s.uactions}>
+              <View style={s.itemActions}>
               <Pressable
-                style={[s.pill, s.pillTeal]}
+                style={[s.itemActionPill, { backgroundColor: washColor[card.icon.wash] }]}
                 onPress={(e) => {
                   e.stopPropagation();
                   onDone();
                 }}>
-                <Text style={[s.pillText, s.pillTextTeal]}>Done</Text>
+                <Text style={s.itemActionPillText}>Done</Text>
               </Pressable>
               <Pressable
-                style={[s.pill, s.pillDelegate]}
+                style={[s.itemActionPill, s.itemActionPillOutline]}
                 onPress={(e) => {
                   e.stopPropagation();
                   onDelegate();
                 }}>
-                <Text style={[s.pillText, s.pillTextBlue]}>Delegate</Text>
+                <Text style={s.itemActionPillText}>Delegate</Text>
               </Pressable>
               <Pressable
-                style={[s.pill, s.pillChat]}
+                style={[s.itemActionPill, s.itemActionPillOutline]}
                 onPress={(e) => {
                   e.stopPropagation();
                   onChat();
                 }}>
-                <Text style={[s.pillText, s.pillTextChat]}>Ask</Text>
+                <Text style={s.itemActionPillText}>Ask</Text>
               </Pressable>
+              {!card.checklist.length ? (
+                <Pressable
+                  style={s.itemActionAdd}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add a checklist"
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    if (!editingPrep) onTogglePrepEditing();
+                    onAddChecklist();
+                  }}>
+                  <Text style={s.itemActionAddText}>Add a checklist</Text>
+                </Pressable>
+              ) : null}
             </View>
               )}
             </>

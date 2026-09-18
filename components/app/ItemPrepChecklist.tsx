@@ -13,6 +13,7 @@ export function ItemPrepChecklist({
   onToggle,
   heading,
   editing,
+  hideEmptyCta,
   onToggleEditing,
   onChangeText,
   onCommitText,
@@ -23,6 +24,7 @@ export function ItemPrepChecklist({
   onToggle: (id: string, nextDone: boolean) => void;
   heading?: string;
   editing?: boolean;
+  hideEmptyCta?: boolean;
   onToggleEditing?: () => void;
   onChangeText?: (id: string, text: string) => void;
   onCommitText?: (id: string, text: string) => void;
@@ -30,7 +32,7 @@ export function ItemPrepChecklist({
   onDelete?: (id: string) => void;
 }) {
   const canEdit = !!onToggleEditing;
-  if (!items.length && !canEdit && !editing) return null;
+  if (!items.length && (hideEmptyCta || (!canEdit && !editing))) return null;
 
   const showNamedHeading = !!heading && heading.toLowerCase() !== 'getting ready';
 
@@ -48,9 +50,7 @@ export function ItemPrepChecklist({
           e.stopPropagation();
           startChecklist(e);
         }}>
-        <Text style={s.prepInlineAddText}>
-          Need to break this down? <Text style={s.prepInlineAddLink}>Add a checklist</Text>
-        </Text>
+        <Text style={s.prepInlineAddText}>+ Add</Text>
       </Pressable>
     );
   }

@@ -56,13 +56,10 @@ export function narrativeFromSourceEmail(
   const first = sentences[0] || clipWords(email.subject || title || '', 12);
   const body = first ? clipWords(first, 12) : null;
   const detail = (sentences.slice(0, 6).join(' ') || first || '').trim() || null;
-  const action = sentences.find((sentence) => /\b(return|complete|sign|pay|bring|pack|send)\b/i.test(sentence));
-  const suggestion = action ? clipWords(action, 10) : null;
-
   return {
     body,
     detail,
-    suggestion,
-    action_description: (title || '').trim() || action || null,
+    suggestion: null,
+    action_description: null,
   };
 }

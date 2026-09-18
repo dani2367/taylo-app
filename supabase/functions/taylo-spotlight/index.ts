@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { belongsToCompletedCollection } from '../_shared/collections.ts';
 import { householdVoiceBlock, loadHousehold, type Household } from '../_shared/household.ts';
+import { loadHouseholdFacts } from '../_shared/family-facts.ts';
 import {
   HOME_OVERFLOW_RANK_BASE,
   HOME_RADAR_LOAD_KINDS,
@@ -291,18 +292,18 @@ async function loadChecklists(
 }
 
 async function loadFacts(supabase: SupabaseClient, userId: string): Promise<FactRow[]> {
-  const { data, error } = await supabase
-    .from('family_facts')
-    .select('subject, fact, category')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: true })
-    .limit(MAX_FACTS);
-
-  if (error) {
-    console.error('Failed to load family facts:', error.message);
-    return [];
-  }
-  return (data ?? []) as FactRow[];
+  const { facts, members } = await loadHouseholdFacts(supabase, { userId });
+  return facts
+    .filter((row) => row.status === 'active')
+    .slice(0, MAX_FACTS)
+    .map((row) => {
+      const member = members.find((person) => person.id === row.person_id);
+      return {
+        subject: member?.first_name?.trim() || row.subject || 'family',
+        fact: row.content,
+        category: row.category ?? null,
+      };
+    });
 }
 
 async function loadRecentChat(
@@ -421,8 +422,8 @@ function userPrompt(
       ? `checklist ${prep.filter((row) => row.done).length}/${prep.length} done [${prep.map((row) => `${row.text}${row.done ? '✓' : ''}`).join(', ')}]`
       : 'no checklist';
     const source = item.source ? `provenance=${item.source}` : 'provenance=none';
-    const help = item.action_description?.trim()
-      ? `help="${item.action_description.trim()}"`
+    const help = (item.action_description || item.detail)?.trim()
+      ? `help="${(item.action_description || item.detail || '').trim()}"`
       : 'help=none';
     return `- ${item.id} | ${item.title ?? 'Untitled'} | ${item.body ?? ''} | category=${item.category ?? 'none'} | date=${item.event_date ?? 'none'} | urgency=${item.urgency_level ?? 'none'} | who=${item.who_it_affects ?? 'none'} | ${source} | ${help} | ${prepBit}`;
   });

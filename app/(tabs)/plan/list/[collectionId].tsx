@@ -69,7 +69,6 @@ export default function CollectionScreen() {
           src: 'Plan',
           icon: resolvePlanIcon({ title: listTitle, collectionType: meta?.type, stored: meta?.emoji }),
           prepLabel: null,
-          checklistId: null,
           checklist: members.map((card) => ({ id: card.id, text: card.title, done: false })),
           listMode: true,
           hideTitle: true,

@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { householdVoiceBlock, loadHousehold, whoForPrompt, type Household } from '../_shared/household.ts';
+import { loadHouseholdFacts } from '../_shared/family-facts.ts';
 import { loadViewerContext, restrictVisibleItems } from '../_shared/item-visibility.ts';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
@@ -77,6 +78,8 @@ type FamilyFactRow = {
   subject: string;
   fact: string;
   category: string | null;
+  content?: string | null;
+  status?: string | null;
 };
 
 type ItemRow = {
@@ -364,18 +367,20 @@ async function loadFamilyFacts(
   supabase: SupabaseClient,
   userId: string,
 ): Promise<FamilyFactRow[]> {
-  const { data, error } = await supabase
-    .from('family_facts')
-    .select('subject, fact, category')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: true })
-    .limit(50);
-
-  if (error) {
-    console.error('Failed to load family facts:', error.message);
-    return [];
-  }
-  return (data ?? []) as FamilyFactRow[];
+  const { facts, members } = await loadHouseholdFacts(supabase, { userId });
+  return facts
+    .filter((row) => row.status === 'active')
+    .slice(0, 50)
+    .map((row) => {
+      const member = members.find((person) => person.id === row.person_id);
+      return {
+        subject: member?.first_name?.trim() || row.subject || 'family',
+        fact: row.content,
+        category: row.category ?? null,
+        content: row.content,
+        status: row.status,
+      };
+    });
 }
 
 function familyFactsBlock(facts: FamilyFactRow[]): string {
@@ -383,7 +388,8 @@ function familyFactsBlock(facts: FamilyFactRow[]): string {
   const lines = facts.map((row) => {
     const who = row.subject.trim() || 'family';
     const category = row.category ? ` [${row.category}]` : '';
-    return `- ${who}${category}: ${row.fact.trim()}`;
+    const text = (row.content || row.fact || '').trim();
+    return `- ${who}${category}: ${text}`;
   });
   return `Known family context (treat as true unless they correct you; do not dump this list unless asked):\n${lines.join('\n')}`;
 }
@@ -419,7 +425,7 @@ Suggested next step: ${nudge.suggestion ?? 'not specified'}
 Category: ${nudge.category ?? 'unknown'}
 Kind: ${nudge.kind ?? 'not specified'}
 Source: ${nudge.source ?? 'not specified'}
-Action: ${nudge.action_description ?? 'not specified'}
+Action: ${nudge.action_description ?? nudge.detail ?? 'not specified'}
 Event date: ${nudge.event_date ?? 'not specified'}
 Happens at: ${nudge.occurs_at ?? 'not specified'}
 Due: ${nudge.due_at ?? 'not specified'}

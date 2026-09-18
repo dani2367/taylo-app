@@ -1,5 +1,4 @@
 import type { Chip } from './demo-data';
-import { isPersonalPurchase } from './radar-organize';
 
 const CHIP_PARENT_ASK =
   /^(give me|can you|could you|would you|please |what |what's |whats |how |suggest |draft |remind me|send me|help me|i need|i want|tell me|write |start |add )/i;
@@ -32,57 +31,21 @@ export function formatStoredSuggestion(raw: string | null | undefined): string |
   return trimmed;
 }
 
-/** A short, practical next step — never the generic “need a hand” line. */
+/** Sparkle copy: stored suggestion only, and only if it is not a restatement. */
 export function helpfulSuggestion(item: {
   title?: string | null;
   body?: string | null;
-  category?: string | null;
-  event_date?: string | null;
+  detail?: string | null;
   suggestion?: string | null;
-  action_description?: string | null;
 }): string | null {
   const stored = formatStoredSuggestion(item.suggestion);
-  if (stored) return stored;
-
-  const title = (item.title || '').trim();
-  if (isPersonalPurchase(title, item.category)) return null;
-
-  const blob = `${title} ${item.body || ''} ${item.category || ''} ${item.action_description || ''}`.toLowerCase();
-
-  if (/\bpassport\b/.test(blob)) {
-    return "You'll need a digital photo and the current passport. I can walk you through the GOV.UK form if that's useful.";
+  if (!stored) return null;
+  const needle = stored.replace(/\s+/g, ' ').trim().toLowerCase();
+  for (const other of [item.title, item.detail, item.body]) {
+    const value = (other || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (value && value === needle) return null;
   }
-  if (/\b(visa|ehic|ghic)\b/.test(blob)) {
-    return 'Have the travel dates and passport numbers to hand — I can help you start the form.';
-  }
-  if (/\b(birthday|bday|party)\b/.test(blob) && /\b(card|present|gift)\b/.test(blob)) {
-    return 'If the present is sorted, a card from a supermarket on the way home is usually enough.';
-  }
-  if (/\b(permission|ofsted|form|paperwork)\b/.test(blob)) {
-    return 'I can draft a reply or tick through the form with you if you want to get it sent.';
-  }
-  if (/\b(dentist|doctor|gp|hospital|optician|appointment)\b/.test(blob)) {
-    return 'I can help you confirm the time, what to take, or rearrange if it no longer works.';
-  }
-  if (/\b(return|refund|exchange)\b/.test(blob)) {
-    return 'Check the deadline on the receipt — I can help you start the return if you want it off your plate.';
-  }
-  if (/\b(school|nursery|uniform|pe kit)\b/.test(blob)) {
-    return 'I can help you check what they actually need and get a note ready if you want.';
-  }
-  if (/\b(shop|shopping|tesco|sainsbury|waitrose|grocer)\b/.test(blob)) {
-    return 'Tell me what you still need and I can add it to the list.';
-  }
-  if (/\b(bill|insurance|mot|tax|passport photo)\b/.test(blob)) {
-    return 'I can help you find the right page and what they usually ask for.';
-  }
-
-  const action = (item.action_description || '').trim();
-  if (action && !isGenericHelp(action) && action.toLowerCase() !== title.toLowerCase()) {
-    return action;
-  }
-
-  return null;
+  return stored;
 }
 
 const CONTEXT_STOP = new Set([
