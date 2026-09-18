@@ -44,6 +44,21 @@ function addDays(d: Date, days: number): Date {
 }
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
 
 /** Monday as the start of the week (UK). */
 export function startOfWeek(d: Date): Date {
@@ -87,6 +102,26 @@ export function humanizeEventDate(eventDate: string | null | undefined, today = 
   const wholeWeeks = Math.max(2, Math.round(days / 7));
   if (wholeWeeks === 1) return 'Next week';
   return `In ${wholeWeeks} weeks`;
+}
+
+/** Calendar date for Radar watch copy: "15 October". */
+export function calendarDateLabel(eventDate: string | null | undefined, today = new Date()): string | null {
+  const date = resolvePlanDate(eventDate, today);
+  if (!date) return null;
+  const day = date.getDate();
+  const month = MONTHS[date.getMonth()];
+  if (date.getFullYear() !== today.getFullYear()) return `${day} ${month} ${date.getFullYear()}`;
+  return `${day} ${month}`;
+}
+
+/** Short weekday fragment for Family blurbs: "Thu", or Today/Tomorrow. */
+export function weekdayShort(eventDate: string | null | undefined, today = new Date()): string | null {
+  const date = resolvePlanDate(eventDate, today);
+  const days = daysUntil(eventDate, today);
+  if (!date || days == null) return null;
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Tomorrow';
+  return WEEKDAYS_SHORT[date.getDay()];
 }
 
 export function clipContext(raw: string | null | undefined, max = 100): string | null {

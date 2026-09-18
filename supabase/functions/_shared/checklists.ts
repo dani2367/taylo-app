@@ -78,7 +78,7 @@ export async function insertIntakeChildren(
 
   const meta = (parent as ParentRow | null) ?? null;
   const source =
-    meta?.source && ['email', 'chat', 'manual', 'calendar'].includes(meta.source)
+    meta?.source && ['email', 'chat', 'manual', 'calendar', 'action_library'].includes(meta.source)
       ? meta.source
       : 'manual';
 

@@ -2,6 +2,14 @@ import { MoreSubHeader } from '@/components/app/MoreSubHeader';
 import { appStyles as s } from '@/components/app/styles';
 import { colors, fonts, fontSizes, radii, space } from '@/constants/theme';
 import { memberPalette } from '@/lib/demo-data';
+import {
+  confirmFamilyFact,
+  dismissFamilyFact,
+  loadFamilyKnowledge,
+  pendingFactsForReview,
+  saveManualFamilyFact,
+  type FamilyFact,
+} from '@/lib/family-facts';
 import { viewerForUser, visibleFamilyMembersSelect } from '@/lib/item-visibility';
 import { supabase } from '@/lib/supabase';
 import { useEffect, useState } from 'react';
@@ -117,6 +125,12 @@ export default function FamilyScreen() {
   const [draftLast, setDraftLast] = useState('');
   const [draftBirthday, setDraftBirthday] = useState('');
   const [draftSchool, setDraftSchool] = useState('');
+  const [userId, setUserId] = useState<string | null>(null);
+  const [householdId, setHouseholdId] = useState<string | null>(null);
+  const [facts, setFacts] = useState<FamilyFact[]>([]);
+  const [householdDraft, setHouseholdDraft] = useState('');
+  const [personDraft, setPersonDraft] = useState('');
+  const [savingFact, setSavingFact] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -124,14 +138,20 @@ export default function FamilyScreen() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
+      setUserId(user.id);
 
       const viewer = await viewerForUser(user.id);
-      const { data } = await visibleFamilyMembersSelect(
-        'id, role, first_name, last_name, birthday, school, invited',
-        viewer,
-      );
+      const [{ data }, knowledge] = await Promise.all([
+        visibleFamilyMembersSelect(
+          'id, role, first_name, last_name, birthday, school, invited',
+          viewer,
+        ),
+        loadFamilyKnowledge(user.id),
+      ]);
 
       setMembers((data as FamilyMember[] | null) ?? []);
+      setHouseholdId(knowledge.householdId);
+      setFacts(knowledge.facts);
       setLoading(false);
     }
 
@@ -155,6 +175,48 @@ export default function FamilyScreen() {
   function cancelEditing() {
     setIsEditing(false);
   }
+
+  async function reloadFacts() {
+    if (!userId) return;
+    const knowledge = await loadFamilyKnowledge(userId);
+    setHouseholdId(knowledge.householdId);
+    setFacts(knowledge.facts);
+  }
+
+  async function addFact(personId: string | null, content: string, clear: () => void) {
+    if (!userId || !content.trim()) return;
+    setSavingFact(true);
+    const saved = await saveManualFamilyFact({
+      userId,
+      householdId,
+      personId,
+      factType: personId ? 'person_attribute' : 'household_pattern',
+      content: content.trim(),
+      existing: facts,
+    });
+    setSavingFact(false);
+    if (!saved) {
+      Alert.alert('Could not save', 'That fact could not be added just now.');
+      return;
+    }
+    await reloadFacts();
+    clear();
+  }
+
+  async function onConfirm(fact: FamilyFact) {
+    await confirmFamilyFact({ fact, existing: facts });
+    await reloadFacts();
+  }
+
+  async function onDismiss(fact: FamilyFact) {
+    await dismissFamilyFact({ fact, existing: facts });
+    await reloadFacts();
+  }
+
+  const pendingAll = pendingFactsForReview(facts);
+  const householdFacts = facts.filter(
+    (row) => row.status === 'active' && row.person_id == null,
+  );
 
   async function saveEditing() {
     if (!profile) return;
@@ -188,6 +250,12 @@ export default function FamilyScreen() {
     <View style={{ flex: 1 }}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={s.screen}>
         <MoreSubHeader title="Family" />
+        {pendingAll.length ? (
+          <>
+            <Text style={s.slabel}>To review</Text>
+            <FactReviewList facts={pendingAll} members={members} onConfirm={onConfirm} onDismiss={onDismiss} />
+          </>
+        ) : null}
         <Text style={s.slabel}>Your family</Text>
         {loading ? (
           <View style={s.emptyState}>
@@ -225,6 +293,40 @@ export default function FamilyScreen() {
             })}
           </View>
         )}
+        <Text style={s.slabel}>Household facts</Text>
+        <View style={s.psSection}>
+          {householdFacts.length ? (
+            householdFacts.map((fact, i) => (
+              <View key={fact.id} style={[s.psField, i === householdFacts.length - 1 && s.psFieldLast, ls.factRow]}>
+                <Text style={s.psFieldVal}>{fact.content}</Text>
+              </View>
+            ))
+          ) : (
+            <View style={[s.psField, s.psFieldLast]}>
+              <Text style={s.psFieldEmpty}>Nothing standing yet</Text>
+            </View>
+          )}
+        </View>
+        <View style={s.psSection}>
+          <Text style={s.psSectionTitle}>Add a household fact</Text>
+          <View style={[s.psField, s.psFieldLast, ls.factAdd]}>
+            <TextInput
+              style={ls.factInput}
+              value={householdDraft}
+              onChangeText={setHouseholdDraft}
+              placeholder="e.g. No presents for birthdays"
+              placeholderTextColor={colors.textHint}
+              returnKeyType="done"
+              onSubmitEditing={() => void addFact(null, householdDraft, () => setHouseholdDraft(''))}
+            />
+            <Pressable
+              style={ls.factAddBtn}
+              disabled={savingFact || !householdDraft.trim()}
+              onPress={() => void addFact(null, householdDraft, () => setHouseholdDraft(''))}>
+              <Text style={ls.factAddBtnText}>{savingFact ? 'Saving…' : 'Add'}</Text>
+            </Pressable>
+          </View>
+        </View>
       </ScrollView>
 
       <Modal visible={!!profile} animationType="slide" onRequestClose={() => { setProfile(null); setIsEditing(false); }}>
@@ -270,7 +372,18 @@ export default function FamilyScreen() {
               </ScrollView>
             ) : (
               <ScrollView contentContainerStyle={{ paddingVertical: 8, paddingBottom: 16 }}>
-                {profile ? <MemberBody member={profile} /> : null}
+                {profile ? (
+                  <MemberBody
+                    member={profile}
+                    facts={facts}
+                    draft={personDraft}
+                    saving={savingFact}
+                    onChangeDraft={setPersonDraft}
+                    onAdd={() => void addFact(profile.id, personDraft, () => setPersonDraft(''))}
+                    onConfirm={onConfirm}
+                    onDismiss={onDismiss}
+                  />
+                ) : null}
               </ScrollView>
             )}
           </View>
@@ -296,8 +409,28 @@ function ProfileHeader({ member }: { member: FamilyMember }) {
   );
 }
 
-function MemberBody({ member }: { member: FamilyMember }) {
+function MemberBody({
+  member,
+  facts,
+  draft,
+  saving,
+  onChangeDraft,
+  onAdd,
+  onConfirm,
+  onDismiss,
+}: {
+  member: FamilyMember;
+  facts: FamilyFact[];
+  draft: string;
+  saving: boolean;
+  onChangeDraft: (value: string) => void;
+  onAdd: () => void;
+  onConfirm: (fact: FamilyFact) => void;
+  onDismiss: (fact: FamilyFact) => void;
+}) {
   const isPartner = member.role?.toLowerCase() === 'partner';
+  const pending = pendingFactsForReview(facts, { person_id: member.id });
+  const active = facts.filter((row) => row.status === 'active' && row.person_id === member.id);
   return (
     <>
       <View style={s.psSection}>
@@ -319,7 +452,80 @@ function MemberBody({ member }: { member: FamilyMember }) {
           />
         ) : null}
       </View>
+      {pending.length ? (
+        <>
+          <Text style={[s.slabel, { marginTop: 8 }]}>To review</Text>
+          <FactReviewList facts={pending} members={[member]} onConfirm={onConfirm} onDismiss={onDismiss} />
+        </>
+      ) : null}
+      <View style={s.psSection}>
+        <Text style={s.psSectionTitle}>Standing facts</Text>
+        {active.length ? (
+          active.map((fact, i) => (
+            <View key={fact.id} style={[s.psField, i === active.length - 1 && s.psFieldLast, ls.factRow]}>
+              <Text style={s.psFieldVal}>{fact.content}</Text>
+            </View>
+          ))
+        ) : (
+          <View style={[s.psField, s.psFieldLast]}>
+            <Text style={s.psFieldEmpty}>Nothing standing yet</Text>
+          </View>
+        )}
+      </View>
+      <View style={s.psSection}>
+        <Text style={s.psSectionTitle}>Add a fact</Text>
+        <View style={[s.psField, s.psFieldLast, ls.factAdd]}>
+          <TextInput
+            style={ls.factInput}
+            value={draft}
+            onChangeText={onChangeDraft}
+            placeholder="e.g. Allergic to peanuts"
+            placeholderTextColor={colors.textHint}
+            returnKeyType="done"
+            onSubmitEditing={onAdd}
+          />
+          <Pressable style={ls.factAddBtn} disabled={saving || !draft.trim()} onPress={onAdd}>
+            <Text style={ls.factAddBtnText}>{saving ? 'Saving…' : 'Add'}</Text>
+          </Pressable>
+        </View>
+      </View>
     </>
+  );
+}
+
+function FactReviewList({
+  facts,
+  members,
+  onConfirm,
+  onDismiss,
+}: {
+  facts: FamilyFact[];
+  members: FamilyMember[];
+  onConfirm: (fact: FamilyFact) => void;
+  onDismiss: (fact: FamilyFact) => void;
+}) {
+  return (
+    <View style={s.psSection}>
+      {facts.map((fact, i) => {
+        const who =
+          members.find((row) => row.id === fact.person_id)?.first_name ||
+          (fact.person_id ? 'Someone' : 'Household');
+        return (
+          <View key={fact.id} style={[s.psField, i === facts.length - 1 && s.psFieldLast, ls.reviewRow]}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={s.psFieldLabel}>{who}</Text>
+              <Text style={s.psFieldVal}>{fact.content}</Text>
+            </View>
+            <Pressable style={ls.reviewBtn} onPress={() => onConfirm(fact)}>
+              <Text style={ls.reviewBtnText}>Confirm</Text>
+            </Pressable>
+            <Pressable style={ls.reviewBtnQuiet} onPress={() => onDismiss(fact)}>
+              <Text style={ls.reviewBtnQuietText}>Dismiss</Text>
+            </Pressable>
+          </View>
+        );
+      })}
+    </View>
   );
 }
 
@@ -406,6 +612,56 @@ const ls = StyleSheet.create({
   },
   cancelBtnText: {
     fontSize: fontSizes.body,
+    fontFamily: fonts.sansRegular,
+    color: colors.textMuted,
+  },
+  factRow: {
+    alignItems: 'flex-start',
+  },
+  factAdd: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  factInput: {
+    flex: 1,
+    fontSize: fontSizes.body,
+    fontFamily: fonts.sansMedium,
+    color: colors.navy,
+    paddingVertical: 4,
+  },
+  factAddBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: colors.paleBlue,
+    borderRadius: radii.button,
+  },
+  factAddBtnText: {
+    fontSize: fontSizes.body,
+    fontFamily: fonts.sansMedium,
+    color: colors.navy,
+  },
+  reviewRow: {
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  reviewBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: colors.sage,
+    borderRadius: radii.button,
+  },
+  reviewBtnText: {
+    fontSize: fontSizes.label,
+    fontFamily: fonts.sansMedium,
+    color: colors.navy,
+  },
+  reviewBtnQuiet: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  reviewBtnQuietText: {
+    fontSize: fontSizes.label,
     fontFamily: fonts.sansRegular,
     color: colors.textMuted,
   },

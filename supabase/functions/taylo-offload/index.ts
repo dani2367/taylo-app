@@ -52,7 +52,7 @@ const URGENCIES = ['today', 'this_week', 'upcoming', 'none'] as const;
 const CATEGORY_META: Record<string, { icon: string; colour: string }> = {
   school: { icon: 'school-outline', colour: 'blue' },
   medical: { icon: 'medkit-outline', colour: 'teal' },
-  activity: { icon: 'bicycle-outline', colour: 'purple' },
+  activity: { icon: 'calendar-outline', colour: 'purple' },
   delivery: { icon: 'cube-outline', colour: 'amber' },
   returns: { icon: 'swap-horizontal-outline', colour: 'rose' },
   financial: { icon: 'card-outline', colour: 'green' },
@@ -494,7 +494,7 @@ function extractPrompt(
   "suggestion": "a distinct helpful next step, or null",
   "category": "school|medical|activity|delivery|returns|financial|errand|home",
   "event_date": "YYYY-MM-DD or null — due_at for obligations; the event day for a named occurrence",
-  "who_it_affects": "family member name or 'family' or null",
+  "who_it_affects": "family member name, 'you', 'family', or null",
   "urgency_level": "today|this_week|upcoming|none",
   "checklist_items": ["Chicken"] or null,
   "items": [ parent intake item first, then each separate obligation ],
@@ -509,7 +509,7 @@ Rules
 - suggestion: only a genuine next step that is not already in detail or body. Null is valid and preferred over restating detail. Do not invent a tip.
 - category: pick the best fit. Groceries and supermarket runs → errand. Bookings, accommodation, forms, calls, admin → the matching category (activity/school/home), not shopping.
 - event_date / due_at: convert relative dates using today (${today}). "in three weeks" means about 21 days from today. If no date is implied, null. Never invent a deadline for a hold.
-- who_it_affects: a known household name if it is about them; "Dad"/"Mum" if they said that; "family" if it is for everyone; null if it is just the parent's errand with no named person.
+- who_it_affects: "you" if it is the parent's own work (their speech, their appointment, their admin); a known household name if it is about them; "Dad"/"Mum" if they said that; "family" if it is for everyone; null only when it is truly unclear or shared with no named person.
 - urgency_level: today if it is needed now/today; this_week if this week or within the next 3 days; upcoming if a date 4–21 days out is known; none if there is no time pressure (standing errand, staple, hold). Shopping defaults to none unless they imply sooner ("for dinner tomorrow").
 - Lists: only supermarket products go on the shopping list. Dated chores and admin ("book the eye test", "email the teacher", "return the form by the 19th") go on General to do. If they say a thing happens on a calendar day ("X is on 23 October", "spa day on 12 June", "on Wednesday next week"), that is an occurrence on Schedule plus any stated extra work as a child — not only weddings/birthdays. Never add a child that just restates attending ("arrive at the hospital", "need to arrive by 7:30") — that clock belongs on the event. Never treat a booking, stay, form, or arrangement as shopping because they said "need".
 - standing_facts: durable family knowledge only (allergies, standing preferences, who typically handles a category). Not this message's one-off task. Empty array if none. Do not include behavioural patterns.

@@ -17,7 +17,7 @@ Typed fields only. `source` is provenance, never a switch.
 
 ## Radar
 
-- Holds; upcoming named `occurrence`s (`titleNamesAttendableEvent`, day not past — any named happening, not a closed list of party/operation/appointment); packing kit under a live parent; far-dated Home overflow (`selectRadarWatch`). Generic diary meetings stay Schedule-only. Showing up is not Home.
+- Holds; upcoming named `occurrence`s (`titleNamesAttendableEvent`, day still in the future — party, sports day, spa, not a closed list); packing kit under a live parent; far-dated Home overflow (`selectRadarWatch`). Medical slots with no extra work (dentist, GP, pre-op, operation) stay Schedule-only. Generic diary meetings stay Schedule-only. Showing up is not Home. A child that restates the parent event is not a Home checklist.
 - An **occurrence** / dated **context_only** keeps its work nested even when there is only one child (same shape as Schedule). Kit under a form still needs 2+ lines to collapse.
 - Packing under a **hold** does not get its own card — the hold is enough.
 - List-bound if `collection_id`, `kind=list_item`, or the parent has a collection.

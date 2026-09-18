@@ -6,6 +6,44 @@ import { Pressable, Text, View } from 'react-native';
 
 const DAY_ICON = 36;
 
+export function DayTimelineRow({
+  item,
+  index,
+  count,
+}: {
+  item: HappenItem;
+  index: number;
+  count: number;
+}) {
+  const muted = !!item.informational;
+  return (
+    <View style={[s.homeDayRow, muted && s.homeDayRowInfo]}>
+      <View style={s.homeDayRailCol}>
+        {index > 0 ? (
+          <View style={s.homeDayRailUp} pointerEvents="none">
+            {[0, 1, 2].map((dot) => (
+              <View key={dot} style={s.homeDayDot} />
+            ))}
+          </View>
+        ) : null}
+        <BrandIconDisc name={item.icon.name} wash={item.icon.wash} size={DAY_ICON} />
+        {index < count - 1 ? (
+          <View style={s.homeDayRailDown} pointerEvents="none">
+            {[0, 1, 2].map((dot) => (
+              <View key={dot} style={s.homeDayDot} />
+            ))}
+          </View>
+        ) : null}
+      </View>
+      <Text style={[s.homeDayTime, muted && s.homeDayTimeInfo]}>{item.time}</Text>
+      <View style={s.ncopy}>
+        <Text style={[s.homeDayName, muted && s.homeDayNameInfo]}>{item.title}</Text>
+        {item.sub ? <Text style={s.homeDaySub}>{item.sub}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
 export function DayTimelineCard({
   kicker = 'Today',
   items,
@@ -31,33 +69,7 @@ export function DayTimelineCard({
         <BrandGlyph name="sunny-outline" size={22} color={colors.terracotta} />
       </View>
       {items.map((item, index) => {
-        const muted = !!item.informational;
-        const row = (
-          <View style={[s.homeDayRow, muted && s.homeDayRowInfo]}>
-            <View style={s.homeDayRailCol}>
-              {index > 0 ? (
-                <View style={s.homeDayRailUp} pointerEvents="none">
-                  {[0, 1, 2].map((dot) => (
-                    <View key={dot} style={s.homeDayDot} />
-                  ))}
-                </View>
-              ) : null}
-              <BrandIconDisc name={item.icon.name} wash={item.icon.wash} size={DAY_ICON} />
-              {index < items.length - 1 ? (
-                <View style={s.homeDayRailDown} pointerEvents="none">
-                  {[0, 1, 2].map((dot) => (
-                    <View key={dot} style={s.homeDayDot} />
-                  ))}
-                </View>
-              ) : null}
-            </View>
-            <Text style={[s.homeDayTime, muted && s.homeDayTimeInfo]}>{item.time}</Text>
-            <View style={s.ncopy}>
-              <Text style={[s.homeDayName, muted && s.homeDayNameInfo]}>{item.title}</Text>
-              {item.sub ? <Text style={s.homeDaySub}>{item.sub}</Text> : null}
-            </View>
-          </View>
-        );
+        const row = <DayTimelineRow item={item} index={index} count={items.length} />;
         if (!onItemPress) return <View key={item.id}>{row}</View>;
         return (
           <Pressable key={item.id} onPress={() => onItemPress(item)}>

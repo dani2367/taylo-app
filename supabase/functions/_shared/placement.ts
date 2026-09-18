@@ -1,12 +1,14 @@
 /** Placement is derived only from typed fields. `source` is provenance, never a switch. */
 
-import { titleNamesAttendableEvent } from './intake-contract.ts';
+import { isAdminStatusTitle, isRedundantEventWork, titleNamesAttendableEvent } from './intake-contract.ts';
 
 /** Home visibility cap. Extra relevant actions go to See all (oldest-on-Home first). */
 export const HOME_VISIBLE_MAX = 5;
 export const HOME_ACTION_MAX = HOME_VISIBLE_MAX;
 export const HOME_ACTION_LIMIT = HOME_VISIBLE_MAX;
 export const HOME_NEAR_TERM_DAYS = 7;
+/** Packing/gift leftovers stay on Radar this many days after the parent day, then drop from the default watch list (row stays open). */
+export const RADAR_PAST_PARENT_KEEP_DAYS = 30;
 /** Spotlight ranks below this are Home; See all reads rank >= this. */
 export const HOME_OVERFLOW_RANK_BASE = 1000;
 export const HOME_SURFACED_COOLDOWN_MS = 18 * 60 * 60 * 1000;
@@ -83,6 +85,7 @@ export function isSurfaceFromPending(item: PlacementItem, today = new Date()): b
 /** Real calendar occurrences — timed or all-day events they attend. */
 export function isOccurrenceOnSchedule(item: PlacementItem): boolean {
   if (!isOpenForSurfacing(item.status)) return false;
+  if (isAdminStatusTitle(item.title)) return false;
   return item.kind === 'occurrence' && !!item.occurs_at;
 }
 
@@ -94,6 +97,7 @@ export function isOccurrenceOnSchedule(item: PlacementItem): boolean {
 export function isInformationalOnSchedule(item: PlacementItem): boolean {
   if (!isOpenForSurfacing(item.status)) return false;
   if (item.kind !== 'context_only') return false;
+  if (isAdminStatusTitle(item.title)) return false;
   if ((item.confidence || '').toLowerCase() !== 'high') return false;
   return !!item.occurs_at;
 }
@@ -107,12 +111,48 @@ function parentAnchorDate(item: PlacementItem): string | null {
   return dateOnly(parent?.occurs_at || parent?.event_date || null);
 }
 
+export function calendarDaysBetween(fromYmd: string, toYmd: string): number {
+  const [fy, fm, fd] = fromYmd.split('-').map((part) => Number(part));
+  const [ty, tm, td] = toYmd.split('-').map((part) => Number(part));
+  const from = new Date(fy, (fm || 1) - 1, fd || 1);
+  const to = new Date(ty, (tm || 1) - 1, td || 1);
+  return Math.round((to.getTime() - from.getTime()) / 86400000);
+}
+
+export function daysPastParentEvent(item: PlacementItem, today = new Date()): number | null {
+  const when = parentAnchorDate(item);
+  if (!when) return null;
+  return calendarDaysBetween(when, todayYmd(today));
+}
+
 /** Child leftover after the parent's day — still open, so it should get more prominent, not sit as "no rush". */
 export function isObligationOverdueAgainstParent(item: PlacementItem, today = new Date()): boolean {
   if (item.kind !== 'obligation') return false;
   const when = parentAnchorDate(item);
   if (!when) return false;
   return when < todayYmd(today);
+}
+
+/** Packing/gift child whose parent day has already passed. Still Radar-only — not a Home escalation. */
+export function isPastParentPackingLeftover(item: PlacementItem, today = new Date()): boolean {
+  if (!isPackingChildOfParent(item, today)) return false;
+  return isObligationOverdueAgainstParent(item, today);
+}
+
+/** Packing leftover past RADAR_PAST_PARENT_KEEP_DAYS — hide from the default Radar queue only. */
+export function isAgedRadarPackingLeftover(item: PlacementItem, today = new Date()): boolean {
+  if (!isPastParentPackingLeftover(item, today)) return false;
+  const days = daysPastParentEvent(item, today);
+  return days != null && days > RADAR_PAST_PARENT_KEEP_DAYS;
+}
+
+export function isPastParentPackingLeftoverCard<T extends PlacementItem>(
+  item: T,
+  children: T[] = [],
+  today = new Date(),
+): boolean {
+  if (children.some((child) => isPastParentPackingLeftover(child, today))) return true;
+  return isPastParentPackingLeftover(item, today);
 }
 
 function closedParentStatus(
@@ -178,16 +218,34 @@ function eventDayYmd(item: PlacementItem): string | null {
   return dateOnly(item.event_date) || dateOnly(item.occurs_at);
 }
 
-/** Named upcoming occurrence — not a generic diary meeting. Showing up is not a Home action. */
+/** Booked medical slot with nothing extra to do — Schedule only, never Radar. */
+export function isRoutineClinicSlotTitle(title?: string | null): boolean {
+  const value = title || '';
+  if (/\b(school|primary|secondary)\s+admissions?\b/i.test(value)) return false;
+  return /\b(dentist|doctor|gp|optician|hearing|checkup|check-up|appointment|pre[- ]?opp?|pre[- ]?op(?:erative)?|operation|surgery|hospital|admission)\b/i.test(
+    value,
+  );
+}
+
+/** Named upcoming occurrence — not a generic diary meeting or a booked medical slot. Showing up is not a Home action. */
 function isUpcomingNamedLifeEvent(item: PlacementItem, today: Date): boolean {
   if (item.kind !== 'occurrence') return false;
+  if (isRoutineClinicSlotTitle(item.title)) return false;
   if (!titleNamesAttendableEvent(item.title || '')) return false;
   const day = eventDayYmd(item);
   if (!day) return false;
-  return day >= todayYmd(today);
+  return day > todayYmd(today);
 }
 
 /** Radar "Keeping an eye on": holds, upcoming named events, or obligations not yet due / whose window has not opened. */
+function isShowUpChild(item: PlacementItem, byId?: Map<string, PlacementItem>): boolean {
+  if (!item.parent_id) return false;
+  const parent = unwrapPlacementParent(item.parent) || byId?.get(item.parent_id);
+  if (!parent?.title) return false;
+  if (parent.kind !== 'occurrence' && parent.kind !== 'context_only') return false;
+  return isRedundantEventWork(item.title || '', parent.title);
+}
+
 export function isRadarWatchItem(
   item: PlacementItem,
   today = new Date(),
@@ -196,6 +254,7 @@ export function isRadarWatchItem(
   if (!isOpenForSurfacing(item.status)) return false;
   if (closedParentStatus(item, byId)) return false;
   if (isBarePrepChild(item)) return false;
+  if (isShowUpChild(item, byId)) return false;
   if (item.kind === 'hold') return true;
   if (isUpcomingNamedLifeEvent(item, today)) return true;
   if (item.kind !== 'obligation') return false;
@@ -203,6 +262,7 @@ export function isRadarWatchItem(
     const parent = unwrapPlacementParent(item.parent);
     // The hold is the card. An undated "buy a new X" child is the same awareness.
     if (parent?.kind === 'hold') return false;
+    if (isAgedRadarPackingLeftover(item, today)) return false;
     return true;
   }
   if (isObligationOverdueAgainstParent(item, today)) return false;
@@ -218,6 +278,7 @@ export function isHomeEligible(
   if (item.kind !== 'obligation') return false;
   if (closedParentStatus(item, byId)) return false;
   if (isBarePrepChild(item)) return false;
+  if (isShowUpChild(item, byId)) return false;
   const confidence = (item.confidence || 'medium').toLowerCase();
   if (confidence === 'low') return false;
   if (confidence !== 'high' && confidence !== 'medium') return false;
@@ -507,6 +568,7 @@ export function isFamilyVisible(item: PlacementItem, today = new Date()): boolea
   if (item.kind === 'list_item') return false;
   if (isHomeEligible(item, today) || isRadarWatchItem(item, today) || isScheduleItem(item)) return true;
   if (item.kind === 'context_only') {
+    if (isAdminStatusTitle(item.title)) return false;
     return !!(dateOnly(item.occurs_at) || dateOnly(item.event_date));
   }
   return false;

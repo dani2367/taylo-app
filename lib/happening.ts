@@ -30,7 +30,7 @@ export function happenCountLabel(count: number) {
   return count === 1 ? '1 thing happening' : `${count} things happening`;
 }
 
-export function happenSortKey(item: HappenItem): number {
+export function happenSortKey(item: { time: string }): number {
   if (/^all day$/i.test(item.time) || /^note$/i.test(item.time)) return 0;
   const match = /(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i.exec(item.time);
   if (!match) return 1;

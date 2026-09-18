@@ -20,6 +20,8 @@ import { linkIncomingItem } from '../_shared/cross-source.ts';
 import {
   eventDateFromIntake,
   intakeRowFields,
+  isAdminStatusTitle,
+  isIgnorableStatusUpdate,
   splitParentAndChildren,
 } from '../_shared/intake-contract.ts';
 import { getFreshMicrosoftAccessToken, type MicrosoftConnection } from '../_shared/microsoft.ts';
@@ -333,31 +335,30 @@ async function processEmail(
     extracted.items.map((item) => item.kind).join(',') || 'none',
   );
 
-  if (extracted.capture === 'nothing_here') {
-    await markEmailSeen(supabase, userId, email, 'ignored');
-    return false;
-  }
-  if (!extracted.items.length) {
-    await markEmailSeen(supabase, userId, email, 'no_action');
-    return false;
-  }
-
   const { parent, children } = splitParentAndChildren(
     extracted.items,
     extracted.nudge_title || extracted.items[0]?.title || subject,
   );
-  if (!parent.title) {
-    await markEmailSeen(supabase, userId, email, 'no_action');
+  const incomingTitle = parent.title || extracted.nudge_title || subject;
+  if (
+    extracted.capture === 'nothing_here' ||
+    isIgnorableStatusUpdate({
+      sourceText: userMessage,
+      title: incomingTitle,
+      items: extracted.items,
+    })
+  ) {
+    await markEmailSeen(supabase, userId, email, 'ignored');
     return false;
   }
+  const incomingKind = parent.kind;
 
-  const incomingTitle = extracted.nudge_title || parent.title;
   const linked = await linkIncomingItem(supabase, userId, {
     title: incomingTitle,
-    kind: parent.kind,
+    kind: incomingKind,
     source: 'email',
     who_it_affects: extracted.who_it_affects,
-    occurs_at: parent.occurs_at,
+    occurs_at: parent.occurs_at || extracted.date,
     due_at: parent.due_at,
     event_date: eventDateFromIntake(parent, 'email') ?? extracted.date,
     parent_id: null,
@@ -371,6 +372,7 @@ async function processEmail(
     category: extracted.category,
     user_id: userId,
     created_by: userId,
+    sourceText: userMessage,
   });
   if (linked.merged && linked.canonicalId) {
     await ensureSourceEmail(supabase, userId, linked.canonicalId, email);
@@ -378,9 +380,14 @@ async function processEmail(
     await insertIntakeChildren(supabase, {
       userId,
       itemId: linked.canonicalId,
-      items: children,
+      items: children.filter((item) => !isAdminStatusTitle(item.title)),
     });
     return true;
+  }
+
+  if (!extracted.items.length || !parent.title) {
+    await markEmailSeen(supabase, userId, email, 'no_action');
+    return false;
   }
 
   const { data: inserted, error: insertError } = await supabase
@@ -414,7 +421,7 @@ async function processEmail(
   await insertIntakeChildren(supabase, {
     userId,
     itemId: inserted.id,
-    items: children,
+    items: children.filter((item) => !isAdminStatusTitle(item.title)),
   });
   return true;
 }

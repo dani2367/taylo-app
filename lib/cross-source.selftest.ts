@@ -1,6 +1,7 @@
 import {
   planCrossSourceLink,
   scoreCrossSourceMatch,
+  subjectsShareThread,
   titleSimilarity,
   type LinkableItem,
 } from '../supabase/functions/_shared/cross-source.ts';
@@ -211,6 +212,70 @@ expect(
   'same person Apple and Outlook calendars stay separate',
   planCrossSourceLink(sameOwnerApple, [sameOwnerOutlook]).action,
   'create',
+);
+
+const operation: LinkableItem = {
+  id: 'chat-op',
+  title: "Taya's operation",
+  kind: 'occurrence',
+  source: 'chat',
+  who_it_affects: 'Taya',
+  occurs_at: '2026-09-23',
+  parent_id: null,
+  status: 'open',
+};
+const admissionAsk: LinkableItem = {
+  title: "Taya's admission",
+  kind: 'occurrence',
+  source: 'email',
+  who_it_affects: 'Taya',
+  occurs_at: '2026-09-23',
+  parent_id: null,
+  status: 'open',
+  source_email_subject: '23/09 MRN 3560625 T S D',
+};
+const admissionAskLink = planCrossSourceLink(admissionAsk, [operation]);
+expect('admission and operation on the same day merge', admissionAskLink.action, 'merge');
+if (admissionAskLink.action === 'merge') {
+  expect('operation stays canonical for the admission email', admissionAskLink.canonicalId, 'chat-op');
+}
+
+const authorisedMail: LinkableItem = {
+  title: 'Hospital admission authorised',
+  kind: 'occurrence',
+  source: 'email',
+  who_it_affects: 'Taya',
+  occurs_at: '2026-09-23',
+  parent_id: null,
+  status: 'open',
+  source_email_subject: 'Re: 23/09 MRN 3560625 T S D',
+  sourceText:
+    'Sender: hospital@nhs.uk\nSubject: Re: 23/09 MRN 3560625 T S D\nBody: I can now confirm we have the required authorisation in place for the admission on the 23/09.',
+};
+const authorisedLink = planCrossSourceLink(authorisedMail, [
+  {
+    ...operation,
+    source_email_subject: '23/09 MRN 3560625 T S D',
+  },
+]);
+expect('authorised reply is not merged onto the operation', authorisedLink.action, 'create');
+
+const preOp: LinkableItem = {
+  id: 'cal-preop',
+  title: 'Taya pre opp appointment',
+  kind: 'occurrence',
+  source: 'calendar',
+  who_it_affects: 'Taya',
+  occurs_at: '2026-09-22T09:00:00',
+  parent_id: null,
+  status: 'open',
+};
+expect('pre-op the day before is not the operation', planCrossSourceLink(admissionAsk, [preOp]).action, 'create');
+
+expect(
+  'replies share a thread after stripping Re',
+  subjectsShareThread('Re: 23/09 MRN 3560625 T S D', '23/09 MRN 3560625 T S D'),
+  true,
 );
 
 if (!process.exitCode) console.log('cross-source self-test passed');

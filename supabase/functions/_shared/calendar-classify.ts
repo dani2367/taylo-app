@@ -199,7 +199,7 @@ Return ONLY a JSON object:
     {
       "id": "uuid from the input",
       "category": "school|medical|activity|home|errand|none",
-      "who_it_affects": "family member name, family, or null",
+      "who_it_affects": "you, family member name, family, or null",
       "urgency": "today|this_week|upcoming|none",
       "action_description": "one overview sentence for the expanded card, or null",
       "suggestion": "a distinct next-step tip, or null",

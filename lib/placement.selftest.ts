@@ -13,6 +13,7 @@ import {
   isInformationalOnSchedule,
   isOccurrenceOnSchedule,
   isRadarWatchItem,
+  RADAR_PAST_PARENT_KEEP_DAYS,
   isScheduleItem,
   orderHomeSpotlightQueue,
   selectAllHomeActions,
@@ -159,12 +160,35 @@ const operation = item({
   confidence: 'high',
 });
 expect('operation is schedule', isScheduleItem(operation), true);
-expect('operation is radar', isRadarWatchItem(operation, today), true);
+expect('operation is not radar', isRadarWatchItem(operation, today), false);
 expect('operation is not home', isHomeEligible(operation, today), false);
+
+const admissionNag = item({
+  id: 'admission-nag',
+  title: "Taya's admission — Bupa auth needed",
+  kind: 'occurrence',
+  occurs_at: '2026-09-23',
+  due_at: null,
+  confidence: 'high',
+});
+expect('mis-titled admission is still schedule', isScheduleItem(admissionNag), true);
+expect('mis-titled admission is not radar', isRadarWatchItem(admissionNag, today), false);
+
+const authorisedNote = item({
+  id: 'authorised',
+  title: 'Hospital admission authorised',
+  kind: 'occurrence',
+  occurs_at: '2026-09-23',
+  due_at: null,
+  confidence: 'high',
+});
+expect('authorised status is not schedule', isScheduleItem(authorisedNote), false);
+expect('authorised status is not radar', isRadarWatchItem(authorisedNote, today), false);
+expect('authorised status is not family', isFamilyVisible(authorisedNote, today), false);
 expect(
-  'operation lands on keeping an eye on',
-  selectRadarWatch([operation], today).some((card) => card.item.id === 'operation'),
-  true,
+  'operation stays off keeping an eye on',
+  selectRadarWatch([operation], today).map((card) => card.item.id),
+  [],
 );
 
 const preOp = item({
@@ -176,16 +200,65 @@ const preOp = item({
   confidence: 'high',
 });
 expect('pre-op appointment is schedule', isScheduleItem(preOp), true);
-expect('pre-op appointment is radar', isRadarWatchItem(preOp, today), true);
+expect('pre-op appointment is not radar', isRadarWatchItem(preOp, today), false);
 expect('pre-op appointment is not a home action', isHomeEligible(preOp, today), false);
 expect(
-  'pre-op appointment is keeping an eye on',
-  selectRadarWatch([preOp], today).some((card) => card.item.id === 'pre-op'),
-  true,
+  'pre-op appointment stays off keeping an eye on',
+  selectRadarWatch([preOp], today).map((card) => card.item.id),
+  [],
 );
 expect(
   'pre-op appointment does not take a home slot',
   selectHomeActions([preOp], { today }).map((card) => card.item.id),
+  [],
+);
+
+const dentistToday = item({
+  id: 'dentist-today',
+  title: "Taya's dentist",
+  kind: 'occurrence',
+  occurs_at: '2026-09-07T11:15:00',
+  due_at: null,
+  confidence: 'high',
+});
+expect('dentist today is schedule', isScheduleItem(dentistToday), true);
+expect('dentist today is not radar', isRadarWatchItem(dentistToday, today), false);
+expect(
+  'dentist today stays off keeping an eye on',
+  selectRadarWatch([dentistToday], today).map((card) => card.item.id),
+  [],
+);
+
+const dentistLater = item({
+  id: 'dentist-later',
+  title: "Taya's dentist",
+  kind: 'occurrence',
+  occurs_at: '2026-09-19T11:15:00',
+  due_at: null,
+  confidence: 'high',
+});
+expect('upcoming dentist is still schedule', isScheduleItem(dentistLater), true);
+expect('upcoming dentist is never radar', isRadarWatchItem(dentistLater, today), false);
+expect(
+  'upcoming dentist stays off keeping an eye on',
+  selectRadarWatch([dentistLater], today).map((card) => card.item.id),
+  [],
+);
+
+const preOpShowUp = item({
+  id: 'pre-op-show-up',
+  title: 'Tayas pre op appointment next Tuesday',
+  kind: 'obligation',
+  due_at: '2026-09-08',
+  occurs_at: null,
+  confidence: 'high',
+  parent_id: 'pre-op',
+  parent: preOp,
+});
+expect('pre-op show-up child is not a home action', isHomeEligible(preOpShowUp, today), false);
+expect(
+  'pre-op plus leftover attend child does not take a home slot',
+  selectHomeActions([preOp, preOpShowUp], { today }).map((card) => card.item.id),
   [],
 );
 
@@ -661,6 +734,77 @@ expect(
   true,
 );
 
+const agedParty = item({
+  id: 'aged-party',
+  title: "Frank's birthday",
+  kind: 'occurrence',
+  occurs_at: '2026-08-01T12:00:00',
+  confidence: 'high',
+});
+const agedGift = item({
+  id: 'aged-gift',
+  title: 'Buy a gift',
+  kind: 'obligation',
+  due_at: null,
+  confidence: 'medium',
+  surface_from: '2026-07-20',
+  surface_until: '2026-08-01',
+  parent_id: 'aged-party',
+  parent: { title: agedParty.title, kind: 'occurrence', occurs_at: agedParty.occurs_at, event_date: null },
+  created_at: '2026-07-20T10:00:00Z',
+});
+const agedForm = item({
+  id: 'aged-form',
+  title: 'Permission slip',
+  kind: 'obligation',
+  due_at: '2026-08-01',
+  confidence: 'high',
+  surface_from: '2026-07-20',
+  surface_until: '2026-08-01',
+  parent_id: 'aged-party',
+  parent: { title: agedParty.title, kind: 'occurrence', occurs_at: agedParty.occurs_at, event_date: null },
+  created_at: '2026-07-20T11:00:00Z',
+});
+expect(
+  'packing leftover more than 30 days past parent is not a radar watch item',
+  isRadarWatchItem(agedGift, today),
+  false,
+);
+expect('aged packing leftover is still not home', isHomeEligible(agedGift, today), false);
+expect(
+  'aged packing leftover is not in the default radar queue',
+  selectRadarWatch([agedParty, agedGift], today).some(
+    (card) => card.item.id === 'aged-gift' || card.children.some((row) => row.id === 'aged-gift'),
+  ),
+  false,
+);
+expect('aged admin leftover stays off radar watch', isRadarWatchItem(agedForm, today), false);
+expect('aged admin leftover still escalates to home', isHomeEligible(agedForm, today), true);
+expect('aged admin leftover is still a home spotlight item', isHomeSpotlightItem(agedForm, today), true);
+expect('radar leftover keep window is 30 days', RADAR_PAST_PARENT_KEEP_DAYS, 30);
+
+const keepParty = item({
+  id: 'keep-party',
+  title: "Frank's birthday",
+  kind: 'occurrence',
+  occurs_at: '2026-08-08T12:00:00',
+  confidence: 'high',
+});
+const keepGift = item({
+  id: 'keep-gift',
+  title: 'Buy a gift',
+  kind: 'obligation',
+  due_at: null,
+  confidence: 'medium',
+  parent_id: 'keep-party',
+  parent: { title: keepParty.title, kind: 'occurrence', occurs_at: keepParty.occurs_at, event_date: null },
+});
+expect(
+  'packing leftover on the 30th day past parent still stays on radar',
+  isRadarWatchItem(keepGift, today),
+  true,
+);
+
 const calendarHome = selectHomeActions([party, buyCardOpen], { today, limit: 4 });
 expect('this-week calendar party is the home card', calendarHome.map((card) => card.item.id), ['party']);
 expect('calendar child folds under the party', calendarHome[0]?.children.map((row) => row.id), ['card']);
@@ -1040,6 +1184,25 @@ const helmetRadar = selectRadarWatch([helmetHold, buyHelmet], today);
 expect('cracked helmet is one radar hold', helmetRadar.length, 1);
 expect('cracked helmet card is the hold', helmetRadar[0]?.item.id, 'helmet-hold');
 expect('buy-helmet is not a second radar card', helmetRadar.some((card) => card.item.id === 'buy-helmet'), false);
+
+const dietitian = item({
+  id: 'dietitian',
+  title: 'Dietitian availability delayed',
+  kind: 'context_only',
+  created_at: '2026-09-18T08:05:27Z',
+});
+const compleat = item({
+  id: 'compleat',
+  title: 'Compleat Paediatric 500ml supply swap',
+  kind: 'hold',
+  parent_id: 'dietitian',
+  parent: { title: dietitian.title, kind: 'context_only' },
+  created_at: '2026-09-18T08:05:28Z',
+});
+const dietitianRadar = selectRadarWatch([dietitian, compleat], today);
+expect('dietitian delay plus supply is one radar card', dietitianRadar.length, 1);
+expect('dietitian card is the parent', dietitianRadar[0]?.item.id, 'dietitian');
+expect('compleat stays nested under dietitian', dietitianRadar[0]?.children.map((row) => row.id), ['compleat']);
 
 const holdHub = item({
   id: 'trainers-hold',

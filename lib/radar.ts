@@ -1,4 +1,4 @@
-import { daysUntil, humanizeEventDate, parseEventDate, thingsToSortLabel } from './human-date';
+import { calendarDateLabel, daysUntil, thingsToSortLabel } from './human-date';
 import { isObligationOverdueAgainstParent, unwrapPlacementParent } from './placement';
 
 export const RADAR_PREVIEW = 5;
@@ -35,7 +35,7 @@ export function compareRadarItems(a: RadarItem, b: RadarItem): number {
 
 function parentWhen(item: RadarItem, today: Date): string | null {
   const parent = unwrapPlacementParent(item.parent);
-  return humanizeEventDate(parent?.occurs_at || parent?.event_date, today);
+  return calendarDateLabel(parent?.occurs_at || parent?.event_date, today);
 }
 
 export function radarStatusLine(item: RadarItem, today = new Date()): string {
@@ -49,15 +49,13 @@ export function radarStatusLine(item: RadarItem, today = new Date()): string {
   const days = daysUntil(ownDate || parentDate, today);
 
   if (ownDate == null && parentDate) {
+    const parentDays = daysUntil(parentDate, today);
     const when = parentWhen(item, today);
-    if (when && /ago|yesterday/i.test(when)) {
+    if (parentDays != null && parentDays < 0) {
       return 'Still to sort — this has already happened';
     }
-    if (when === 'Today') return 'Still to sort for today';
-    if (when) {
-      const spoken = when.replace(/^due\s+/i, '');
-      return `I'll bring this up closer to ${spoken.toLowerCase()}`;
-    }
+    if (parentDays === 0) return 'Still to sort for today';
+    if (when) return `I'll bring this up closer to ${when}`;
   }
 
   if (days == null) {
@@ -75,22 +73,8 @@ export function radarStatusLine(item: RadarItem, today = new Date()): string {
     return 'No date yet';
   }
 
-  const date = parseEventDate(ownDate || parentDate);
-  if (date) {
-    const nextMonth = (today.getMonth() + 1) % 12;
-    const nextYear = today.getMonth() === 11 ? today.getFullYear() + 1 : today.getFullYear();
-    if (date.getMonth() === nextMonth && date.getFullYear() === nextYear) {
-      return 'Due next month';
-    }
-  }
-
-  if (days > 45) return "No rush — I'll keep this on your radar";
-
-  const when = humanizeEventDate(ownDate || parentDate, today);
-  if (when) {
-    if (/^in\s+/i.test(when)) return `Due ${when.toLowerCase()}`;
-    return when;
-  }
+  const when = calendarDateLabel(ownDate || parentDate, today);
+  if (when) return when;
   return "No rush — I'll keep this on your radar";
 }
 
@@ -105,7 +89,7 @@ export function radarGroupedContext(
   childTitles: string[] = [],
 ): string {
   const countLabel = thingsToSortLabel(count);
-  const when = humanizeEventDate(parentDate, today);
+  const when = calendarDateLabel(parentDate, today);
   const compact = childTitles
     .map((title) => title.replace(/\s+/g, ' ').trim())
     .filter((title) => title && title.length <= 28);
@@ -115,9 +99,9 @@ export function radarGroupedContext(
       : '';
 
   if (names) {
-    if (!when || /ago|yesterday/i.test(when)) return names;
+    if (!when) return names;
     return `${when} · ${names}`;
   }
-  if (!when || /ago|yesterday/i.test(when)) return countLabel;
+  if (!when) return countLabel;
   return `${when} · ${countLabel}`;
 }

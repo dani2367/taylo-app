@@ -7,7 +7,10 @@ import { Pressable, Text, View } from 'react-native';
 export function SharedHouseCorner({ shared }: { shared: boolean }) {
   if (!shared) return null;
   return (
-    <View style={s.sharedHouseCorner} pointerEvents="none" accessibilityLabel="Visible to household">
+    <View
+      style={s.sharedHouseCorner}
+      pointerEvents="none"
+      accessibilityLabel="Visible to household">
       <Ionicons name="home" size={13} color={colors.terracotta} />
     </View>
   );
@@ -39,11 +42,9 @@ export function HouseholdShareToggle({
       accessibilityRole={onToggle ? 'switch' : 'text'}
       accessibilityState={{ checked: shared }}
       accessibilityLabel={`${label}. ${sub}`}>
-      <Ionicons
-        name={shared ? 'home' : 'home-outline'}
-        size={16}
-        color={shared ? colors.terracotta : colors.textHint}
-      />
+      <View style={[s.shareToggleIcon, { backgroundColor: colors.blush }]}>
+        <Ionicons name={shared ? 'home' : 'home-outline'} size={16} color={colors.terracotta} />
+      </View>
       <View style={s.shareToggleCopy}>
         <Text style={s.shareToggleLabel}>{label}</Text>
         <Text style={s.shareToggleSub}>{sub}</Text>

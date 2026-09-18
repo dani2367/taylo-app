@@ -11,7 +11,6 @@ import {
 import {
   buildFamilyPlan,
   HOUSEHOLD_KEY,
-  YOURS_KEY,
   type FamilyMemberSource,
   type FamilySourceItem,
 } from '@/lib/plan-family';
@@ -48,7 +47,7 @@ function listCount(members: ItemCountRow[], collectionTitle: string): number {
 export default function FamilyPersonScreen() {
   const { personId } = useLocalSearchParams<{ personId?: string }>();
   const key = Array.isArray(personId) ? personId[0] : personId;
-  const [title, setTitle] = useState('Family');
+  const [title, setTitle] = useState('Household');
   const [items, setItems] = useState<PlanItemCardModel[]>([]);
   const [householdTiles, setHouseholdTiles] = useState<ReturnType<typeof buildFamilyPlan>['householdTiles']>([]);
   const [loading, setLoading] = useState(true);
@@ -110,21 +109,9 @@ export default function FamilyPersonScreen() {
     const byId = new Map(rows.map((row) => [row.id, row]));
 
     if (key === HOUSEHOLD_KEY) {
-      setTitle('Family');
+      setTitle('Household');
       setHouseholdTiles(plan.householdTiles);
       const mapped = plan.householdItems
-        .map((item) => byId.get(item.id))
-        .filter((row): row is PlanItemRow & RadarItem => !!row)
-        .sort((a, b) => compareRadarItems(a, b))
-        .map((row) => ({
-          ...mapPlanItemRow(row, today),
-          context: radarStatusLine(row, today),
-        }));
-      setItems(mapped);
-    } else if (key === YOURS_KEY) {
-      setTitle('Yours');
-      setHouseholdTiles([]);
-      const mapped = plan.yoursItems
         .map((item) => byId.get(item.id))
         .filter((row): row is PlanItemRow & RadarItem => !!row)
         .sort((a, b) => compareRadarItems(a, b))
@@ -207,10 +194,8 @@ export default function FamilyPersonScreen() {
             setItems={setItems}
             empty={
               key === HOUSEHOLD_KEY
-                ? 'Nothing sitting with the family.'
-                : key === YOURS_KEY
-                  ? 'Nothing sitting with you just now.'
-                  : `Nothing tagged to ${title} just now.`
+                ? 'Nothing sitting with the household.'
+                : `Nothing tagged to ${title} just now.`
             }
             variant="hero"
           />

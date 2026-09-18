@@ -26,15 +26,17 @@ export function PlanItemFeed({
   variant = 'card',
   maxVisible,
   header,
+  footer,
 }: {
   items: PlanItemCardModel[];
   setItems: (update: (prev: PlanItemCardModel[]) => PlanItemCardModel[]) => void;
   empty: string;
   onBecameEmpty?: () => void;
   startExpanded?: boolean;
-  variant?: 'card' | 'hero';
+  variant?: 'card' | 'hero' | 'timeline';
   maxVisible?: number;
   header?: ReactNode;
+  footer?: ReactNode;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [editingPrep, setEditingPrep] = useState<Record<string, boolean>>({});
@@ -264,9 +266,16 @@ export function PlanItemFeed({
       card={card}
       variant={variant}
       last={index === shown.length - 1}
-      expanded={!!expanded[card.id]}
+      index={index}
+      count={shown.length}
+      expanded={expanded[card.id] ?? (!!card.pastParentLeftover || startExpanded)}
       editingPrep={!!editingPrep[card.id]}
-      onToggleExpand={() => setExpanded((p) => ({ ...p, [card.id]: !p[card.id] }))}
+      onToggleExpand={() =>
+        setExpanded((p) => ({
+          ...p,
+          [card.id]: !(p[card.id] ?? (!!card.pastParentLeftover || startExpanded)),
+        }))
+      }
       onDismiss={() => void setStatus(card, 'dismissed')}
       onDone={() => void setStatus(card, 'done')}
       onShare={
@@ -302,6 +311,16 @@ export function PlanItemFeed({
       <View style={s.homeHero}>
         {header}
         {rows}
+      </View>
+    );
+  }
+
+  if (variant === 'timeline') {
+    return (
+      <View style={s.homeDayCard}>
+        {header}
+        {items.length === 0 ? null : list}
+        {footer}
       </View>
     );
   }

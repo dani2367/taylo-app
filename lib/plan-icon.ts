@@ -1,8 +1,4 @@
-import { colors } from '@/constants/theme';
-import type { ComponentProps } from 'react';
-import Ionicons from '@expo/vector-icons/Ionicons';
-
-export type IconName = ComponentProps<typeof Ionicons>['name'];
+export type IconName = string;
 export type Wash = 'blush' | 'sage' | 'paleBlue';
 
 export type PlanIconSpec = {
@@ -10,48 +6,101 @@ export type PlanIconSpec = {
   wash: Wash;
 };
 
+/** Same pastels as `constants/theme` — kept local so icon matching can be tested without RN. */
 export const washColor: Record<Wash, string> = {
-  blush: colors.blush,
-  sage: colors.sage,
-  paleBlue: colors.paleBlue,
+  blush: '#F2DED8',
+  sage: '#DDE8E2',
+  paleBlue: '#DCE7ED',
 };
 
+const DOC: PlanIconSpec = { name: 'document-text-outline', wash: 'sage' };
+const SCHOOL: PlanIconSpec = { name: 'school-outline', wash: 'sage' };
+const HEART: PlanIconSpec = { name: 'heart-outline', wash: 'blush' };
+const GIFT: PlanIconSpec = { name: 'gift-outline', wash: 'blush' };
+const SPORT: PlanIconSpec = { name: 'fitness-outline', wash: 'blush' };
+const BIKE: PlanIconSpec = { name: 'bicycle-outline', wash: 'blush' };
+const WATER: PlanIconSpec = { name: 'water-outline', wash: 'paleBlue' };
+const SPA: PlanIconSpec = { name: 'flower-outline', wash: 'blush' };
+const CALENDAR: PlanIconSpec = { name: 'calendar-outline', wash: 'blush' };
+const MEDKIT: PlanIconSpec = { name: 'medkit-outline', wash: 'paleBlue' };
+const PLANE: PlanIconSpec = { name: 'airplane-outline', wash: 'paleBlue' };
+const CART: PlanIconSpec = { name: 'cart-outline', wash: 'paleBlue' };
+const HOME: PlanIconSpec = { name: 'home-outline', wash: 'blush' };
+const CARD: PlanIconSpec = { name: 'card-outline', wash: 'paleBlue' };
+const CALL: PlanIconSpec = { name: 'call-outline', wash: 'paleBlue' };
+const TICKET: PlanIconSpec = { name: 'ticket-outline', wash: 'blush' };
+const CAMERA: PlanIconSpec = { name: 'camera-outline', wash: 'sage' };
+const CUT: PlanIconSpec = { name: 'cut-outline', wash: 'blush' };
+const BED: PlanIconSpec = { name: 'bed-outline', wash: 'paleBlue' };
+const PEOPLE: PlanIconSpec = { name: 'people-outline', wash: 'paleBlue' };
+const CHECK: PlanIconSpec = { name: 'checkbox-outline', wash: 'sage' };
+const LIST: PlanIconSpec = { name: 'list-outline', wash: 'sage' };
+const CUBE: PlanIconSpec = { name: 'cube-outline', wash: 'paleBlue' };
+const SWAP: PlanIconSpec = { name: 'swap-horizontal-outline', wash: 'paleBlue' };
+const BOOKMARK: PlanIconSpec = { name: 'bookmark-outline', wash: 'blush' };
+const WRENCH: PlanIconSpec = { name: 'construct-outline', wash: 'paleBlue' };
+
 const EMOJI_TO_ICON: Record<string, PlanIconSpec> = {
-  '🛒': { name: 'cart-outline', wash: 'paleBlue' },
-  '✈️': { name: 'airplane-outline', wash: 'paleBlue' },
-  '🎂': { name: 'gift-outline', wash: 'blush' },
-  '🎁': { name: 'gift-outline', wash: 'blush' },
-  '🎉': { name: 'gift-outline', wash: 'blush' },
-  '🎟️': { name: 'ticket-outline', wash: 'blush' },
-  '🦷': { name: 'medkit-outline', wash: 'paleBlue' },
-  '📞': { name: 'call-outline', wash: 'paleBlue' },
-  '📝': { name: 'document-text-outline', wash: 'sage' },
-  '🏫': { name: 'school-outline', wash: 'sage' },
-  '📚': { name: 'school-outline', wash: 'sage' },
-  '💳': { name: 'card-outline', wash: 'paleBlue' },
-  '🏠': { name: 'home-outline', wash: 'blush' },
-  '📦': { name: 'cube-outline', wash: 'paleBlue' },
-  '↩️': { name: 'swap-horizontal-outline', wash: 'paleBlue' },
-  '🏥': { name: 'medkit-outline', wash: 'paleBlue' },
-  '🎭': { name: 'bicycle-outline', wash: 'blush' },
-  '📷': { name: 'camera-outline', wash: 'sage' },
-  '🧷': { name: 'cart-outline', wash: 'paleBlue' },
-  '📌': { name: 'bookmark-outline', wash: 'blush' },
-  '🔧': { name: 'construct-outline', wash: 'paleBlue' },
+  '🛒': CART,
+  '✈️': PLANE,
+  '🎂': GIFT,
+  '🎁': GIFT,
+  '🎉': GIFT,
+  '🎊': GIFT,
+  '🥂': HEART,
+  '💍': HEART,
+  '👰': HEART,
+  '🎟️': TICKET,
+  '🎭': TICKET,
+  '🦷': MEDKIT,
+  '🏥': MEDKIT,
+  '💊': MEDKIT,
+  '📞': CALL,
+  '📝': DOC,
+  '🏫': SCHOOL,
+  '📚': SCHOOL,
+  '💳': CARD,
+  '🏠': HOME,
+  '📦': CUBE,
+  '↩️': SWAP,
+  '📷': CAMERA,
+  '🧷': CART,
+  '📌': BOOKMARK,
+  '🔧': WRENCH,
+  '⚽': SPORT,
+  '🏊': WATER,
+  '🏃': SPORT,
+  '🚴': BIKE,
+  '💐': SPA,
+  '🌸': SPA,
 };
 
 const CATEGORY_ICON: Record<string, PlanIconSpec> = {
-  school: { name: 'school-outline', wash: 'sage' },
-  medical: { name: 'medkit-outline', wash: 'paleBlue' },
-  activity: { name: 'bicycle-outline', wash: 'blush' },
-  delivery: { name: 'cube-outline', wash: 'paleBlue' },
-  returns: { name: 'swap-horizontal-outline', wash: 'paleBlue' },
-  financial: { name: 'card-outline', wash: 'paleBlue' },
-  errand: { name: 'cart-outline', wash: 'paleBlue' },
-  home: { name: 'home-outline', wash: 'blush' },
+  school: SCHOOL,
+  medical: MEDKIT,
+  activity: CALENDAR,
+  delivery: CUBE,
+  returns: SWAP,
+  financial: CARD,
+  errand: CART,
+  home: HOME,
 };
 
-const DEFAULT_ICON: PlanIconSpec = { name: 'bookmark-outline', wash: 'blush' };
+/** Category glyphs written at ingest — never treat them as a chosen icon. */
+const GENERIC_STORED = new Set([
+  'bicycle-outline',
+  'school-outline',
+  'medkit-outline',
+  'cube-outline',
+  'swap-horizontal-outline',
+  'card-outline',
+  'cart-outline',
+  'home-outline',
+  'gift-outline',
+  'calendar-outline',
+  'bookmark-outline',
+  'fitness-outline',
+]);
 
 export function resolvePlanIcon(opts: {
   title?: string | null;
@@ -59,65 +108,122 @@ export function resolvePlanIcon(opts: {
   collectionType?: string | null;
   stored?: string | null;
 }): PlanIconSpec {
-  if (opts.collectionType === 'shopping') return { name: 'cart-outline', wash: 'paleBlue' };
-  if (opts.collectionType === 'todo' || opts.title === 'General to do') {
-    return { name: 'checkbox-outline', wash: 'sage' };
-  }
-  if (opts.collectionType === 'trip') return { name: 'airplane-outline', wash: 'paleBlue' };
+  if (opts.collectionType === 'shopping') return CART;
+  if (opts.collectionType === 'todo' || opts.title === 'General to do') return CHECK;
+  if (opts.collectionType === 'trip') return PLANE;
   if (opts.collectionType === 'custom' || opts.collectionType === 'other') {
     const customStored = (opts.stored || '').trim();
-    if (customStored && EMOJI_TO_ICON[customStored]) return EMOJI_TO_ICON[customStored];
-    if (!customStored) return { name: 'list-outline', wash: 'sage' };
+    const fromEmoji = iconFromStored(customStored);
+    if (fromEmoji) return fromEmoji;
+    if (!customStored) return LIST;
   }
 
-  const stored = (opts.stored || '').trim();
-  if (stored && EMOJI_TO_ICON[stored]) return EMOJI_TO_ICON[stored];
-  if (stored && stored.includes('-')) {
-    return { name: stored as IconName, wash: washForStored(stored, opts.category) };
-  }
+  const fromTitle = iconFromTitle(opts.title);
+  if (fromTitle) return fromTitle;
 
-  const blob = `${opts.title || ''} ${opts.category || ''}`.toLowerCase();
-
-  if (/\b(birthday|bday)\b/.test(blob)) return { name: 'gift-outline', wash: 'blush' };
-  if (/\b(present|gift|card)\b/.test(blob) && !/\bpermission\b/.test(blob)) {
-    return { name: 'gift-outline', wash: 'blush' };
-  }
-  if (/\b(ticket|tickets|panto)\b/.test(blob)) return { name: 'ticket-outline', wash: 'blush' };
-  if (/\b(dentist|dental|teeth|orthodont|gp|nhs|doctor|hospital|pharmacy)\b/.test(blob)) {
-    return { name: 'medkit-outline', wash: 'paleBlue' };
-  }
-  if (/\b(flight|holiday|travel|trip|passport|suitcase)\b/.test(blob)) {
-    return { name: 'airplane-outline', wash: 'paleBlue' };
-  }
-  if (/\b(call|phone|ring)\b/.test(blob)) return { name: 'call-outline', wash: 'paleBlue' };
-  if (/\b(permission|ofsted|admin|form|paperwork)\b/.test(blob)) {
-    return { name: 'document-text-outline', wash: 'sage' };
-  }
-  if (/\b(photo|camera)\b/.test(blob)) return { name: 'camera-outline', wash: 'sage' };
-  if (/\b(school|teacher|nursery|homework|uniform|pe kit)\b/.test(blob)) {
-    return { name: 'school-outline', wash: 'sage' };
-  }
-  if (/\b(bill|invoice|pay|payment|council tax|rent|mortgage)\b/.test(blob)) {
-    return { name: 'card-outline', wash: 'paleBlue' };
-  }
-  if (/\b(shop|shopping|grocery|groceries|tesco|sainsbury|waitrose|asda|aldi|lidl)\b/.test(blob)) {
-    return { name: 'cart-outline', wash: 'paleBlue' };
-  }
-  if (/\b(home|laundry|bins|dishwasher|garden|boiler|clean)\b/.test(blob)) {
-    return { name: 'home-outline', wash: 'blush' };
-  }
-  if (opts.collectionType === 'event') return { name: 'gift-outline', wash: 'blush' };
+  const stored = iconFromStored((opts.stored || '').trim());
+  if (stored) return stored;
 
   const category = (opts.category || '').toLowerCase();
   if (CATEGORY_ICON[category]) return CATEGORY_ICON[category];
 
-  if (stored && EMOJI_TO_ICON[stored.slice(0, 2)]) return EMOJI_TO_ICON[stored.slice(0, 2)];
-  return DEFAULT_ICON;
+  return BOOKMARK;
 }
 
-function washForStored(name: string, category?: string | null): Wash {
-  if (category && CATEGORY_ICON[category.toLowerCase()]) return CATEGORY_ICON[category.toLowerCase()].wash;
+function iconFromStored(stored: string): PlanIconSpec | null {
+  if (!stored) return null;
+  if (EMOJI_TO_ICON[stored]) return EMOJI_TO_ICON[stored];
+  if (EMOJI_TO_ICON[stored.slice(0, 2)]) return EMOJI_TO_ICON[stored.slice(0, 2)];
+  if (!stored.includes('-')) return null;
+  if (GENERIC_STORED.has(stored)) return null;
+  return { name: stored as IconName, wash: washForStored(stored) };
+}
+
+function iconFromTitle(raw?: string | null): PlanIconSpec | null {
+  const title = (raw || '').toLowerCase().replace(/['’]/g, "'");
+  if (!title.trim()) return null;
+
+  if (isPaperwork(title)) return DOC;
+  if (isWedding(title)) return HEART;
+  if (isSchoolReception(title)) return SCHOOL;
+  if (isBirthdayOrGift(title)) return GIFT;
+  if (/\b(spa|massage|sauna|wellness|facial|manicure|pedicure)\b/.test(title)) return SPA;
+  if (/\b(haircut|hair cut|hairdresser|barber|blow-?dry)\b/.test(title)) return CUT;
+  if (/\b(dentist|dental|teeth|orthodont|gp|nhs|doctor|hospital|pharmacy|optician|eye test|immunis|vaccin|pre-?op|operation|surgery)\b/.test(title)) {
+    return MEDKIT;
+  }
+  if (/\b(hotel|accommodation|airbnb|b&b)\b/.test(title)) return BED;
+  if (/\b(flight|holiday|holidays|travel|passport|suitcase|airport)\b/.test(title) || /\btrip\b/.test(title)) {
+    return PLANE;
+  }
+  if (isSport(title)) return sportIcon(title);
+  if (/\b(ticket|tickets|panto|theatre|theater|cinema|concert|show)\b/.test(title)) return TICKET;
+  if (/\b(call|phone|ring back|phone call)\b/.test(title)) return CALL;
+  if (/\b(photo|camera)\b/.test(title)) return CAMERA;
+  if (isSchool(title)) return SCHOOL;
+  if (/\b(bill|invoice|payment|council tax|rent|mortgage)\b/.test(title) || /\bpay\b/.test(title)) return CARD;
+  if (/\b(shop|shopping|grocery|groceries|tesco|sainsbury|waitrose|asda|aldi|lidl)\b/.test(title)) return CART;
+  if (/\b(buy|order|pick up|collect)\b/.test(title)) return CART;
+  if (/\b(laundry|bins|dishwasher|garden|boiler|clean)\b/.test(title)) return HOME;
+  if (/\b(meeting|1:1|one to one|standup|playdate|catch[- ]up)\b/.test(title)) return PEOPLE;
+  if (/\b(party|celebration|anniversary)\b/.test(title)) return GIFT;
+  return null;
+}
+
+function isPaperwork(title: string): boolean {
+  if (/\b(application|enrol|enroll|admission|ofsted|paperwork|rsvp|permission|consent)\b/.test(title)) {
+    return true;
+  }
+  if (/\b(form|forms)\b/.test(title) && !/\buniform\b/.test(title)) return true;
+  if (/\b(speech|chairman)\b/.test(title)) return true;
+  return false;
+}
+
+/** The day someone gets married — not a present, not school reception. */
+function isWedding(title: string): boolean {
+  if (!/\b(wedding|hen do|stag do|civil ceremony)\b/.test(title)) return false;
+  if (/\b(buy|order|shop|shoes|present|gift|card)\b/.test(title)) return false;
+  return true;
+}
+
+function isSchoolReception(title: string): boolean {
+  if (/\bwedding\b/.test(title)) return false;
+  if (!/\breception\b/.test(title)) return false;
+  return /\b(application|class|place|places|year|school|nursery|primary|start|starting|offer|admissions?)\b/.test(
+    title,
+  );
+}
+
+function isBirthdayOrGift(title: string): boolean {
+  if (/\b(birthday|bday)\b/.test(title)) return true;
+  if (/\b(present|gift)\b/.test(title) && !/\bpermission\b/.test(title)) return true;
+  if (/\b(birthday card|party card|thank[-\s]?you card)\b/.test(title)) return true;
+  if (/\b(buy|get|order)\s+(a\s+)?card\b/.test(title)) return true;
+  return false;
+}
+
+function isSport(title: string): boolean {
+  return /\b(swim|swimming|gala|football|rugby|tennis|ballet|dance|bike|cycle|cycling|training|match|pe\b|sports? day|athletics|gym|yoga|pilates)\b/.test(
+    title,
+  );
+}
+
+function sportIcon(title: string): PlanIconSpec {
+  if (/\b(bike|cycle|cycling)\b/.test(title)) return BIKE;
+  if (/\b(swim|swimming)\b/.test(title)) return WATER;
+  return SPORT;
+}
+
+function isSchool(title: string): boolean {
+  return /\b(school|teacher|nursery|homework|uniform|pe kit|parents'? evening|inset|nativity|assembly|ofsted)\b/.test(
+    title,
+  );
+}
+
+function washForStored(name: string): Wash {
   if (name.includes('school') || name.includes('camera') || name.includes('document')) return 'sage';
-  if (name.includes('gift') || name.includes('home') || name.includes('bicycle')) return 'blush';
+  if (name.includes('gift') || name.includes('home') || name.includes('heart') || name.includes('flower')) {
+    return 'blush';
+  }
   return 'paleBlue';
 }

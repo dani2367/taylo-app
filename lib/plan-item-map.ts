@@ -1,5 +1,12 @@
 import { planContextLine, thingsToSortLabel } from './human-date';
-import { displayItemTitle, shortEventTitle, type PlacementCard, type PlacementParent } from './placement';
+import {
+  displayItemTitle,
+  isPastParentPackingLeftover,
+  isPastParentPackingLeftoverCard,
+  shortEventTitle,
+  type PlacementCard,
+  type PlacementParent,
+} from './placement';
 import { resolvePlanIcon } from './plan-icon';
 import { radarGroupedContext, radarStatusLine } from './radar';
 import { helpfulSuggestion } from './suggestion';
@@ -77,9 +84,11 @@ export function mapPlanItemRow(row: PlanItemRow, today = new Date()): PlanItemCa
     icon: resolvePlanIcon({ title, category: row.category, stored: row.icon }),
     prepLabel: incomplete ? thingsToSortLabel(incomplete) : null,
     checklist: entries,
+    checklistRowsAreItems: (row.kind === 'occurrence' || row.kind === 'context_only') && entries.length > 0,
     informational: row.kind === 'context_only',
     createdBy: row.created_by ?? null,
     visibility: row.visibility === 'shared' ? 'shared' : 'private',
+    pastParentLeftover: isPastParentPackingLeftover(row, today),
   };
 }
 
@@ -90,15 +99,19 @@ export function mapRadarWatchCard(
   if (card.children.length >= 1) {
     const countLabel = thingsToSortLabel(card.children.length);
     const childTitles = card.children.map((row) => (row.title || '').trim() || 'Untitled');
+    const leftover = isPastParentPackingLeftoverCard(card.item, card.children, today);
+    const leftoverChild = card.children.find((row) => isPastParentPackingLeftover(row, today));
     return {
       ...mapPlanItemRow(card.item, today),
       title: shortEventTitle(card.item.title) || (card.item.title || '').trim() || 'Untitled',
-      context: radarGroupedContext(
-        card.children.length,
-        card.item.occurs_at || card.item.event_date,
-        today,
-        childTitles,
-      ),
+      context: leftover && leftoverChild
+        ? radarStatusLine(leftoverChild, today)
+        : radarGroupedContext(
+            card.children.length,
+            card.item.occurs_at || card.item.event_date,
+            today,
+            childTitles,
+          ),
       informational: false,
       suggestion: null,
       checklist: card.children.map((row) => ({
@@ -108,6 +121,7 @@ export function mapRadarWatchCard(
       })),
       checklistRowsAreItems: true,
       prepLabel: countLabel,
+      pastParentLeftover: leftover,
     };
   }
 

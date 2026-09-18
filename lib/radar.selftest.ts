@@ -32,11 +32,11 @@ expect(
   radarStatusLine(item({ created_at: '2026-08-01T10:00:00Z' }), today),
   "No rush — I'll keep this on your radar",
 );
-expect('next month', radarStatusLine(item({ event_date: '2026-10-12' }), today), 'Due next month');
+expect('next month', radarStatusLine(item({ event_date: '2026-10-12' }), today), '12 October');
 expect(
   'far dated',
   radarStatusLine(item({ event_date: ymd(80) }), today),
-  "No rush — I'll keep this on your radar",
+  '24 November',
 );
 expect(
   'undated child uses parent timing, not no-date',
@@ -49,7 +49,7 @@ expect(
     }),
     today,
   ),
-  "I'll bring this up closer to next week",
+  "I'll bring this up closer to 12 September",
 );
 expect(
   'past parent is still-to-sort, not no-date or yesterday',
@@ -67,7 +67,7 @@ expect(
 expect(
   'grouped summary does not truncate',
   radarGroupedContext(2, '2026-09-12', today),
-  'Next week · 2 things to sort',
+  '12 September · 2 things to sort',
 );
 expect(
   'grouped long titles stay on the count line',
@@ -75,7 +75,7 @@ expect(
     'Check passports and visas for israel trip',
     'Arrange travel documents and insurance for the family',
   ]),
-  'In 6 weeks · 2 things to sort',
+  '17 October · 2 things to sort',
 );
 
 const ordered = [

@@ -28,7 +28,7 @@ import { viewerForUser, visibleItemsSelect } from '@/lib/item-visibility';
 import { supabase } from '@/lib/supabase';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, router } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
 const SELECT = 'id, title, body, category, icon, occurs_at, who_it_affects, kind, status, confidence';
@@ -63,11 +63,7 @@ export function AgendaItemRow({
   );
 }
 
-export function PlanSchedule({
-  onJumpTo,
-}: {
-  onJumpTo?: (localY: number) => void;
-}) {
+export function PlanSchedule() {
   const today = useMemo(() => new Date(), []);
   const [monthKey, setMonthKey] = useState(() => monthPrefix(today));
   const [selectedYmd, setSelectedYmd] = useState(() => ymdLocal(today));
@@ -77,9 +73,6 @@ export function PlanSchedule({
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const [density, setDensity] = useState<string | null>(null);
   const [busy, setBusy] = useState<BusyDay | null>(null);
-
-  const timelineY = useRef(0);
-  const [jumpSeq, setJumpSeq] = useState(0);
 
   const selectedDate = useMemo(() => {
     const [y, m, d] = selectedYmd.split('-').map(Number);
@@ -104,21 +97,9 @@ export function PlanSchedule({
     return real.sort((a, b) => happenSortKey(a) - happenSortKey(b));
   }, [buckets.selected]);
 
-  const jumpToSelectedDay = useCallback(() => {
-    if (!onJumpTo) return;
-    onJumpTo(timelineY.current);
-  }, [onJumpTo]);
-
-  useEffect(() => {
-    if (jumpSeq === 0) return;
-    const timer = setTimeout(jumpToSelectedDay, 40);
-    return () => clearTimeout(timer);
-  }, [jumpSeq, jumpToSelectedDay]);
-
   const selectDay = useCallback((ymd: string) => {
     setMonthKey(monthKeyFromYmd(ymd));
     setSelectedYmd(ymd);
-    setJumpSeq((n) => n + 1);
   }, []);
 
   const changeMonth = useCallback(
@@ -216,7 +197,7 @@ export function PlanSchedule({
         onSelectDay={selectDay}
       />
 
-      <View onLayout={(event) => { timelineY.current = event.nativeEvent.layout.y; }}>
+      <View>
         <DayTimelineCard
           kicker={isToday ? 'Today' : selectedSectionTitle(selectedDate, today)}
           items={selectedHappen}

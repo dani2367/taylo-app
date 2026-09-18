@@ -6,6 +6,7 @@ import {
   type CalendarIncoming,
 } from '../_shared/calendar-classify.ts';
 import { loadHousehold } from '../_shared/household.ts';
+import { loadHouseholdFacts } from '../_shared/family-facts.ts';
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -59,7 +60,8 @@ Deno.serve(async (req: Request) => {
     if (!events.length) return json({ success: true, classified: 0, checklists: 0 });
 
     const household = await loadHousehold(supabase, user.id);
-    const classified = await classifyCalendarEvents(anthropicKey, events, household);
+    const knowledge = await loadHouseholdFacts(supabase, { userId: user.id });
+    const classified = await classifyCalendarEvents(anthropicKey, events, household, knowledge);
     const checklists = await applyCalendarClassification(supabase, {
       userId: user.id,
       household,

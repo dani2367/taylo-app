@@ -1,7 +1,7 @@
 /** Match email/chat event rows to calendar occurrences and merge instead of duplicating. */
 
 import { dateOnly } from './placement.ts';
-import { titleNamesAttendableEvent } from './intake-contract.ts';
+import { isAdminStatusTitle, isIgnorableStatusUpdate, isRedundantEventWork, titleNamesAttendableEvent } from './intake-contract.ts';
 import { loadViewerContext } from './item-visibility.ts';
 
 export const CROSS_SOURCE_DATE_SLACK_DAYS = 1;
@@ -13,6 +13,7 @@ const SYN_GROUPS = [
   ['birthday', 'bday', 'party'],
   ['wedding', 'marriage'],
   ['trip', 'outing', 'excursion'],
+  ['operation', 'surgery', 'admission'],
 ];
 
 export const CROSS_SOURCE_SELECT =
@@ -42,6 +43,7 @@ export type LinkableItem = {
   created_by?: string | null;
   household_id?: string | null;
   visibility?: string | null;
+  sourceText?: string | null;
 };
 
 export type LinkConfidence = 'high' | 'medium' | 'low';
@@ -80,6 +82,26 @@ export function isLinkableParent(item: LinkableItem): boolean {
   if (status !== 'open') return false;
   const kind = (item.kind || '').toLowerCase();
   return kind === 'occurrence' || kind === 'context_only';
+}
+
+export function normalizeEmailSubject(subject: string | null | undefined): string {
+  return (subject || '')
+    .replace(/^\s*((re|fw|fwd)\s*:\s*)+/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+export function subjectsShareThread(a?: string | null, b?: string | null): boolean {
+  const left = normalizeEmailSubject(a);
+  const right = normalizeEmailSubject(b);
+  if (!left || !right) return false;
+  return left === right;
+}
+
+function sameMedicalHappening(a?: string | null, b?: string | null): boolean {
+  const medicalEvent = /\b(operation|surgery|admission)\b/i;
+  return medicalEvent.test(a || '') && medicalEvent.test(b || '');
 }
 
 export function titleSimilarity(a: string, b: string): number {
@@ -125,6 +147,10 @@ export function scoreCrossSourceMatch(incoming: LinkableItem, existing: Linkable
   }
 
   const titleScore = titleSimilarity(incoming.title || '', existing.title || '');
+  if (dateDeltaDays === 0 && sameMedicalHappening(incoming.title, existing.title)) {
+    return { confidence: 'high', titleScore: Math.max(titleScore, TITLE_HIGH), dateDeltaDays };
+  }
+
   const named = titleNamesAttendableEvent(incoming.title || '') && titleNamesAttendableEvent(existing.title || '');
   const tokensA = expandTokens(tokensOf(incoming.title || ''));
   const tokensB = expandTokens(tokensOf(existing.title || ''));
@@ -145,6 +171,20 @@ export function scoreCrossSourceMatch(incoming: LinkableItem, existing: Linkable
 }
 
 export function planCrossSourceLink(incoming: LinkableItem, existing: LinkableItem[]): CrossSourcePlan {
+  const statusText = incoming.sourceText || incoming.detail || incoming.body || incoming.evidence || '';
+  if (isIgnorableStatusUpdate({ sourceText: statusText, title: incoming.title })) {
+    return { action: 'create', confidence: 'none' };
+  }
+
+  const thread = existing.find(
+    (row) =>
+      !!row.id &&
+      isLinkableParent(row) &&
+      subjectsShareThread(incoming.source_email_subject, row.source_email_subject) &&
+      whoCompatible(incoming.who_it_affects, row.who_it_affects),
+  );
+  if (thread?.id) return mergePlan(incoming, thread);
+
   let best: { item: LinkableItem; titleScore: number; dateDeltaDays: number } | null = null;
   for (const row of existing) {
     const scored = scoreCrossSourceMatch(incoming, row);
@@ -158,21 +198,31 @@ export function planCrossSourceLink(incoming: LinkableItem, existing: LinkableIt
     }
   }
   if (!best?.item.id) return { action: 'create', confidence: 'none' };
+  return mergePlan(incoming, best.item);
+}
 
-  const other = best.item;
+function mergePlan(incoming: LinkableItem, other: LinkableItem): Extract<CrossSourcePlan, { action: 'merge' }> {
   const incomingIsCalendar = provenance(incoming) === 'calendar';
   const existingIsCalendar = provenance(other) === 'calendar';
   const differentOwners =
     !!ownerKey(incoming) && !!ownerKey(other) && ownerKey(incoming) !== ownerKey(other);
+  const basePatch = differentOwners
+    ? { ...foldPatch(other, incoming), visibility: 'shared' }
+    : incomingIsCalendar && incoming.id
+      ? foldPatch(incoming, other)
+      : foldPatch(other, incoming);
+  const canonical = incomingIsCalendar && incoming.id && !differentOwners ? incoming : other;
+  const extra = canonical === incoming ? other : incoming;
+  const patch = withStatusTitleGuard(extra, basePatch);
 
   if (differentOwners) {
     return {
       action: 'merge',
       confidence: 'high',
-      canonicalId: other.id,
+      canonicalId: other.id as string,
       dismissId: incoming.id ?? null,
       repointFromParentId: incoming.id && incoming.id !== other.id ? incoming.id : null,
-      patch: { ...foldPatch(other, incoming), visibility: 'shared' },
+      patch,
     };
   }
 
@@ -183,18 +233,24 @@ export function planCrossSourceLink(incoming: LinkableItem, existing: LinkableIt
       canonicalId: incoming.id,
       dismissId: other.id ?? null,
       repointFromParentId: other.id ?? null,
-      patch: foldPatch(incoming, other),
+      patch,
     };
   }
 
   return {
     action: 'merge',
     confidence: 'high',
-    canonicalId: other.id,
+    canonicalId: other.id as string,
     dismissId: incoming.id && !existingIsCalendar ? incoming.id : null,
     repointFromParentId: incoming.id && !incomingIsCalendar ? incoming.id : null,
-    patch: foldPatch(other, incoming),
+    patch,
   };
+}
+
+function withStatusTitleGuard(extra: LinkableItem, patch: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...patch };
+  if (isAdminStatusTitle(extra.title || '')) delete next.title;
+  return next;
 }
 
 export function foldedEvidence(canonical: string | null | undefined, extra: string | null | undefined): string | null {
@@ -293,6 +349,40 @@ export async function applyCrossSourcePlan(
       .eq('status', 'open');
     if (error) console.error('Failed to dismiss superseded cross-source item:', error.message);
   }
+  await dismissRedundantCanonicalChildren(supabase, plan.canonicalId);
+}
+
+async function dismissRedundantCanonicalChildren(supabase: ItemsClient, canonicalId: string): Promise<void> {
+  const { data: parent, error: parentError } = await supabase
+    .from('items')
+    .select('id, title')
+    .eq('id', canonicalId)
+    .maybeSingle();
+  if (parentError || !parent?.title) {
+    if (parentError) console.error('Failed to load canonical after merge:', parentError.message);
+    return;
+  }
+  const { data: children, error } = await supabase
+    .from('items')
+    .select('id, title, kind, status')
+    .eq('parent_id', canonicalId)
+    .eq('status', 'open');
+  if (error) {
+    console.error('Failed to load children after cross-source merge:', error.message);
+    return;
+  }
+  const redundant = ((children ?? []) as { id: string; title?: string | null; kind?: string | null }[]).filter(
+    (row) => (row.kind || '').toLowerCase() === 'obligation' && isRedundantEventWork(row.title || '', parent.title),
+  );
+  if (!redundant.length) return;
+  const { error: dismissError } = await supabase
+    .from('items')
+    .update({ status: 'dismissed' })
+    .in(
+      'id',
+      redundant.map((row) => row.id),
+    );
+  if (dismissError) console.error('Failed to drop showing-up children after merge:', dismissError.message);
 }
 
 function foldPatch(canonical: LinkableItem, extra: LinkableItem): Record<string, unknown> {

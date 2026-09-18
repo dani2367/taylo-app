@@ -18,6 +18,7 @@ import { resolvePlanIcon, type PlanIconSpec } from '@/lib/plan-icon';
 import { nestedListCount, isListHubTitle } from '@/lib/radar-organize';
 import { RADAR_PREVIEW, type RadarItem } from '@/lib/radar';
 import { exceptHomeActions, HOME_RADAR_LOAD_KINDS, selectHomeActions, selectRadarWatch } from '@/lib/placement';
+import type { PlanTabId } from '@/lib/plan-tab';
 import { viewerForUser, visibleItemsSelect } from '@/lib/item-visibility';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect, router, useLocalSearchParams } from 'expo-router';
@@ -36,7 +37,7 @@ import {
   View,
 } from 'react-native';
 
-type PlanTab = 'radar' | 'schedule' | 'family';
+type PlanTab = PlanTabId;
 
 const TABS: { id: PlanTab; label: string }[] = [
   { id: 'radar', label: 'Radar' },
@@ -110,7 +111,6 @@ export default function PlanScreen() {
   const [listKeyboardInset, setListKeyboardInset] = useState(0);
   const { height: windowHeight } = useWindowDimensions();
   const scrollRef = useRef<ScrollView>(null);
-  const scheduleOffsetY = useRef(0);
 
   useEffect(() => {
     const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', (event) => {
@@ -335,16 +335,7 @@ export default function PlanScreen() {
           </>
         )
       ) : tab === 'schedule' ? (
-        <View onLayout={(event) => { scheduleOffsetY.current = event.nativeEvent.layout.y; }}>
-          <PlanSchedule
-            onJumpTo={(localY) => {
-              scrollRef.current?.scrollTo({
-                y: Math.max(0, scheduleOffsetY.current + localY - 20),
-                animated: true,
-              });
-            }}
-          />
-        </View>
+        <PlanSchedule />
       ) : (
         <PlanFamily focusPerson={requestedPerson} />
       )}

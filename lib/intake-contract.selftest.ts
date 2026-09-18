@@ -5,7 +5,11 @@ import {
   hasUnambiguousStatedDate,
   intakeContractRules,
   isExcludedPrep,
+  isAdminStatusConfirmation,
+  isAdminStatusTitle,
+  isIgnorableStatusUpdate,
   isAttendanceRestatement,
+  isRedundantEventWork,
   isGenericDiaryTitle,
   isNamedDatedLifeEventCapture,
   namedPossessiveLifeEvent,
@@ -830,6 +834,90 @@ expect(
 );
 expect('arrive at the hospital is just showing up', isAttendanceRestatement('Arrive at the hospital'), true);
 expect('book flights is real extra work', isAttendanceRestatement('Book flights'), false);
+expect('hospital admission authorised is a status title', isAdminStatusTitle('Hospital admission authorised'), true);
+expect('bupa auth needed is not a status title', isAdminStatusTitle("Taya's admission — Bupa auth needed"), false);
+expect('confirm bupa is not a status title', isAdminStatusTitle('Confirm Bupa authorisation'), false);
+expect(
+  'auth confirmation from the latest reply',
+  isAdminStatusConfirmation(
+    'Sender: hospital@nhs.uk\nSubject: Re: 23/09 admission\nBody: I can now confirm we have the required authorisation in place for the admission on the 23/09.\n\nFrom: Sophie\nSent: earlier\nThere is currently no authorisation in place.',
+  ),
+  true,
+);
+expect(
+  'auth ask is not a confirmation even if it says in place',
+  isAdminStatusConfirmation(
+    'Sender: hospital@nhs.uk\nSubject: 23/09 admission\nBody: There is currently no authorisation in place. Please contact Bupa.',
+  ),
+  false,
+);
+
+const authAsk = finalizeSourceItems({
+  source: 'email',
+  sourceText:
+    "Sender: hospital@nhs.uk\nSubject: 23/09 admission\nBody: Taya's admission is on 23/09. There is currently no authorisation in place. Please contact Bupa.",
+  fallbackTitle: "Taya's admission — Bupa auth needed",
+  date: '2026-09-23',
+  rawItems: [
+    {
+      title: "Taya's admission — Bupa auth needed",
+      kind: 'occurrence',
+      occurs_at: '2026-09-23',
+      actionable: 'no',
+      prep_implied: 'none',
+      confidence: 'high',
+      evidence: 'no authorisation in place',
+    },
+  ],
+});
+const authAskSplit = splitParentAndChildren(authAsk, "Taya's admission");
+expect('auth-ask parent is the admission', authAskSplit.parent.title, "Taya's admission");
+expect('auth-ask parent stays an occurrence', authAskSplit.parent.kind, 'occurrence');
+expect(
+  'auth-ask becomes a child obligation',
+  authAskSplit.children.map((item) => item.title),
+  ['Confirm Bupa authorisation'],
+);
+
+const authorised = finalizeSourceItems({
+  source: 'email',
+  sourceText:
+    'Sender: hospital@nhs.uk\nSubject: Re: 23/09 admission\nBody: I can now confirm we have the required authorisation in place for the admission on the 23/09.',
+  fallbackTitle: 'Hospital admission authorised',
+  date: '2026-09-23',
+  rawItems: [
+    {
+      title: 'Hospital admission authorised',
+      kind: 'occurrence',
+      occurs_at: '2026-09-23',
+      actionable: 'no',
+      prep_implied: 'none',
+      confidence: 'high',
+      evidence: 'authorisation in place',
+    },
+  ],
+});
+expect('authorised confirmation is not persisted as an item', authorised, []);
+expect(
+  'authorised confirmation is ignored rather than treated as done',
+  isIgnorableStatusUpdate({
+    sourceText:
+      'Sender: hospital@nhs.uk\nSubject: Re: 23/09 admission\nBody: I can now confirm we have the required authorisation in place for the admission on the 23/09.',
+    title: 'Hospital admission authorised',
+    items: [],
+  }),
+  true,
+);
+expect(
+  'auth-needed mail is not ignored',
+  isIgnorableStatusUpdate({
+    sourceText:
+      "Sender: hospital@nhs.uk\nSubject: 23/09 admission\nBody: There is currently no authorisation in place. Please contact Bupa.",
+    title: "Taya's admission",
+    items: [{ title: 'Confirm Bupa authorisation', kind: 'obligation' }],
+  }),
+  false,
+);
 
 const opArrive = finalizeSourceItems({
   source: 'chat',
@@ -985,6 +1073,16 @@ expect(
   parseUkCalendarDay(preOpText),
 );
 expect('pre-op offload has no attend child', preOpSplit.children.map((item) => item.title), []);
+expect(
+  'chat restatement of the calendar pre-op is redundant work',
+  isRedundantEventWork('Tayas pre op appointment next Tuesday', 'Taya pre opp appointment'),
+  true,
+);
+expect(
+  'RSVP for the party is still work',
+  isRedundantEventWork("RSVP for Taya's party", "Taya's party"),
+  false,
+);
 
 expect('spa day is a named happening', titleNamesAttendableEvent('Spa day'), true);
 expect('parents evening is a named happening', titleNamesAttendableEvent('Parents evening'), true);

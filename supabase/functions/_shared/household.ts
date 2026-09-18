@@ -55,7 +55,7 @@ export function householdVoiceBlock(household: Household): string {
     kids.length
       ? `When an email or nudge is about a child, use that child's name. Example: if it is about ${kids[0]}, say "${kids[0]}'s trip" / "confirm ${kids[0]}'s appointment" — not "your son" if you know the name, and not the parent's name.`
       : 'If the email is about a child, use the child\'s name from the email.',
-    'who_it_affects: "you" if it is the parent\'s own admin; the child\'s first name if it is about them; the partner\'s name if it is about them.',
+    'who_it_affects: "you" if it is the parent\'s own admin (speech, their appointment); the child\'s first name if it is about them; the partner\'s name if it is about them; "family" if it is for everyone.',
   ];
   if (familyBits.length) {
     lines.push(`This household: ${familyBits.join('; ')}. Only use these names when the item is actually about them. Do not invent extra children.`);

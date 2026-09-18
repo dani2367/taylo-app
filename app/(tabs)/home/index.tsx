@@ -1,32 +1,39 @@
 import { BrandGlyph, BrandIconDisc } from '@/components/app/BrandIcon';
-import { DayTimelineCard } from '@/components/app/DayTimelineCard';
 import { PlanItemFeed } from '@/components/app/PlanItemFeed';
 import { appStyles as s } from '@/components/app/styles';
 import { NoticedStar, TayloMark } from '@/components/app/TayloMark';
 import { colors } from '@/constants/theme';
 import { subscribeAppleCalendarSync } from '@/lib/apple-calendar';
 import { isActiveCollection, organizeStandaloneItems } from '@/lib/collections';
-import { happenSortKey, happenTimeLabel, isHappeningToday, type HappenItem } from '@/lib/happening';
-import { daysUntil, humanizeEventDate } from '@/lib/human-date';
+import { happenCountLabel, happenSortKey, happenTimeLabel, isHappeningToday } from '@/lib/happening';
+import { humanizeEventDate } from '@/lib/human-date';
 import { viewerForUser, visibleFamilyMembersSelect, visibleItemsSelect } from '@/lib/item-visibility';
 import {
   displayItemTitle,
   HOME_OVERFLOW_RANK_BASE,
   HOME_RADAR_LOAD_KINDS,
   HOME_SURFACED_COOLDOWN_MS,
-  isFamilyVisible,
   isInformationalOnSchedule,
   selectHomeActions,
   type HomeSurfaced,
   type PlacementParent,
 } from '@/lib/placement';
 import { isUsableInsight, insightRepeatsCaptured, looksLikeMentalLoad, refreshNoticed } from '@/lib/noticed';
-import { resolvePlanIcon, type PlanIconSpec } from '@/lib/plan-icon';
+import { resolvePlanIcon, washColor, type PlanIconSpec } from '@/lib/plan-icon';
+import {
+  HOUSEHOLD_KEY,
+  householdPerson,
+  peopleFromSources,
+  pickHouseholdSurfaceItems,
+  pickSurfacePreviewItem,
+  type FamilyMemberSource,
+  type FamilySourceItem,
+} from '@/lib/plan-family';
+import { openPlanFamilyPerson } from '@/lib/plan-tab';
 import { actionSupportLine, extraEventContext, firstCompleteSentence, helpfulSuggestion } from '@/lib/suggestion';
 import { latestSpotlightRows, refreshSpotlight } from '@/lib/spotlight';
 import { supabase } from '@/lib/supabase';
-import { useFocusEffect } from 'expo-router';
-import { router } from 'expo-router';
+import { useFocusEffect, router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import type { PlanItemCardModel } from '@/components/app/PlanItemCard';
 import {
@@ -49,19 +56,10 @@ type FamilyCard = {
   itemTitle: string | null;
   itemWhen: string | null;
   itemIcon: PlanIconSpec | null;
+  house?: boolean;
 };
 
 const FAMILY_WASH = [colors.blush, colors.sage, colors.paleBlue];
-
-function personInitials(first: string | null | undefined, last: string | null | undefined, fallback = ''): string {
-  const a = first?.trim()?.[0];
-  const b = last?.trim()?.[0];
-  if (a && b) return `${a}${b}`.toUpperCase();
-  if (a) return a.toUpperCase();
-  const parts = fallback.trim().split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-  return (parts[0]?.[0] || '•').toUpperCase();
-}
 
 type NudgeStatus = 'open' | 'done' | 'delegated' | 'dismissed';
 
@@ -149,7 +147,7 @@ function mapActionCard(item: ItemRow, children: ItemRow[], reason: string, spotl
     opener: item.detail || item.action_description || body || title,
     src,
     askSub: extraEventContext(title, detail || body) || src,
-    icon: meta.icon,
+    icon: resolvePlanIcon({ title, category: item.category }),
     prepLabel: null,
     checklist: children
       .filter((row) => row.status !== 'dismissed')
@@ -157,6 +155,32 @@ function mapActionCard(item: ItemRow, children: ItemRow[], reason: string, spotl
       .map((row) => ({ id: row.id, text: row.title || '', done: row.status === 'done' })),
     createdBy: item.created_by ?? null,
     visibility: item.visibility === 'shared' ? 'shared' : 'private',
+  };
+}
+
+function mapHappenCard(item: ItemRow, children: ItemRow[]): PlanItemCardModel {
+  const title = item.title || 'Untitled';
+  const body = item.body || '';
+  const detail = item.detail || item.action_description || '';
+  return {
+    id: item.id,
+    title,
+    context: happenSub(item),
+    detail,
+    suggestion: helpfulSuggestion({ ...item, detail }),
+    opener: detail || body || title,
+    src: item.source_label || item.source_email_subject || formatCategory(item.category).label,
+    askSub: extraEventContext(title, detail || body) || happenSub(item),
+    icon: resolvePlanIcon({ title, category: item.category }),
+    prepLabel: null,
+    checklist: children
+      .filter((row) => row.status !== 'dismissed')
+      .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))
+      .map((row) => ({ id: row.id, text: row.title || '', done: row.status === 'done' })),
+    informational: isInformationalOnSchedule(item),
+    createdBy: item.created_by ?? null,
+    visibility: item.visibility === 'shared' ? 'shared' : 'private',
+    timelineTime: happenTime(item),
   };
 }
 
@@ -224,34 +248,16 @@ function actionsSummary(count: number) {
   return `${count} things to keep life moving.`;
 }
 
-function mentionsPerson(item: ItemRow, name: string, role: string): boolean {
-  const needle = name.trim().toLowerCase();
-  if (!needle) return false;
-  const who = (item.who_it_affects || '').trim().toLowerCase();
-  const title = (item.title || '').toLowerCase();
-  if (who.includes(needle) || title.includes(needle)) return true;
-  const isYou = role === 'self' || role === 'you';
-  if (isYou && (who === 'you' || who === 'me' || who === 'mum' || who === 'mom' || who === 'parent')) return true;
-  return false;
-}
-
-function pickItemForPerson(items: ItemRow[], name: string, role: string): ItemRow | null {
-  const matches = items.filter((item) => mentionsPerson(item, name, role) && isFamilyVisible(item));
-  if (!matches.length) return null;
-  matches.sort((a, b) => {
-    const da = daysUntil(a.occurs_at || a.due_at || a.event_date);
-    const db = daysUntil(b.occurs_at || b.due_at || b.event_date);
-    if (da == null && db == null) return 0;
-    if (da == null) return 1;
-    if (db == null) return -1;
-    return da - db;
-  });
-  return matches[0];
+function previewWhen(item: ItemRow | FamilySourceItem | null): string | null {
+  if (!item) return null;
+  const when = humanizeEventDate(item.occurs_at || item.due_at || item.event_date);
+  if (when && when !== 'Today') return when;
+  return fewWords(item.body, 5);
 }
 
 export default function HomeScreen() {
   const [spotlight, setSpotlight] = useState<PlanItemCardModel[]>([]);
-  const [happening, setHappening] = useState<HappenItem[]>([]);
+  const [happening, setHappening] = useState<PlanItemCardModel[]>([]);
   const [family, setFamily] = useState<FamilyCard[]>([]);
   const [noticed, setNoticed] = useState<string | null>(null);
   const [noticedSeen, setNoticedSeen] = useState<string | null>(null);
@@ -327,54 +333,50 @@ export default function HomeScreen() {
     const actionIds = new Set(actionCards.map((card) => card.id));
     const realHappening = openItems
       .filter((item) => !actionIds.has(item.id) && isHappeningToday(item, today))
-      .map((item) => ({
-        id: item.id,
-        title: item.title || 'Untitled',
-        time: happenTime(item),
-        sub: happenSub(item),
-        informational: isInformationalOnSchedule(item),
-        icon: resolvePlanIcon({ title: item.title, category: item.category }),
-      }));
-    setHappening(realHappening.sort((a, b) => happenSortKey(a) - happenSortKey(b)));
+      .map((item) =>
+        mapHappenCard(
+          item,
+          openItems.filter((row) => row.parent_id === item.id),
+        ),
+      )
+      .sort(
+        (a, b) => happenSortKey({ time: a.timelineTime || '' }) - happenSortKey({ time: b.timelineTime || '' }),
+      );
+    setHappening(realHappening);
 
-    const memberRows = (members as { id: string; role: string; first_name: string | null; last_name: string | null }[] | null) ?? [];
-    const cardsOut: FamilyCard[] = memberRows.map((member, index) => {
-      const name = [member.first_name, member.last_name].filter(Boolean).join(' ') || 'Family';
-      const first = member.first_name?.trim() || name;
-      const match = pickItemForPerson(openItems, first, member.role);
-      const when = match ? humanizeEventDate(match.occurs_at || match.due_at || match.event_date) : null;
+    const memberRows =
+      (members as { id: string; role: string; first_name: string | null; last_name: string | null }[] | null) ?? [];
+    const people = peopleFromSources(memberRows as FamilyMemberSource[], {
+      first_name: profile?.first_name ?? null,
+    });
+    const familyItems = openItems as unknown as FamilySourceItem[];
+    const cardsOut: FamilyCard[] = people.map((person, index) => {
+      const match = pickSurfacePreviewItem(familyItems, person, people, today) as ItemRow | null;
       return {
-        key: member.id,
-        name: member.first_name?.trim() || name,
-        initial: personInitials(member.first_name, member.last_name, name),
+        key: person.key,
+        name: person.name,
+        initial: person.initial,
         wash: FAMILY_WASH[index % FAMILY_WASH.length],
         photo: null,
         itemTitle: match ? displayItemTitle(match) : null,
-        itemWhen: when && when !== 'Today' ? when : match ? fewWords(match.body, 5) : null,
+        itemWhen: previewWhen(match),
         itemIcon: match ? resolvePlanIcon({ title: match.title, category: match.category }) : null,
       };
     });
-    const hasSelf = memberRows.some((member) => {
-      const role = (member.role || '').toLowerCase();
-      if (role === 'self' || role === 'you') return true;
-      const first = member.first_name?.trim().toLowerCase();
-      return !!profile?.first_name && first === profile.first_name.trim().toLowerCase();
+    const householdPreview = pickHouseholdSurfaceItems(familyItems, people, today)[0] as ItemRow | undefined;
+    cardsOut.push({
+      key: HOUSEHOLD_KEY,
+      name: householdPerson.name,
+      initial: householdPerson.initial,
+      wash: washColor['blush'],
+      photo: null,
+      itemTitle: householdPreview ? displayItemTitle(householdPreview) : null,
+      itemWhen: householdPreview ? previewWhen(householdPreview) : null,
+      itemIcon: householdPreview
+        ? resolvePlanIcon({ title: householdPreview.title, category: householdPreview.category })
+        : null,
+      house: true,
     });
-    if (!hasSelf) {
-      const youFirst = profile?.first_name?.trim() || '';
-      const youMatch = youFirst ? pickItemForPerson(openItems, youFirst, 'self') : null;
-      const youWhen = youMatch ? humanizeEventDate(youMatch.occurs_at || youMatch.due_at || youMatch.event_date) : null;
-      cardsOut.unshift({
-        key: 'profile',
-        name: 'You',
-        initial: personInitials(youFirst, null, 'You'),
-        wash: colors.sage,
-        photo: null,
-        itemTitle: youMatch ? displayItemTitle(youMatch) : null,
-        itemWhen: youWhen && youWhen !== 'Today' ? youWhen : youMatch ? fewWords(youMatch.body, 5) : null,
-        itemIcon: youMatch ? resolvePlanIcon({ title: youMatch.title, category: youMatch.category }) : null,
-      });
-    }
     setFamily(cardsOut);
 
     const rawInsight = (noticedRow as { insight_text?: string } | null)?.insight_text?.trim() || null;
@@ -470,13 +472,29 @@ export default function HomeScreen() {
               }
             />
 
-            <DayTimelineCard
+            <PlanItemFeed
               items={happening}
-              emptyTitle="A quiet one"
-              footer={{
-                label: 'See full day ›',
-                onPress: () => router.push({ pathname: '/plan', params: { tab: 'schedule' } }),
-              }}
+              setItems={setHappening}
+              empty=""
+              variant="timeline"
+              header={
+                <View style={s.homeDayHead}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={s.homeDayTitle}>Today</Text>
+                    <Text style={s.homeDayCount}>
+                      {happening.length ? happenCountLabel(happening.length) : 'A quiet one'}
+                    </Text>
+                  </View>
+                  <BrandGlyph name="sunny-outline" size={22} color={colors.terracotta} />
+                </View>
+              }
+              footer={
+                <Pressable
+                  style={s.homeDayFooter}
+                  onPress={() => router.push({ pathname: '/plan', params: { tab: 'schedule' } })}>
+                  <Text style={s.homeDayFooterText}>See full day ›</Text>
+                </Pressable>
+              }
             />
 
             {family.length ? (
@@ -497,11 +515,11 @@ export default function HomeScreen() {
                     <Pressable
                       key={member.key}
                       style={s.homeFamilyCard}
-                      onPress={() =>
-                        router.push({ pathname: '/plan', params: { tab: 'family', person: member.key } })
-                      }>
+                      onPress={() => openPlanFamilyPerson(member.key)}>
                       <View style={[s.homeFamilyAvatar, { backgroundColor: member.wash }]}>
-                        {member.photo ? (
+                        {member.house ? (
+                          <BrandGlyph name="home-outline" size={24} color={colors.cream} />
+                        ) : member.photo ? (
                           <Image source={{ uri: member.photo }} style={s.homeFamilyPhoto} />
                         ) : (
                           <Text style={s.homeFamilyInitial}>{member.initial}</Text>

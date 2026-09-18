@@ -60,6 +60,7 @@ export function intakeContractRules(source: IntakeSource): string {
 - Dated chores stay obligations: the date is a deadline or the sentence is the work ("book the eye test on 5 December", "email the teacher about the trip", "return the form by the 19th", "buy shoes for the wedding"). Those go on General to do from chat.
 - If they name the event AND extra work ("Oliver's stag is on the 23rd October — need to book flights"), return the event as occurrence AND the action as its own obligation. Do not collapse them into one to-do. Do not invent "arrive" / "attend" / "go to the hospital" as a child — the event on the card is enough.
 - A named thing that already happens that day (spa day, parents evening, haircut, pre-op, sports day) is the event. Showing up is not an obligation. "Book the eye test" is still the chore. Standups, 1:1s, and generic diary filler are not family events.
+- A confirmation that admin is done ("authorisation is in place", "we have received the form", "RSVP noted") is not an occurrence. capture nothing_here when there is no new action. Do not mark existing work done — the parent completes it in the app.
 - context_only MAY set occurs_at only for a stated fact that is not an event they attend (e.g. "nursery is closed on the 19th") AND confidence is high.
 - Never for inferred, hedged, or estimated dates ("might", "sometime next week", "Tuesday-ish", a weekday with no this/next week). "Wednesday next week" is a real day — keep it. Code will strip occurs_at unless that bar is met.`;
 
@@ -750,6 +751,7 @@ export function normalizeIntakeItem(
   }
 
   if (isExcludedPrep(title, opts.sourceText)) return null;
+  if (isAdminStatusTitle(title)) return null;
   if (kind === 'obligation' && isEventKitTitle(title)) {
     due_at = null;
   }
@@ -849,6 +851,9 @@ export function finalizeSourceItems(params: {
   });
 
   if (!items.length && params.fallbackTitle) {
+    if (isAdminStatusTitle(params.fallbackTitle) || isAdminStatusConfirmation(params.sourceText)) {
+      return [];
+    }
     const statedFact =
       !!params.date &&
       hasUnambiguousStatedDate(params.sourceText) &&
@@ -916,7 +921,7 @@ export function finalizeSourceItems(params: {
     items = items.filter((item) => !DONATION_RE.test(item.title));
   }
 
-  return promoteStatedLifeEvent(items, params.sourceText);
+  return rewriteAdminAskParent(promoteStatedLifeEvent(items, params.sourceText));
 }
 
 /** Birthday / trip / wedding named as context_only still belongs on Schedule as an occurrence. */
@@ -1109,6 +1114,136 @@ const DISTINCT_EVENT_WORK_RE =
 const ATTEND_EVENT_RE =
   /^(arrive|be there|get there|get to|go to|go along to|attend|turn up|show up|be at|make it to|head(?:\s+over)?\s+to)\b/i;
 
+export type AdminWorkTopic = 'auth' | 'rsvp' | 'form' | 'payment';
+
+const AUTH_DONE_RE =
+  /\b(can now confirm|now confirm|now have|we have the required (authoris|authoriz)|authorisation is in place|authorization is in place|admission authoris(?:ed|ation)|hospital admission authoris)\b/i;
+const AUTH_ASK_RE =
+  /\b((no |not |without |missing |outstanding )(authoris|authoriz)|(authoris|authoriz).{0,24}\b(needed|required|not (on file|in place)))/i;
+const AUTH_ASK_TITLE_RE =
+  /\b((bupa\s+)?auth(orisation|orization)? needed|no authoris|authoris(?:ation|ed) required)\b/i;
+
+/** Latest reply only — quoted "no authorisation" in a thread must not hide a confirmation. */
+export function latestEmailMessage(sourceText: string): string {
+  let text = sourceText || '';
+  const bodyIdx = text.search(/\bBody:\s*/i);
+  if (bodyIdx >= 0) text = text.slice(bodyIdx).replace(/^Body:\s*/i, '');
+  const quote = text.search(/\r?\nFrom: |\r?\nOn .+ wrote:|\r?\n_{8,}|\r?\n> /);
+  if (quote > 20) text = text.slice(0, quote);
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/** Title is the fact that admin finished — not a happening. */
+export function isAdminStatusTitle(title: string): boolean {
+  const t = title.replace(/\s+/g, ' ').trim();
+  if (!t) return false;
+  if (AUTH_ASK_TITLE_RE.test(t)) return false;
+  if (/\b(hospital\s+)?admission\s+authoris(?:ed|ation)\b/i.test(t)) return true;
+  if (/\b(authoris(?:ed|ation)|authoriz(?:ed|ation))\s+(in\s+place|confirmed|received)\b/i.test(t)) return true;
+  if (/\b(rsvp|form|payment|invoice)\s+(received|confirmed|noted)\b/i.test(t)) return true;
+  if (/\bpayment received\b|\bpaid in full\b/i.test(t) && !/\b(due|outstanding|need)\b/i.test(t)) return true;
+  return false;
+}
+
+export function isAdminAskTitle(title: string): boolean {
+  return AUTH_ASK_TITLE_RE.test(title || '');
+}
+
+export function isAdminStatusConfirmation(sourceText: string): boolean {
+  const latest = latestEmailMessage(sourceText);
+  if (!latest) return false;
+  if (isAuthDone(latest) && !isAuthAskOnly(latest)) return true;
+  if (/\b(rsvp|reply)\b.{0,24}\b(received|noted|confirmed)\b/i.test(latest)) return true;
+  if (/\b(form|permission slip)\b.{0,24}\b(received|submitted|on file)\b/i.test(latest)) return true;
+  if (/\b(payment|invoice)\b.{0,24}\b(received|confirmed|paid)\b/i.test(latest)) return true;
+  return false;
+}
+
+/** Status mail with no new obligation — ignore; do not complete existing Plan items. */
+export function isIgnorableStatusUpdate(params: {
+  sourceText: string;
+  title?: string | null;
+  items?: { title?: string | null; kind?: string | null }[];
+}): boolean {
+  const items = params.items ?? [];
+  if (items.some((item) => (item.kind || '').toLowerCase() === 'obligation')) return false;
+  return (
+    isAdminStatusConfirmation(params.sourceText) ||
+    isAdminStatusTitle(params.title || '') ||
+    items.some((item) => isAdminStatusTitle(item.title || ''))
+  );
+}
+
+function isAuthDone(text: string): boolean {
+  return AUTH_DONE_RE.test(text);
+}
+
+function isAuthAskOnly(text: string): boolean {
+  return AUTH_ASK_RE.test(text) && !AUTH_DONE_RE.test(text);
+}
+
+export function confirmationTopic(title: string, sourceText: string): AdminWorkTopic | null {
+  const blob = `${title || ''} ${latestEmailMessage(sourceText)}`;
+  if (isAdminStatusTitle(title) && /\b(authoris|authoriz|admission)\b/i.test(title)) return 'auth';
+  if (isAuthDone(latestEmailMessage(sourceText)) && !isAuthAskOnly(latestEmailMessage(sourceText))) return 'auth';
+  if (/\b(rsvp|reply)\b.{0,24}\b(received|noted|confirmed)\b/i.test(blob)) return 'rsvp';
+  if (/\b(form|permission slip)\b.{0,24}\b(received|submitted|on file)\b/i.test(blob)) return 'form';
+  if (/\b(payment|invoice)\b.{0,24}\b(received|confirmed|paid)\b/i.test(blob)) return 'payment';
+  return null;
+}
+
+export function childMatchesAdminTopic(title: string, topic: AdminWorkTopic): boolean {
+  const t = title || '';
+  if (topic === 'auth') return /\b(authoris|authoriz|pre-?auth|\bbupa\b|insur(?:ance|er))\b/i.test(t);
+  if (topic === 'rsvp') return RSVP_TITLE_RE.test(t);
+  if (topic === 'form') return /\b(form|permission|slip|consent)\b/i.test(t);
+  if (topic === 'payment') return /\b(pay|payment|invoice|fee)\b/i.test(t);
+  return false;
+}
+
+export function splitAuthAskTitle(title: string): { eventTitle: string; workTitle: string } | null {
+  const t = title.replace(/\s+/g, ' ').trim();
+  const match = t.match(
+    /^(.*?)\s*[—–-]\s*((?:bupa\s+)?auth(?:orisation|orization)?\s+needed|no authoris(?:ation|ed).*)$/i,
+  );
+  if (!match?.[1]?.trim()) return null;
+  const eventTitle = match[1].replace(/\s+/g, ' ').trim();
+  if (!eventTitle) return null;
+  const workTitle = /bupa/i.test(match[2] || '') ? 'Confirm Bupa authorisation' : 'Confirm authorisation';
+  return { eventTitle, workTitle };
+}
+
+export function stripAdminAskFromEventTitle(title: string): string {
+  const split = splitAuthAskTitle(title);
+  if (split) return split.eventTitle;
+  return title.replace(/\s+/g, ' ').trim();
+}
+
+function rewriteAdminAskParent(items: IntakeItem[]): IntakeItem[] {
+  if (!items.length) return items;
+  const split = splitAuthAskTitle(items[0].title);
+  if (!split) return items;
+  const parent = { ...items[0], title: split.eventTitle };
+  const rest = items.slice(1);
+  if (rest.some((item) => childMatchesAdminTopic(item.title, 'auth'))) {
+    return [parent, ...rest];
+  }
+  const workDue = parent.due_at || parent.occurs_at;
+  const child = withSurfaceWindow({
+    title: split.workTitle,
+    kind: 'obligation',
+    occurs_at: null,
+    due_at: workDue,
+    actionable: 'yes',
+    prep_implied: 'stated',
+    confidence: parent.confidence,
+    evidence: parent.evidence,
+    surface_from: null,
+    surface_until: null,
+  });
+  return [parent, child, ...rest];
+}
+
 /** Showing up to the event is the event — not a Radar checklist line. */
 export function isAttendanceRestatement(title: string): boolean {
   const t = title
@@ -1122,6 +1257,26 @@ export function isAttendanceRestatement(title: string): boolean {
   return false;
 }
 
+function eventRestatementCore(value: string): string {
+  return foldTitle(value)
+    .replace(/\b(next|this|on)\s+(week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/g, '')
+    .replace(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/g, '')
+    .replace(/\b([a-z]+)s\b/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Child that restates the event itself, or “showing up”, is not a Home checklist line. */
+export function isRedundantEventWork(childTitle: string, parentTitle: string): boolean {
+  if (isAttendanceRestatement(childTitle)) return true;
+  if (DISTINCT_EVENT_WORK_RE.test(childTitle) && !/\barrive\b/i.test(childTitle)) return false;
+  if (titlesAlign(childTitle, parentTitle) || titlesLooselyMatch(childTitle, parentTitle)) return true;
+  const child = eventRestatementCore(childTitle);
+  const parent = eventRestatementCore(parentTitle);
+  if (!child || !parent) return false;
+  return child === parent || child.includes(parent) || parent.includes(child);
+}
+
 function dropRedundantEventWork(items: IntakeItem[]): IntakeItem[] {
   const event = items.find(
     (item) => item.kind === 'occurrence' || (item.kind === 'context_only' && !!item.occurs_at),
@@ -1129,9 +1284,7 @@ function dropRedundantEventWork(items: IntakeItem[]): IntakeItem[] {
   if (!event) return items;
   return items.filter((item) => {
     if (item === event || item.kind !== 'obligation') return true;
-    if (titlesAlign(item.title, event.title) || titlesLooselyMatch(item.title, event.title)) return false;
-    if (isAttendanceRestatement(item.title)) return false;
-    return true;
+    return !isRedundantEventWork(item.title, event.title);
   });
 }
 

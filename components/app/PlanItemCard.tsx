@@ -1,4 +1,5 @@
 import { BrandIconDisc } from '@/components/app/BrandIcon';
+import { DayTimelineRow } from '@/components/app/DayTimelineCard';
 import { HouseholdShareToggle, SharedHouseCorner } from '@/components/app/HouseholdShareMark';
 import { ItemPrepChecklist, type PrepCheckItem } from '@/components/app/ItemPrepChecklist';
 import { appStyles as s } from '@/components/app/styles';
@@ -28,8 +29,10 @@ export type PlanItemCardModel = {
   collectionId?: string;
   collectionType?: string | null;
   informational?: boolean;
+  pastParentLeftover?: boolean;
   createdBy?: string | null;
   visibility?: 'private' | 'shared';
+  timelineTime?: string | null;
 };
 
 export function PlanItemCard({
@@ -38,6 +41,8 @@ export function PlanItemCard({
   editingPrep,
   variant = 'card',
   last = false,
+  index = 0,
+  count = 1,
   onToggleExpand,
   onDismiss,
   onDone,
@@ -54,8 +59,10 @@ export function PlanItemCard({
   card: PlanItemCardModel;
   expanded: boolean;
   editingPrep: boolean;
-  variant?: 'card' | 'hero';
+  variant?: 'card' | 'hero' | 'timeline';
   last?: boolean;
+  index?: number;
+  count?: number;
   onToggleExpand: () => void;
   onDismiss: () => void;
   onDone: () => void;
@@ -70,7 +77,9 @@ export function PlanItemCard({
   onDeleteChecklist: (id: string) => void;
 }) {
   const hero = variant === 'hero';
-  const informational = !!card.informational;
+  const timeline = variant === 'timeline';
+  const nestedItemChecklist = !!card.checklistRowsAreItems && card.checklist.length > 0;
+  const informational = !!card.informational && !nestedItemChecklist;
   const alwaysOpen = !!card.hideTitle;
   const isOpen = !informational && (expanded || alwaysOpen);
   const eventContext = extraEventContext(card.title, card.detail);
@@ -82,12 +91,38 @@ export function PlanItemCard({
     card.suggestion !== eventContext &&
     card.suggestion !== card.title;
   const support = card.context && !card.listMode ? card.context : !isOpen && card.prepLabel ? card.prepLabel : null;
+  const hideCollapsedSub = isOpen && (hero || timeline);
+  const collapsedSub = hideCollapsedSub ? null : support;
   const shared = card.visibility === 'shared';
+  // Hide a lone *local* prep line (user can add a second). Nested item children stay
+  // visible even when there is only one — the parent is the card they hang off.
+  const showChecklistList = card.listMode || card.hideTitle || nestedItemChecklist || card.checklist.length >= 2;
+  const showAddChecklist = !card.listMode && !showChecklistList;
+  const expandWrap = hero ? s.homeExpandBlock : timeline ? s.homeDayExpand : null;
+
+  function addChecklist(e: { stopPropagation: () => void }) {
+    e.stopPropagation();
+    if (!editingPrep) onTogglePrepEditing();
+    onAddChecklist();
+  }
 
   const body = (
     <>
-      <SharedHouseCorner shared={shared} />
-      {card.hideTitle ? null : (
+      {timeline ? null : <SharedHouseCorner shared={shared} />}
+      {card.hideTitle ? null : timeline ? (
+        <DayTimelineRow
+          item={{
+            id: card.id,
+            title: card.title,
+            time: card.timelineTime || '',
+            sub: collapsedSub,
+            icon: card.icon,
+            informational,
+          }}
+          index={index}
+          count={count}
+        />
+      ) : (
         <View style={[s.nrow, shared && { paddingRight: 22 }]}>
           <View style={{ flexShrink: 0 }}>
             <BrandIconDisc name={card.icon.name} wash={card.icon.wash} size={hero ? 36 : undefined} />
@@ -96,13 +131,13 @@ export function PlanItemCard({
             {hero ? (
               <>
                 <Text style={s.homeItemTitle}>{card.title}</Text>
-                {support ? <Text style={s.homeItemSub}>{support}</Text> : null}
+                {collapsedSub ? <Text style={s.homeItemSub}>{collapsedSub}</Text> : null}
               </>
             ) : (
               <View style={s.uheadRow}>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={s.utitle}>{card.title}</Text>
-                  {support ? <Text style={s.usub}>{support}</Text> : null}
+                  {collapsedSub ? <Text style={s.usub}>{collapsedSub}</Text> : null}
                 </View>
                 <Text style={[s.uchevron, isOpen && { transform: [{ rotate: '90deg' }] }]}>›</Text>
               </View>
@@ -111,80 +146,121 @@ export function PlanItemCard({
         </View>
       )}
       {isOpen ? (
-        <>
-          {showDetail ? (
-            <Text style={hero ? s.homeExpandDetail : s.udetail}>{eventContext}</Text>
+        <View style={expandWrap ?? undefined}>
+          {card.pastParentLeftover ? (
+            <Text style={hero || timeline ? s.homeExpandDetail : s.udetail}>This already happened</Text>
+          ) : showDetail ? (
+            <Text style={hero || timeline ? s.homeExpandDetail : s.udetail}>{eventContext}</Text>
           ) : null}
-          {showSuggest ? (
+          {card.pastParentLeftover || !showSuggest ? null : (
             <View style={s.nsuggestRow}>
               <TayloMark />
-              <Text style={hero ? s.homeSuggest : s.nsuggest}>{card.suggestion}</Text>
+              <Text style={hero || timeline ? s.homeSuggest : s.nsuggest}>{card.suggestion}</Text>
             </View>
+          )}
+          {showChecklistList ? (
+            <ItemPrepChecklist
+              heading={card.checklistHeading}
+              items={card.checklist}
+              editing={editingPrep}
+              hideEmptyCta={!card.listMode}
+              onToggleEditing={onTogglePrepEditing}
+              onToggle={onToggleChecklist}
+              onChangeText={onChangeChecklistText}
+              onCommitText={onCommitChecklistText}
+              onAdd={onAddChecklist}
+              onDelete={onDeleteChecklist}
+            />
           ) : null}
-          <ItemPrepChecklist
-            heading={card.checklistHeading}
-            items={card.checklist}
-            editing={editingPrep}
-            hideEmptyCta={!card.listMode}
-            onToggleEditing={onTogglePrepEditing}
-            onToggle={onToggleChecklist}
-            onChangeText={onChangeChecklistText}
-            onCommitText={onCommitChecklistText}
-            onAdd={onAddChecklist}
-            onDelete={onDeleteChecklist}
-          />
           {informational ? null : (
             <>
               <HouseholdShareToggle shared={shared} onToggle={onShare} />
-              {card.listMode ? null : (
-              <View style={s.itemActions}>
-              <Pressable
-                style={[s.itemActionPill, { backgroundColor: washColor[card.icon.wash] }]}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  onDone();
-                }}>
-                <Text style={s.itemActionPillText}>Done</Text>
-              </Pressable>
-              <Pressable
-                style={[s.itemActionPill, s.itemActionPillOutline]}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  onDelegate();
-                }}>
-                <Text style={s.itemActionPillText}>Delegate</Text>
-              </Pressable>
-              <Pressable
-                style={[s.itemActionPill, s.itemActionPillOutline]}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  onChat();
-                }}>
-                <Text style={s.itemActionPillText}>Ask</Text>
-              </Pressable>
-              {!card.checklist.length ? (
-                <Pressable
-                  style={s.itemActionAdd}
-                  accessibilityRole="button"
-                  accessibilityLabel="Add a checklist"
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    if (!editingPrep) onTogglePrepEditing();
-                    onAddChecklist();
-                  }}>
-                  <Text style={s.itemActionAddText}>Add a checklist</Text>
-                </Pressable>
-              ) : null}
-            </View>
+              {card.listMode ? null : card.pastParentLeftover ? (
+                <View style={s.itemActions}>
+                  <Pressable
+                    style={[s.itemActionPill, { backgroundColor: washColor[card.icon.wash] }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Did it"
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      onDone();
+                    }}>
+                    <Text style={s.itemActionPillText}>Did it</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[s.itemActionPill, s.itemActionPillOutline]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Not needed"
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      onDismiss();
+                    }}>
+                    <Text style={s.itemActionPillText}>Not needed</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <View style={s.itemActions}>
+                  <Pressable
+                    style={[s.itemActionPill, { backgroundColor: washColor[card.icon.wash] }]}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      onDone();
+                    }}>
+                    <Text style={s.itemActionPillText}>Done</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[s.itemActionPill, s.itemActionPillOutline]}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      onDelegate();
+                    }}>
+                    <Text style={s.itemActionPillText}>Delegate</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[s.itemActionPill, s.itemActionPillOutline]}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      onChat();
+                    }}>
+                    <Text style={s.itemActionPillText}>Ask</Text>
+                  </Pressable>
+                  {showAddChecklist ? (
+                    <Pressable
+                      style={s.itemActionAdd}
+                      accessibilityRole="button"
+                      accessibilityLabel="Add a checklist"
+                      onPress={addChecklist}>
+                      <Text style={s.itemActionAddText}>Add a checklist</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
               )}
             </>
           )}
-        </>
+        </View>
       ) : null}
     </>
   );
 
   if (informational) {
+    if (timeline) {
+      return (
+        <View>
+          <DayTimelineRow
+            item={{
+              id: card.id,
+              title: card.title,
+              time: card.timelineTime || '',
+              sub: support,
+              icon: card.icon,
+              informational: true,
+            }}
+            index={index}
+            count={count}
+          />
+        </View>
+      );
+    }
     return (
       <View style={hero ? [s.homeHeroRow, last && s.homeHeroRowLast] : s.planCard}>
         <View style={s.nrow}>
@@ -210,7 +286,15 @@ export function PlanItemCard({
       )}>
       <View style={{ width: '100%' }}>
         <Pressable
-          style={hero ? [s.homeHeroRow, last && !isOpen && s.homeHeroRowLast] : s.planCard}
+          style={
+            timeline
+              ? isOpen
+                ? s.homeDayRowOpen
+                : undefined
+              : hero
+                ? [s.homeHeroRow, isOpen && s.homeHeroRowOpen, last && !isOpen && s.homeHeroRowLast]
+                : s.planCard
+          }
           onPress={alwaysOpen ? undefined : onToggleExpand}>
           {body}
         </Pressable>

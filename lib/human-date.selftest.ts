@@ -1,4 +1,4 @@
-import { humanizeEventDate } from './human-date.ts';
+import { calendarDateLabel, humanizeEventDate, weekdayShort } from './human-date.ts';
 
 const today = new Date(2026, 8, 3); // Thursday 3 Sep 2026
 
@@ -27,5 +27,8 @@ expect('year-behind September rolls forward', humanizeEventDate('2025-09-09', to
 
 const wed = new Date(2026, 8, 2);
 expect('due Friday', humanizeEventDate('2026-09-04', wed), 'Due Friday');
+expect('calendar date', calendarDateLabel('2026-10-15', today), '15 October');
+expect('weekday short today', weekdayShort(ymd(0), today), 'Today');
+expect('weekday short later', weekdayShort('2026-09-10', today), 'Thu');
 
 if (!process.exitCode) console.log('human-date self-test passed');

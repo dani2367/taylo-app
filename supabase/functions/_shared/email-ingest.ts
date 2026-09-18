@@ -18,7 +18,7 @@ export const EMAIL_INTAKE_PROMPT = `You are Taylo, a family assistant. Read this
   "category": "school|medical|activity|delivery|returns|financial|ignore",
   "action_required": true or false,
   "date": "YYYY-MM-DD or null — due_at for obligations; the calendar day for a named occurrence or stated-fact context_only",
-  "who_it_affects": "which family member or whole family",
+  "who_it_affects": "you, a family member name, family, or null",
   "urgency": "today|this_week|upcoming|none",
   "nudge_title": "short title under 8 words, or null",
   "body": "one short subtitle under the title, maximum ~12 words, a single extra fact — or null",
@@ -37,6 +37,11 @@ Do NOT discard a family heads-up because nothing is due today. Examples that MUS
 - "Nursery closed on the 19th for staff training" → context_only, high confidence, occurs_at = that day, no invented prep.
 - Birthday with "no presents please" → keep the party as occurrence (if the date is unambiguous); do not create a present obligation.
 - "Bring packed lunch and a waterproof coat" → keep, two separate high-confidence stated obligations.
+- "No authorisation on file — please contact Bupa" for an admission/operation → keep the happening as the parent (operation/admission), plus a child obligation to sort the authorisation. Do not title the parent as the auth problem.
+
+Examples that MUST be nothing_here (never an occurrence, and never a reason to complete something already on Plan):
+- "I can now confirm we have the required authorisation in place for the admission on the 23rd" → ignore. The parent ticks the auth item in the app.
+- "RSVP received" / "we have received the form" / "payment is on file" with no new work.
 
 action_required is true only when there is a real action (form, RSVP, payment, pack something stated). It is NOT the persist gate. Holds and context_only must still be returned with capture=keep and a valid kind when action_required is false.
 
@@ -141,7 +146,7 @@ export function parseEmailIntake(raw: string, sourceText: string): ExtractedNudg
       capture,
       category: parsed.category || 'ignore',
       action_required: false,
-      date: null,
+      date: typeof parsed.date === 'string' ? parsed.date : null,
       who_it_affects: parsed.who_it_affects ?? null,
       urgency: parsed.urgency || 'none',
       nudge_title: null,

@@ -1,5 +1,13 @@
-import { daysUntil, humanizeEventDate, itemCountLabel, startOfWeek } from './human-date';
-import { displayItemTitle, isFamilyVisible, unwrapParent, type PlacementParent } from './placement';
+import { daysUntil, humanizeEventDate, itemCountLabel, startOfWeek, weekdayShort } from './human-date';
+import {
+  displayItemTitle,
+  isFamilyVisible,
+  isHomeEligible,
+  isOpenForSurfacing,
+  isRadarWatchItem,
+  unwrapParent,
+  type PlacementParent,
+} from './placement';
 import { isListHubTitle } from './radar-organize';
 
 const TODO_LIST_TITLE = 'General to do';
@@ -13,7 +21,6 @@ export type FamilyCollection = {
 };
 
 export const HOUSEHOLD_KEY = 'household';
-export const YOURS_KEY = 'yours';
 export const PREVIEW_ITEM_COUNT = 3;
 
 const HOUSEHOLD_WHO = new Set(['family', 'whole family', 'everyone', 'household', 'all', 'shared', 'both', 'us']);
@@ -46,6 +53,7 @@ export type FamilySourceItem = {
   source: string | null;
   collection_id: string | null;
   created_at?: string | null;
+  visibility?: string | null;
   parent?: PlacementParent | PlacementParent[] | null;
 };
 
@@ -84,6 +92,7 @@ export type PersonBucket = {
   items: FamilySourceItem[];
   weekItems: FamilySourceItem[];
   preview: FamilyPreviewItem[];
+  headline: FamilyPreviewItem | null;
   weekTitles: string[];
 };
 
@@ -91,9 +100,7 @@ export type FamilyPlan = {
   people: FamilyPerson[];
   buckets: PersonBucket[];
   householdItems: FamilySourceItem[];
-  yoursItems: FamilySourceItem[];
   householdTiles: HouseholdTile[];
-  yoursTiles: HouseholdTile[];
 };
 
 export function normalizeWho(raw: string | null | undefined): string {
@@ -175,6 +182,95 @@ export function matchingPeople(who: string | null | undefined, people: FamilyPer
   return people.filter((person) => whoMatchesPerson(who, person));
 }
 
+export function itemMentionsPerson(
+  item: { who_it_affects?: string | null; title?: string | null },
+  person: FamilyPerson,
+): boolean {
+  if (whoMatchesPerson(item.who_it_affects, person)) return true;
+  return whoMatchesPerson(item.title, person);
+}
+
+function hasOutsiderPossessive(raw: string | null | undefined, people: FamilyPerson[]): boolean {
+  if (!raw) return false;
+  const matches = raw.match(/\b([A-Za-z]{2,})['’]s\b/g) ?? [];
+  for (const match of matches) {
+    if (matchingPeople(match, people).length) continue;
+    const name = normalizeWho(match);
+    if (!name || HOUSEHOLD_WHO.has(name) || SELF_WHO.has(name)) continue;
+    return true;
+  }
+  return false;
+}
+
+function isFirstPersonAdmin(raw: string): boolean {
+  return /\b(my|i|i'm|i’m|i am|i need|i have to|i've|i’ve)\b/i.test(raw);
+}
+
+/** Parent's own work: first-person, a speech, or an obligation about someone outside the household. */
+export function isViewerOwnAdmin(
+  item: FamilySourceItem,
+  people: FamilyPerson[],
+): boolean {
+  const parent = unwrapParent(item.parent);
+  const combined = [item.title, item.body, parent?.title].filter(Boolean).join(' ');
+  if (isFirstPersonAdmin(combined)) return true;
+  if (/\bspeech\b/i.test(combined)) return true;
+  if (item.kind !== 'obligation') return false;
+  const who = normalizeWho(item.who_it_affects);
+  if (who && !HOUSEHOLD_WHO.has(who) && !SELF_WHO.has(who) && matchingPeople(item.who_it_affects, people).length === 0) {
+    return true;
+  }
+  return hasOutsiderPossessive(item.title, people) || hasOutsiderPossessive(parent?.title, people);
+}
+
+function surfacePreviewRank(
+  item: FamilySourceItem,
+  today: Date,
+  byId: Map<string, FamilySourceItem>,
+): number {
+  if (isHomeEligible(item, today, byId)) return 0;
+  if (isRadarWatchItem(item, today, byId)) return 1;
+  if (item.kind === 'context_only') return 2;
+  return 9;
+}
+
+/** Home-eligible first, else Radar, else context_only. Nothing else. */
+export function pickSurfacePreviewItem<T extends FamilySourceItem>(
+  items: T[],
+  person: FamilyPerson,
+  people: FamilyPerson[],
+  today = new Date(),
+): T | null {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const matches = items.filter((item) => {
+    const assigned = assignItem(item, people);
+    return assigned.kind === 'person' && assigned.key === person.key;
+  });
+  const ranked = matches
+    .map((item) => ({ item, rank: surfacePreviewRank(item, today, byId) }))
+    .filter((row) => row.rank < 9)
+    .sort((a, b) => a.rank - b.rank || compareFamilyItems(a.item, b.item, today));
+  return ranked[0]?.item ?? null;
+}
+
+export function pickHouseholdSurfaceItems<T extends FamilySourceItem>(
+  items: T[],
+  people: FamilyPerson[],
+  today = new Date(),
+  limit = 5,
+): T[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  return items
+    .filter((item) => item.status === 'open')
+    .filter((item) => item.visibility === 'shared')
+    .filter((item) => assignItem(item, people).kind === 'household')
+    .map((item) => ({ item, rank: surfacePreviewRank(item, today, byId) }))
+    .filter((row) => row.rank < 9)
+    .sort((a, b) => a.rank - b.rank || compareFamilyItems(a.item, b.item, today))
+    .slice(0, limit)
+    .map((row) => row.item);
+}
+
 export function isListCollection(
   collection: { type?: string | null; title?: string | null } | null | undefined,
 ): boolean {
@@ -196,11 +292,17 @@ function namedPeopleInText(raw: string | null | undefined, people: FamilyPerson[
   return matchingPeople(raw, people);
 }
 
-/** Prefer an explicit who tag; otherwise a unique name in the title or parent title. */
+function viewingSelf(people: FamilyPerson[]): FamilyPerson | undefined {
+  return people.find((person) => person.role === 'self' || person.role === 'you');
+}
+
+/** Prefer an explicit who tag; otherwise a unique name in the title or parent title.
+ *  The viewer's own admin (speech, first-person, outsider obligation) lands on self.
+ *  Everything still unclear falls to household — never left unowned. */
 export function assignItem(
   item: FamilySourceItem,
   people: FamilyPerson[],
-): { kind: 'person'; key: string } | { kind: 'household' } | { kind: 'yours' } {
+): { kind: 'person'; key: string } | { kind: 'household' } {
   const whoMatches = namedPeopleInText(item.who_it_affects, people);
   if (whoMatches.length === 1) return { kind: 'person', key: whoMatches[0].key };
   const parent = unwrapParent(item.parent);
@@ -209,7 +311,15 @@ export function assignItem(
   if (whoMatches.length > 1 || titleMatches.length > 1) return { kind: 'household' };
   const who = normalizeWho(item.who_it_affects);
   if (who && HOUSEHOLD_WHO.has(who)) return { kind: 'household' };
-  return { kind: 'yours' };
+  if (who && SELF_WHO.has(who)) {
+    const self = viewingSelf(people);
+    if (self) return { kind: 'person', key: self.key };
+  }
+  if (isViewerOwnAdmin(item, people)) {
+    const self = viewingSelf(people);
+    if (self) return { kind: 'person', key: self.key };
+  }
+  return { kind: 'household' };
 }
 
 export function isInCurrentWeek(eventDate: string | null | undefined, today = new Date()): boolean {
@@ -273,6 +383,19 @@ function toPreview(item: FamilySourceItem, today: Date): FamilyPreviewItem {
   };
 }
 
+export function pickHeadlineItem(items: FamilySourceItem[], today = new Date()): FamilySourceItem | null {
+  const parents = items.filter((item) => !item.parent_id);
+  if (!parents.length) return null;
+  const week = parents.filter((item) => isInCurrentWeek(familyAnchorDate(item), today));
+  return pickPreviewItems(week.length ? week : parents, today, 1)[0] ?? null;
+}
+
+export function familyMemberBlurb(item: FamilyPreviewItem | null, today = new Date()): string {
+  if (!item) return 'Nothing coming up this week.';
+  const when = weekdayShort(item.event_date, today);
+  return when ? `${item.title} · ${when}` : item.title;
+}
+
 export function casualTitle(title: string): string {
   return title
     .replace(/\s+/g, ' ')
@@ -282,11 +405,9 @@ export function casualTitle(title: string): string {
 }
 
 export function fallbackWeeklySummary(name: string, titles: string[]): string {
-  const first = name.trim() || 'They';
-  const cleaned = titles.map(casualTitle).filter(Boolean);
-  if (!cleaned.length) return `${first}'s week looks quiet so far.`;
-  if (cleaned.length === 1) return `${first}'s week is mostly ${cleaned[0]}.`;
-  return `${first}'s week is mostly ${cleaned[0]} and ${cleaned[1]}.`;
+  const title = titles.map((value) => value.replace(/\s+/g, ' ').trim()).find(Boolean);
+  if (!title) return 'Nothing coming up this week.';
+  return title;
 }
 
 export function weekFingerprint(weekStart: string, people: { id: string; titles: string[] }[]): string {
@@ -338,6 +459,24 @@ export function buildHouseholdTiles(
   return tiles;
 }
 
+function hasOpenChild(item: FamilySourceItem, items: FamilySourceItem[]): boolean {
+  return items.some((child) => child.parent_id === item.id && isOpenForSurfacing(child.status));
+}
+
+/** People lens over Plan: every open attributable item has an owner, including historic ones. */
+function isFamilyTabVisible(item: FamilySourceItem, today: Date, items: FamilySourceItem[]): boolean {
+  if (!isOpenForSurfacing(item.status)) return false;
+  if (item.kind === 'list_item') return false;
+  if (isFamilyVisible(item, today)) return true;
+  if (item.kind === 'hold') return true;
+  if (item.kind === 'obligation') return true;
+  if (item.kind === 'occurrence' && (item.occurs_at || item.event_date)) return true;
+  if (item.kind === 'context_only' && (item.occurs_at || item.event_date || item.due_at)) return true;
+  // Undated context is a stray note unless open work still hangs off it.
+  if (item.kind === 'context_only' && hasOpenChild(item, items)) return true;
+  return false;
+}
+
 export function buildFamilyPlan(
   members: FamilyMemberSource[],
   profile: { first_name: string | null } | null,
@@ -350,7 +489,7 @@ export function buildFamilyPlan(
   const collectionsById = new Map(collections.map((row) => [row.id, row]));
   const listIds = new Set(items.filter((item) => item.kind === 'list_item').map((item) => item.id));
   const attributable = items.filter((item) => {
-    if (!isFamilyVisible(item, today) || !isAttributableItem(item, collectionsById)) return false;
+    if (!isFamilyTabVisible(item, today, items) || !isAttributableItem(item, collectionsById)) return false;
     if (item.parent_id && listIds.has(item.parent_id)) return false;
     return true;
   });
@@ -358,24 +497,42 @@ export function buildFamilyPlan(
   const byPerson = new Map<string, FamilySourceItem[]>();
   for (const person of people) byPerson.set(person.key, []);
   const householdItems: FamilySourceItem[] = [];
-  const yoursItems: FamilySourceItem[] = [];
 
   for (const item of attributable) {
     const assigned = assignItem(item, people);
     if (assigned.kind === 'person') byPerson.get(assigned.key)?.push(item);
-    else if (assigned.kind === 'household') householdItems.push(item);
-    else yoursItems.push(item);
+    else householdItems.push(item);
   }
+
+  // Same-bucket children of an occurrence or context_only parent already render as that
+  // card's checklist. Do not also list them as their own family rows.
+  function stripNestedEventChildren(bucketItems: FamilySourceItem[]): FamilySourceItem[] {
+    const byItemId = new Map(bucketItems.map((i) => [i.id, i]));
+    return bucketItems.filter((i) => {
+      if (!i.parent_id) return true;
+      const parent = byItemId.get(i.parent_id);
+      if (!parent) return true;
+      return parent.kind !== 'occurrence' && parent.kind !== 'context_only';
+    });
+  }
+  for (const [key, personItems] of byPerson) {
+    byPerson.set(key, stripNestedEventChildren(personItems));
+  }
+  const topLevelHouseholdItems = stripNestedEventChildren(householdItems);
 
   const buckets: PersonBucket[] = people.map((person) => {
     const personItems = byPerson.get(person.key) ?? [];
-    const weekItems = personItems.filter((item) => isInCurrentWeek(familyAnchorDate(item), today));
+    const weekItems = personItems.filter(
+      (item) => !item.parent_id && isInCurrentWeek(familyAnchorDate(item), today),
+    );
+    const headlineSource = pickHeadlineItem(personItems, today);
     const previewSource = pickPreviewItems(personItems, today);
     return {
       person,
       items: personItems,
       weekItems,
       preview: previewSource.map((item) => toPreview(item, today)),
+      headline: headlineSource ? toPreview(headlineSource, today) : null,
       weekTitles: weekItems.map((item) => displayItemTitle(item, today)),
     };
   });
@@ -383,25 +540,15 @@ export function buildFamilyPlan(
   return {
     people,
     buckets,
-    householdItems,
-    yoursItems,
-    householdTiles: buildHouseholdTiles(collections, counts, householdItems, today),
-    yoursTiles: buildHouseholdTiles([], new Map(), yoursItems, today),
+    householdItems: topLevelHouseholdItems,
+    householdTiles: buildHouseholdTiles(collections, counts, topLevelHouseholdItems, today),
   };
 }
 
 export const householdPerson: FamilyPerson = {
   key: HOUSEHOLD_KEY,
-  name: 'Family',
-  initial: 'F',
+  name: 'Household',
+  initial: 'H',
   wash: 'paleBlue',
   role: 'household',
-};
-
-export const yoursPerson: FamilyPerson = {
-  key: YOURS_KEY,
-  name: 'Yours',
-  initial: 'Y',
-  wash: 'blush',
-  role: 'yours',
 };

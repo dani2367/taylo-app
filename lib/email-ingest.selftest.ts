@@ -25,6 +25,7 @@ expect('merged prompt keeps hold trainers example', /trainers are getting small/
 expect('merged prompt keeps staff-training context_only', /staff training/i.test(prompt), true);
 expect('merged prompt keeps packed-lunch split', /Packed lunch/.test(prompt), true);
 expect('merged prompt keeps no-presents discipline', /no presents please/i.test(prompt), true);
+expect('merged prompt drops authorised confirmation', /ticks the auth item/i.test(prompt), true);
 expect('merged prompt still includes Phase 3 prep discipline', prompt.includes('do NOT invent prep'), true);
 expect('prompt asks for one overview detail', /"detail":/.test(prompt), true);
 expect('prompt does not ask for nudge_detail', prompt.includes('nudge_detail'), false);
@@ -241,5 +242,29 @@ expect('legacy nudge_body still maps', parseEmailIntake(
   }),
   nurserySource,
 ).body, 'Nursery closed Friday');
+
+const authorisedSource =
+  'Sender: hospital@nhs.uk\nSubject: Re: 23/09 admission\nBody: I can now confirm we have the required authorisation in place for the admission on the 23/09.';
+const authorisedMail = parseEmailIntake(
+  JSON.stringify({
+    capture: 'keep',
+    category: 'medical',
+    action_required: false,
+    date: '2026-09-23',
+    who_it_affects: 'Taya',
+    nudge_title: 'Hospital admission authorised',
+    items: [
+      {
+        title: 'Hospital admission authorised',
+        kind: 'occurrence',
+        occurs_at: '2026-09-23',
+        actionable: 'no',
+        confidence: 'high',
+      },
+    ],
+  }),
+  authorisedSource,
+);
+expect('authorised email stores no occurrence', authorisedMail.items, []);
 
 if (!process.exitCode) console.log('email-ingest self-test passed');

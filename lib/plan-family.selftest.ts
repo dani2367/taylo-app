@@ -2,11 +2,15 @@ import { displayItemTitle } from './placement.ts';
 import {
   assignItem,
   buildFamilyPlan,
+  familyMemberBlurb,
   fallbackWeeklySummary,
+  householdPerson,
   isAttributableItem,
   isInformationalFamilyItem,
   matchingPeople,
   peopleFromSources,
+  pickHouseholdSurfaceItems,
+  pickSurfacePreviewItem,
   whoMatchesPerson,
   type FamilyCollection,
   type FamilyMemberSource,
@@ -102,14 +106,14 @@ expect(
   { kind: 'household' },
 );
 expect(
-  'null → yours',
+  'null → household',
   assignItem(item({ id: '3', title: 'Parcel', who_it_affects: null }), people),
-  { kind: 'yours' },
+  { kind: 'household' },
 );
 expect(
-  'unknown name → yours',
+  'unknown name → household',
   assignItem(item({ id: '4', title: 'Visit', who_it_affects: 'Grandma' }), people),
-  { kind: 'yours' },
+  { kind: 'household' },
 );
 expect(
   'two names → household',
@@ -120,6 +124,49 @@ expect(
   'you → self',
   assignItem(item({ id: '6', title: 'Checkup', who_it_affects: 'you' }), people),
   { kind: 'person', key: 'sophie' },
+);
+expect(
+  'chairman speech → self',
+  assignItem(item({ id: '7', title: 'Chairman speech', who_it_affects: null, kind: 'obligation' }), people),
+  { kind: 'person', key: 'sophie' },
+);
+expect(
+  'outsider wedding speech child → self',
+  assignItem(
+    item({
+      id: '8',
+      title: 'Chairman speech',
+      who_it_affects: null,
+      kind: 'obligation',
+      parent_id: 'wedding',
+      parent: { title: "Oliver's wedding", occurs_at: '2026-12-05' },
+    }),
+    people,
+  ),
+  { kind: 'person', key: 'sophie' },
+);
+expect(
+  'household label is household not family',
+  householdPerson.name,
+  'Household',
+);
+
+const daniMembers: FamilyMemberSource[] = [
+  { id: 'arlo', role: 'child', first_name: 'Arlo', last_name: null },
+  { id: 'taya', role: 'child', first_name: 'Taya', last_name: null },
+  { id: 'dani', role: 'self', first_name: 'Dani', last_name: null },
+  { id: 'sophie-partner', role: 'partner', first_name: 'Sophie', last_name: 'Dennison' },
+];
+const daniPeople = peopleFromSources(daniMembers, { first_name: 'Dani' });
+expect(
+  'dani login: null → household not dani',
+  assignItem(item({ id: '3', title: 'Parcel', who_it_affects: null }), daniPeople),
+  { kind: 'household' },
+);
+expect(
+  'dani login: unknown name → household not dani',
+  assignItem(item({ id: '4', title: 'Visit', who_it_affects: 'Grandma' }), daniPeople),
+  { kind: 'household' },
 );
 
 const shopping: FamilyCollection = {
@@ -201,19 +248,14 @@ expect(
   ['dent', 'form'],
 );
 expect(
-  'sophie items',
-  sophie.items.map((i) => i.id),
-  ['you'],
+  'sophie items include own admin and untagged speech',
+  sophie.items.map((i) => i.id).sort(),
+  ['speech', 'you'],
 );
 expect(
-  'true family items stay on family',
+  'unclear and shared items stay on household',
   plan.householdItems.map((i) => i.id).sort(),
-  ['party', 'radar'],
-);
-expect(
-  'untagged and unknown names sit on yours',
-  plan.yoursItems.map((i) => i.id).sort(),
-  ['parcel', 'speech'],
+  ['parcel', 'party', 'radar'],
 );
 expect(
   'shopping is a household collection tile',
@@ -221,14 +263,40 @@ expect(
   true,
 );
 expect(
-  'parcel is a yours item tile',
-  plan.yoursTiles.some((t) => t.itemId === 'parcel' && t.status !== 'On your radar'),
+  'untagged speech sits on self not household',
+  sophie.items.some((i) => i.id === 'speech') && !plan.householdItems.some((i) => i.id === 'speech'),
   true,
 );
+
+const daniPlan = buildFamilyPlan(
+  daniMembers,
+  { first_name: 'Dani' },
+  [
+    item({ id: 'parcel', title: 'Pick up parcel', who_it_affects: null, kind: 'obligation', due_at: '2026-09-08' }),
+    item({ id: 'speech', title: "Oliver's speech", who_it_affects: null, kind: 'obligation', due_at: '2026-09-09' }),
+    item({ id: 'you', title: 'Book GP checkup', who_it_affects: 'you', kind: 'obligation', due_at: '2026-09-11' }),
+    item({ id: 'party', title: 'Joint party', who_it_affects: 'Arlo and Taya', kind: 'occurrence', occurs_at: '2026-09-12' }),
+  ],
+  [shopping, todo],
+  new Map([['shop', 4]]),
+  today,
+);
+const dani = daniPlan.buckets.find((b) => b.person.key === 'dani')!;
+const sophieAsPartner = daniPlan.buckets.find((b) => b.person.key === 'sophie-partner')!;
 expect(
-  'untagged speech sits on yours not family',
-  plan.yoursTiles.some((t) => t.itemId === 'speech') && !plan.householdTiles.some((t) => t.itemId === 'speech'),
-  true,
+  'dani login: own admin and speech land on dani',
+  dani.items.map((i) => i.id).sort(),
+  ['speech', 'you'],
+);
+expect(
+  'dani login: unclear items land on household not dani',
+  daniPlan.householdItems.map((i) => i.id).sort(),
+  ['parcel', 'party'],
+);
+expect(
+  'dani login: sophie partner bucket stays empty',
+  sophieAsPartner.items.map((i) => i.id),
+  [],
 );
 expect(
   'undated family hold uses on your radar',
@@ -247,24 +315,24 @@ expect(
 );
 
 expect(
-  'arlo summary uses arlo items',
-  fallbackWeeklySummary('Arlo', arlo.weekTitles),
-  "Arlo's week is mostly football and wash kit.",
+  'arlo blurb is top parent this week',
+  familyMemberBlurb(arlo.headline, today),
+  'Pack for sleepover · Today',
 );
 expect(
-  'taya summary uses taya items',
-  fallbackWeeklySummary('Taya', taya.weekTitles),
-  "Taya's week is mostly dentist and trip form.",
-);
-expect(
-  'taya summary not generic-across-family',
-  fallbackWeeklySummary('Taya', taya.weekTitles).includes('football'),
+  'arlo blurb does not fold children',
+  familyMemberBlurb(arlo.headline, today).includes('card') || arlo.weekTitles.some((t) => t.includes('card')),
   false,
 );
 expect(
+  'taya blurb is top parent',
+  familyMemberBlurb(taya.headline, today),
+  'Trip form · Today',
+);
+expect(
   'empty week copy',
-  fallbackWeeklySummary('Arlo', []),
-  "Arlo's week looks quiet so far.",
+  familyMemberBlurb(null, today),
+  'Nothing coming up this week.',
 );
 
 const appointmentOnly = buildFamilyPlan(
@@ -314,14 +382,13 @@ const teddy = withTeddy.buckets.find((b) => b.person.key === 'teddy')!;
 expect(
   'email party lands on teddy not household',
   teddy.items.map((i) => i.id).sort(),
-  ['teddy-card', 'teddy-party'],
+  ['teddy-party'],
 );
 expect('email party is informational on family', isInformationalFamilyItem(teddy.items.find((i) => i.id === 'teddy-party')!), true);
-expect('buy-card obligation is not informational', isInformationalFamilyItem(teddy.items.find((i) => i.id === 'teddy-card')!), false);
 expect(
-  'teddy preview includes party and card',
-  teddy.preview.map((i) => i.id).sort(),
-  ['teddy-card', 'teddy-party'],
+  'teddy preview is the party parent',
+  teddy.preview.map((i) => i.id),
+  ['teddy-party'],
 );
 expect(
   'teddy party preview is informational not an action line',
@@ -332,6 +399,184 @@ expect(
   'teddy party stays off household',
   withTeddy.householdItems.some((i) => i.id === 'teddy-party' || i.id === 'teddy-card'),
   false,
+);
+
+const dietitianPlan = buildFamilyPlan(
+  members,
+  { first_name: 'Sophie' },
+  [
+    item({
+      id: 'dietitian',
+      title: 'Dietitian availability delayed',
+      who_it_affects: 'Taya',
+      kind: 'context_only',
+    }),
+    item({
+      id: 'compleat',
+      title: 'Compleat Paediatric 500ml supply swap',
+      who_it_affects: 'Taya',
+      kind: 'hold',
+      parent_id: 'dietitian',
+      parent: { title: 'Dietitian availability delayed', kind: 'context_only' },
+    }),
+  ],
+  [],
+  new Map(),
+  today,
+);
+const tayaDiet = dietitianPlan.buckets.find((b) => b.person.key === 'taya')!;
+expect(
+  'dietitian cluster stays the parent on family',
+  tayaDiet.items.map((i) => i.id),
+  ['dietitian'],
+);
+expect(
+  'compleat is not a second family row',
+  tayaDiet.items.some((i) => i.id === 'compleat'),
+  false,
+);
+expect(
+  'stray undated context without children stays off family',
+  buildFamilyPlan(
+    members,
+    { first_name: 'Sophie' },
+    [item({ id: 'note', title: 'Some note', who_it_affects: 'Taya', kind: 'context_only' })],
+    [],
+    new Map(),
+    today,
+  ).buckets.find((b) => b.person.key === 'taya')!.items.map((i) => i.id),
+  [],
+);
+
+expect(
+  'fallback is first title only',
+  fallbackWeeklySummary('Arlo', ['Year 2 London trip', 'packed lunch']),
+  'Year 2 London trip',
+);
+
+const arloPerson = people[0];
+expect(
+  'preview prefers home-eligible over radar and context',
+  pickSurfacePreviewItem(
+    [
+      item({ id: 'inset', title: 'INSET day', who_it_affects: 'Arlo', kind: 'context_only', occurs_at: '2026-09-20' }),
+      item({ id: 'hold', title: 'Helmet too small', who_it_affects: 'Arlo', kind: 'hold' }),
+      item({
+        id: 'form',
+        title: 'Trip form',
+        who_it_affects: 'Arlo',
+        kind: 'obligation',
+        due_at: '2026-09-06',
+        confidence: 'high',
+        surface_from: '2026-09-01',
+      }),
+    ],
+    arloPerson,
+    people,
+    today,
+  )?.id,
+  'form',
+);
+expect(
+  'preview falls back to radar hold',
+  pickSurfacePreviewItem(
+    [
+      item({ id: 'inset', title: 'INSET day', who_it_affects: 'Arlo', kind: 'context_only', occurs_at: '2026-09-20' }),
+      item({ id: 'hold', title: 'Helmet too small', who_it_affects: 'Arlo', kind: 'hold' }),
+    ],
+    arloPerson,
+    people,
+    today,
+  )?.id,
+  'hold',
+);
+expect(
+  'schedule-only dentist is not a family preview',
+  pickSurfacePreviewItem(
+    [item({ id: 'dent', title: 'Dentist', who_it_affects: 'Arlo', kind: 'occurrence', occurs_at: '2026-09-10' })],
+    arloPerson,
+    people,
+    today,
+  ),
+  null,
+);
+expect(
+  'shared household hold is a household preview',
+  pickHouseholdSurfaceItems(
+    [item({ id: 'pass', title: 'Renew passport', who_it_affects: 'family', kind: 'hold', visibility: 'shared' })],
+    people,
+    today,
+  ).map((row) => row.id),
+  ['pass'],
+);
+expect(
+  'private family item is not a household preview',
+  pickHouseholdSurfaceItems(
+    [item({ id: 'pass', title: 'Renew passport', who_it_affects: 'family', kind: 'hold', visibility: 'private' })],
+    people,
+    today,
+  ).length,
+  0,
+);
+
+const historic = buildFamilyPlan(
+  members,
+  { first_name: 'Sophie' },
+  [
+    item({
+      id: 'old-form',
+      title: 'Old trip form',
+      who_it_affects: 'Taya',
+      kind: 'obligation',
+      due_at: '2026-08-01',
+      surface_from: '2026-07-01',
+      surface_until: '2026-08-08',
+    }),
+  ],
+  [],
+  new Map(),
+  today,
+);
+expect(
+  'historic obligation still has an owner',
+  historic.buckets.find((b) => b.person.key === 'taya')!.items.map((i) => i.id),
+  ['old-form'],
+);
+
+const weddingPlan = buildFamilyPlan(
+  daniMembers,
+  { first_name: 'Dani' },
+  [
+    item({
+      id: 'wedding',
+      title: "Oliver's wedding",
+      kind: 'occurrence',
+      occurs_at: '2026-12-05',
+      who_it_affects: null,
+    }),
+    item({
+      id: 'chair',
+      title: 'Chairman speech',
+      kind: 'obligation',
+      due_at: '2026-12-05',
+      parent_id: 'wedding',
+      parent: { title: "Oliver's wedding", occurs_at: '2026-12-05', kind: 'occurrence' },
+      who_it_affects: null,
+    }),
+  ],
+  [],
+  new Map(),
+  today,
+);
+expect(
+  'chairman speech is on dani',
+  weddingPlan.buckets.find((b) => b.person.key === 'dani')!.items.map((i) => i.id),
+  ['chair'],
+);
+expect(
+  'wedding occurrence stays on household without swallowing the speech',
+  weddingPlan.householdItems.map((i) => i.id),
+  ['wedding'],
 );
 
 if (!process.exitCode) console.log('plan-family self-test passed');

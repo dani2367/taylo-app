@@ -415,7 +415,8 @@ export const appStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 12,
+    marginTop: 4,
+    flexWrap: 'wrap',
   },
   itemActionPill: {
     paddingVertical: 6,
@@ -436,7 +437,7 @@ export const appStyles = StyleSheet.create({
   },
   itemActionAdd: {
     marginLeft: 'auto',
-    paddingVertical: 2,
+    paddingVertical: 4,
     flexShrink: 1,
   },
   itemActionAddText: {
@@ -1129,6 +1130,13 @@ export const appStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  shareToggleIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   shareToggleCopy: {
     flex: 1,
@@ -1824,7 +1832,6 @@ export const appStyles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   homeExpandDetail: {
-    marginTop: 8,
     fontSize: fontSizes.caption,
     fontFamily: fonts.sansRegular,
     color: colors.textMuted,
@@ -1837,6 +1844,26 @@ export const appStyles = StyleSheet.create({
     color: colors.textMuted,
     lineHeight: 18,
     flex: 1,
+  },
+  homeExpandBlock: {
+    marginTop: 12,
+    paddingTop: 12,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  homeHeroRowOpen: {
+    paddingBottom: 18,
+  },
+  homeDayExpand: {
+    marginTop: 6,
+    marginLeft: 46,
+    paddingTop: 10,
+    paddingBottom: 8,
+    gap: 12,
+  },
+  homeDayRowOpen: {
+    paddingBottom: 6,
   },
   homeHero: {
     ...sectionCard,
@@ -2533,6 +2560,7 @@ export const appStyles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textMuted,
     lineHeight: 18,
+    flexShrink: 0,
   },
   familyNested: {
     marginLeft: 12,

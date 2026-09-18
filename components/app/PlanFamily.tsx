@@ -7,15 +7,11 @@ import {
   organizeStandaloneItems,
   type CollectionRow,
 } from '@/lib/collections';
-import { cachedFamilyWeek, localFamilyWeekSummaries, refreshFamilyWeek } from '@/lib/family-week';
 import {
   buildFamilyPlan,
+  familyMemberBlurb,
   HOUSEHOLD_KEY,
-  YOURS_KEY,
   householdPerson,
-  yoursPerson,
-  weekFingerprint,
-  weekStartYmd,
   type FamilyMemberSource,
   type FamilyPlan,
   type FamilySourceItem,
@@ -224,7 +220,6 @@ function HouseholdCard({
 
 export function PlanFamily({ focusPerson }: { focusPerson?: string | null } = {}) {
   const [plan, setPlan] = useState<FamilyPlan | null>(null);
-  const [summaries, setSummaries] = useState<Record<string, string>>({});
   const [focus, setFocus] = useState<string | null>(focusPerson || null);
   const [loading, setLoading] = useState(true);
 
@@ -280,22 +275,7 @@ export function PlanFamily({ focusPerson }: { focusPerson?: string | null } = {}
       counts,
     );
     setPlan(next);
-
-    const weekStart = weekStartYmd();
-    const people = next.buckets.map((bucket) => ({
-      id: bucket.person.key,
-      name: bucket.person.name,
-      titles: bucket.weekTitles,
-    }));
-    const fingerprint = weekFingerprint(
-      weekStart,
-      people.map((person) => ({ id: person.id, titles: person.titles })),
-    );
-    setSummaries(cachedFamilyWeek(fingerprint) || localFamilyWeekSummaries(people));
     setLoading(false);
-
-    const { summaries: fresh } = await refreshFamilyWeek(weekStart, people);
-    setSummaries(fresh);
   }, []);
 
   useFocusEffect(
@@ -312,7 +292,7 @@ export function PlanFamily({ focusPerson }: { focusPerson?: string | null } = {}
     );
   }
 
-  if (!plan || (!plan.people.length && !plan.householdTiles.length && !plan.yoursTiles.length)) {
+  if (!plan || (!plan.people.length && !plan.householdTiles.length)) {
     return (
       <View style={s.emptyState}>
         <Text style={s.emptyStateText}>Add your family in More and I’ll sort who needs what.</Text>
@@ -320,18 +300,17 @@ export function PlanFamily({ focusPerson }: { focusPerson?: string | null } = {}
     );
   }
 
-  const strip = [...plan.people, householdPerson, yoursPerson];
+  const strip = [...plan.people, householdPerson];
   function toggleFocus(key: string) {
     setFocus((prev) => (prev === key ? null : key));
   }
 
   const visibleBuckets = !focus
     ? plan.buckets
-    : focus === HOUSEHOLD_KEY || focus === YOURS_KEY
+    : focus === HOUSEHOLD_KEY
       ? []
       : plan.buckets.filter((bucket) => bucket.person.key === focus);
   const showHousehold = !focus || focus === HOUSEHOLD_KEY;
-  const showYours = !focus || focus === YOURS_KEY;
 
   return (
     <>
@@ -370,12 +349,7 @@ export function PlanFamily({ focusPerson }: { focusPerson?: string | null } = {}
           bucket={bucket}
           selected={focus === bucket.person.key}
           onSelect={() => toggleFocus(bucket.person.key)}
-          summary={
-            summaries[bucket.person.key] ||
-            localFamilyWeekSummaries([
-              { id: bucket.person.key, name: bucket.person.name, titles: bucket.weekTitles },
-            ])[bucket.person.key]
-          }
+          summary={familyMemberBlurb(bucket.headline)}
         />
       ))}
       {showHousehold ? (
@@ -385,17 +359,7 @@ export function PlanFamily({ focusPerson }: { focusPerson?: string | null } = {}
           onSelect={() => toggleFocus(HOUSEHOLD_KEY)}
           person={householdPerson}
           summary="Shared lists and things that are for everyone."
-          empty="Nothing sitting with the family just now."
-        />
-      ) : null}
-      {showYours ? (
-        <HouseholdCard
-          tiles={plan.yoursTiles}
-          selected={focus === YOURS_KEY}
-          onSelect={() => toggleFocus(YOURS_KEY)}
-          person={yoursPerson}
-          summary="Your jobs that aren't tagged to someone in the family."
-          empty="Nothing sitting with you just now."
+          empty="Nothing sitting with the household just now."
         />
       ) : null}
     </>
