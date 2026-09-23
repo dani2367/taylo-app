@@ -6,7 +6,7 @@ import { colors } from '@/constants/theme';
 import { subscribeAppleCalendarSync } from '@/lib/apple-calendar';
 import { isActiveCollection, organizeStandaloneItems } from '@/lib/collections';
 import { happenCountLabel, happenSortKey, happenTimeLabel, isHappeningToday } from '@/lib/happening';
-import { humanizeEventDate } from '@/lib/human-date';
+import { canonicalDateDetail, humanizeEventDate, specificCalendarLabel } from '@/lib/human-date';
 import { viewerForUser, visibleFamilyMembersSelect, visibleItemsSelect } from '@/lib/item-visibility';
 import {
   displayItemTitle,
@@ -14,6 +14,7 @@ import {
   HOME_RADAR_LOAD_KINDS,
   HOME_SURFACED_COOLDOWN_MS,
   isInformationalOnSchedule,
+  homeCardDueDay,
   selectHomeActions,
   type HomeSurfaced,
   type PlacementParent,
@@ -30,7 +31,8 @@ import {
   type FamilySourceItem,
 } from '@/lib/plan-family';
 import { openPlanFamilyPerson } from '@/lib/plan-tab';
-import { actionSupportLine, extraEventContext, firstCompleteSentence, helpfulSuggestion } from '@/lib/suggestion';
+import { sourceEmailLookupId } from '@/lib/source-email';
+import { extraEventContext, firstCompleteSentence, helpfulSuggestion } from '@/lib/suggestion';
 import { latestSpotlightRows, refreshSpotlight } from '@/lib/spotlight';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect, router } from 'expo-router';
@@ -122,11 +124,13 @@ function formatCategory(category: string | null) {
   };
 }
 
-function mapActionCard(item: ItemRow, children: ItemRow[], reason: string, spotlightId: string): PlanItemCardModel | null {
+function mapActionCard(item: ItemRow, children: ItemRow[], spotlightId: string): PlanItemCardModel | null {
   if (item.status !== 'open') return null;
   if (!isActiveCollection(item.collections)) return null;
   const addedByUser = item.source === 'manual' || item.source === 'chat';
   const meta = formatCategory(item.category);
+  const dueLabel = specificCalendarLabel(homeCardDueDay({ item, children }));
+  if (!dueLabel) return null;
   const title = displayItemTitle(item);
   const body = item.body || '';
   const detail = item.detail || item.action_description || '';
@@ -135,13 +139,7 @@ function mapActionCard(item: ItemRow, children: ItemRow[], reason: string, spotl
     id: item.id,
     rowKey: spotlightId,
     title,
-    context: collapsedActionLine({
-      title,
-      body,
-      reason: reason.trim(),
-      category: item.category || '',
-      eventDate: item.due_at || item.event_date,
-    }),
+    context: `Due ${dueLabel}`,
     detail,
     suggestion: helpfulSuggestion({ ...item, detail }),
     opener: item.detail || item.action_description || body || title,
@@ -155,6 +153,8 @@ function mapActionCard(item: ItemRow, children: ItemRow[], reason: string, spotl
       .map((row) => ({ id: row.id, text: row.title || '', done: row.status === 'done' })),
     createdBy: item.created_by ?? null,
     visibility: item.visibility === 'shared' ? 'shared' : 'private',
+    source: item.source,
+    sourceEmailItemId: sourceEmailLookupId(item),
   };
 }
 
@@ -181,6 +181,8 @@ function mapHappenCard(item: ItemRow, children: ItemRow[]): PlanItemCardModel {
     createdBy: item.created_by ?? null,
     visibility: item.visibility === 'shared' ? 'shared' : 'private',
     timelineTime: happenTime(item),
+    source: item.source,
+    sourceEmailItemId: sourceEmailLookupId(item),
   };
 }
 
@@ -202,31 +204,13 @@ function fewWords(raw: string | null | undefined, max = 7): string | null {
   return words.slice(0, max).join(' ');
 }
 
-function collapsedActionLine(card: {
-  title: string;
-  body: string;
-  reason: string;
-  category: string;
-  eventDate: string | null;
-}): string | null {
-  const when = humanizeEventDate(card.eventDate);
-  const pastWhen = !when || when === 'Today' || /ago|yesterday/i.test(when);
-  const support = actionSupportLine({
-    title: card.title,
-    body: card.body,
-    reason: card.reason,
-    category: card.category,
-  });
-  if (support) return support;
-  if (!pastWhen && when) return `Coming up ${when.toLowerCase()}.`;
-  return null;
-}
-
 function happenTime(item: ItemRow): string {
   return happenTimeLabel(item, timeFromEventDate(item.occurs_at || item.event_date));
 }
 
 function happenSub(item: ItemRow): string | null {
+  const aligned = canonicalDateDetail(item.body, item.occurs_at || item.event_date);
+  if (aligned) return aligned;
   const extra = firstCompleteSentence(item.body);
   if (extra) return extra;
   const who = (item.who_it_affects || '').trim();
@@ -311,7 +295,6 @@ export default function HomeScreen() {
             .filter((row): row is SpotlightJoin & { item_id: string } => !!row.item_id && (row.rank ?? 0) < HOME_OVERFLOW_RANK_BASE)
             .map((row) => ({ id: row.item_id, at: generatedAt }))
         : [];
-    const reasonById = new Map(spotlightRows.map((row) => [row.item_id || '', row.reason_text || '']));
     const spotlightIdByItem = new Map(spotlightRows.map((row) => [row.item_id || '', row.id]));
 
     const openItems = ((itemData as ItemRow[] | null) ?? []).filter((item) => isActiveCollection(item.collections));
@@ -324,7 +307,6 @@ export default function HomeScreen() {
         mapActionCard(
           card.item,
           card.children,
-          reasonById.get(card.item.id) || card.item.action_description || card.item.body || '',
           spotlightIdByItem.get(card.item.id) || card.item.id,
         ),
       )

@@ -82,16 +82,21 @@ export function isSurfaceFromPending(item: PlacementItem, today = new Date()): b
   return !!from && from > todayYmd(today);
 }
 
+/** The day this row happens: occurs_at, or event_date when ingest stored the day there. */
+export function scheduleAnchor(item: { occurs_at?: string | null; event_date?: string | null }): string | null {
+  return dateOnly(item.occurs_at) || dateOnly(item.event_date);
+}
+
 /** Real calendar occurrences — timed or all-day events they attend. */
 export function isOccurrenceOnSchedule(item: PlacementItem): boolean {
   if (!isOpenForSurfacing(item.status)) return false;
   if (isAdminStatusTitle(item.title)) return false;
-  return item.kind === 'occurrence' && !!item.occurs_at;
+  return item.kind === 'occurrence' && !!scheduleAnchor(item);
 }
 
 /**
- * Narrow Schedule carve-out: a context_only row with occurs_at already set
- * (ingest only writes that for high-confidence stated facts).
+ * Narrow Schedule carve-out: a high-confidence context_only row with a known day
+ * (occurs_at, or event_date when that is where the stated day was stored).
  * Shows on the day timeline (Home and Plan) as a note, never as a Home action.
  */
 export function isInformationalOnSchedule(item: PlacementItem): boolean {
@@ -99,7 +104,7 @@ export function isInformationalOnSchedule(item: PlacementItem): boolean {
   if (item.kind !== 'context_only') return false;
   if (isAdminStatusTitle(item.title)) return false;
   if ((item.confidence || '').toLowerCase() !== 'high') return false;
-  return !!item.occurs_at;
+  return !!scheduleAnchor(item);
 }
 
 export function isScheduleItem(item: PlacementItem): boolean {
@@ -137,6 +142,30 @@ export function isObligationOverdueAgainstParent(item: PlacementItem, today = ne
 export function isPastParentPackingLeftover(item: PlacementItem, today = new Date()): boolean {
   if (!isPackingChildOfParent(item, today)) return false;
   return isObligationOverdueAgainstParent(item, today);
+}
+
+/**
+ * Gift / packing work. These keep the 30-day Radar window after the parent day.
+ * A passed deadline on a date-bound admin ask must not close them.
+ */
+export function isGiftOrPackingWork(item: PlacementItem, today = new Date()): boolean {
+  if (isBarePrepTitle(item.title) || isEventKitTitle(item.title)) return true;
+  if (/\b(gifts?|presents?|packing)\b/i.test(item.title || '')) return true;
+  return isPackingChildOfParent(item, today);
+}
+
+/**
+ * One-off admin whose own deadline day has passed (confirm a slot, pay by a date, reply by a date).
+ * The deadline is this row's event_date, or due_at when event_date is empty — not the parent event,
+ * and not a surface_from / surface_until window. Gift and packing leftovers are not this.
+ */
+export function isExpiredDateBoundAdmin(item: PlacementItem, today = new Date()): boolean {
+  if (!isOpenForSurfacing(item.status)) return false;
+  if (item.kind !== 'obligation') return false;
+  if (isGiftOrPackingWork(item, today)) return false;
+  const due = actionDueDay(item, today);
+  if (!due) return false;
+  return due < todayYmd(today);
 }
 
 /** Packing leftover past RADAR_PAST_PARENT_KEEP_DAYS — hide from the default Radar queue only. */
@@ -252,6 +281,7 @@ export function isRadarWatchItem(
   byId?: Map<string, PlacementItem>,
 ): boolean {
   if (!isOpenForSurfacing(item.status)) return false;
+  if (isExpiredDateBoundAdmin(item, today)) return false;
   if (closedParentStatus(item, byId)) return false;
   if (isBarePrepChild(item)) return false;
   if (isShowUpChild(item, byId)) return false;
@@ -276,6 +306,7 @@ export function isHomeEligible(
 ): boolean {
   if (!isOpenForSurfacing(item.status)) return false;
   if (item.kind !== 'obligation') return false;
+  if (isExpiredDateBoundAdmin(item, today)) return false;
   if (closedParentStatus(item, byId)) return false;
   if (isBarePrepChild(item)) return false;
   if (isShowUpChild(item, byId)) return false;
@@ -294,6 +325,8 @@ export function isHomeSpotlightItem(
   byId?: Map<string, PlacementItem>,
 ): boolean {
   if (!isHomeEligible(item, today, byId)) return false;
+  // Surface windows and parent days are not a deadline. Today's actions need this row's own calendar day.
+  if (!actionDueDay(item, today)) return false;
   return isDueTodayOrOverdue(item, today) || isNearTermDue(item, today);
 }
 
@@ -502,13 +535,26 @@ export function asRadarWatchCards<T extends PlacementItem>(
   return [...singlesCards, ...groupedCards];
 }
 
-function radarWatchSortItem<T extends PlacementItem>(card: PlacementCard<T>): T {
-  if (!card.children.length) return card.item;
-  return card.children.reduce((newest, row) => {
-    const a = row.created_at ? Date.parse(row.created_at) : 0;
-    const b = newest.created_at ? Date.parse(newest.created_at) : 0;
-    return a > b ? row : newest;
-  }, card.children[0]!);
+function placementWhen(item: PlacementItem): string | null {
+  const own = dateOnly(item.occurs_at) || dateOnly(item.event_date) || dateOnly(item.due_at);
+  if (own) return own;
+  const parent = unwrapPlacementParent(item.parent);
+  return dateOnly(parent?.occurs_at) || dateOnly(parent?.event_date) || dateOnly(parent?.due_at);
+}
+
+function cardWhen<T extends PlacementItem>(card: PlacementCard<T>): string | null {
+  const days = [placementWhen(card.item), ...card.children.map(placementWhen)].filter(
+    (day): day is string => !!day,
+  );
+  if (!days.length) return null;
+  return days.sort()[0] ?? null;
+}
+
+function cardCreated<T extends PlacementItem>(card: PlacementCard<T>): number {
+  return Math.max(
+    0,
+    ...[card.item, ...card.children].map((row) => (row.created_at ? Date.parse(row.created_at) : 0)),
+  );
 }
 
 export function selectRadarWatch<T extends PlacementItem>(items: T[], today = new Date()): PlacementCard<T>[] {
@@ -525,9 +571,18 @@ export function selectRadarWatch<T extends PlacementItem>(items: T[], today = ne
     // Far-dated Home-eligible leftovers stay on Plan as Radar, not Family-only.
     return isHomeEligible(item, today, byId);
   });
-  return asRadarWatchCards(hydrated, eligible).sort((a, b) =>
-    compareRadarWatch(radarWatchSortItem(a), radarWatchSortItem(b)),
-  );
+  return asRadarWatchCards(hydrated, eligible).sort((a, b) => compareRadarCards(a, b));
+}
+
+function compareRadarCards<T extends PlacementItem>(a: PlacementCard<T>, b: PlacementCard<T>): number {
+  const da = cardWhen(a);
+  const db = cardWhen(b);
+  if (da && db && da !== db) return da < db ? -1 : 1;
+  if (da && !db) return -1;
+  if (!da && db) return 1;
+  const created = cardCreated(b) - cardCreated(a);
+  if (created !== 0) return created;
+  return (a.item.title || '').localeCompare(b.item.title || '');
 }
 
 /** Drop Radar cards already on Home. A needed-now cluster on Home is not also a Radar group. */
@@ -565,6 +620,7 @@ export function exceptHomeActions<T extends PlacementItem>(
  */
 export function isFamilyVisible(item: PlacementItem, today = new Date()): boolean {
   if (!isOpenForSurfacing(item.status)) return false;
+  if (isExpiredDateBoundAdmin(item, today)) return false;
   if (item.kind === 'list_item') return false;
   if (isHomeEligible(item, today) || isRadarWatchItem(item, today) || isScheduleItem(item)) return true;
   if (item.kind === 'context_only') {
@@ -575,6 +631,11 @@ export function isFamilyVisible(item: PlacementItem, today = new Date()): boolea
 }
 
 export function compareRadarWatch(a: PlacementItem, b: PlacementItem): number {
+  const da = placementWhen(a);
+  const db = placementWhen(b);
+  if (da && db && da !== db) return da < db ? -1 : 1;
+  if (da && !db) return -1;
+  if (!da && db) return 1;
   const ca = a.created_at ? Date.parse(a.created_at) : 0;
   const cb = b.created_at ? Date.parse(b.created_at) : 0;
   if (ca !== cb) return cb - ca;
@@ -613,8 +674,12 @@ export function addDaysYmd(ymd: string, days: number): string {
   return todayYmd(dt);
 }
 
-/** Calendar day for ranking: event_date if present, else due_at (local day for timestamps). */
-export function actionDueDay(item: PlacementItem, today = new Date()): string | null {
+/**
+ * Calendar day for ranking and for the Today's-actions label.
+ * event_date if present, else due_at. surface_from / surface_until never count.
+ * `today` is unused; kept so callers can pass the same clock as the other placement checks.
+ */
+export function actionDueDay(item: PlacementItem, _today = new Date()): string | null {
   const eventDay = dateOnly(item.event_date);
   if (eventDay)   return eventDay;
   return dueDayFromTimestamp(item.due_at);
@@ -772,7 +837,29 @@ function rankHomeSpotlightCards<T extends PlacementItem>(
       return a < b ? row : soonest;
     }, card.children[0]!);
   };
-  return [...clusters, ...standalone].sort((a, b) => compareHomeActions(sortItem(a), sortItem(b)));
+  return [...clusters, ...standalone]
+    .filter((card) => homeCardDueDay(card, today) != null)
+    .sort((a, b) => compareHomeActions(sortItem(a), sortItem(b)));
+}
+
+/**
+ * Specific calendar day for a Today's-actions card.
+ * Own event_date / due_at, the parent's occurs_at when that is the only day, or the soonest dated child.
+ * Null when nothing resolves to a YYYY-MM-DD — that card is not eligible for Today's actions.
+ */
+export function homeCardDueDay<T extends PlacementItem>(
+  card: { item: T; children?: T[] },
+  today = new Date(),
+): string | null {
+  const days: string[] = [];
+  const own = actionDueDay(card.item, today) || dateOnly(card.item.occurs_at) || dueDayFromTimestamp(card.item.occurs_at);
+  if (own) days.push(own);
+  for (const child of card.children ?? []) {
+    const due = actionDueDay(child, today);
+    if (due) days.push(due);
+  }
+  if (!days.length) return null;
+  return days.sort()[0]!;
 }
 
 /**

@@ -104,6 +104,95 @@ export function humanizeEventDate(eventDate: string | null | undefined, today = 
   return `In ${wholeWeeks} weeks`;
 }
 
+/**
+ * Calendar day with no relative wording and no year rollover.
+ * "22 September" is the stored day, including when that day is today or already past.
+ */
+export function specificCalendarLabel(raw: string | null | undefined): string | null {
+  const date = parseEventDate(raw);
+  if (!date) return null;
+  return `${date.getDate()} ${MONTHS[date.getMonth()]}`;
+}
+
+const PROSE_MONTH: Record<string, number> = {
+  january: 0,
+  jan: 0,
+  february: 1,
+  feb: 1,
+  march: 2,
+  mar: 2,
+  april: 3,
+  apr: 3,
+  may: 4,
+  june: 5,
+  jun: 5,
+  july: 6,
+  jul: 6,
+  august: 7,
+  aug: 7,
+  september: 8,
+  sept: 8,
+  sep: 8,
+  october: 9,
+  oct: 9,
+  november: 10,
+  nov: 10,
+  december: 11,
+  dec: 11,
+};
+
+function proseMonthDay(text: string): { day: number; month: number } | null {
+  const t = text.replace(/\s+/g, ' ');
+  const months = Object.keys(PROSE_MONTH).join('|');
+  const dayMonth = t.match(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(${months})\\b`, 'i'));
+  const monthDay = dayMonth
+    ? null
+    : t.match(new RegExp(`\\b(${months})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`, 'i'));
+  if (dayMonth) {
+    return { day: Number(dayMonth[1]), month: PROSE_MONTH[dayMonth[2].toLowerCase()] };
+  }
+  if (monthDay) {
+    return { day: Number(monthDay[2]), month: PROSE_MONTH[monthDay[1].toLowerCase()] };
+  }
+  return null;
+}
+
+function isCalendarOnlyPhrase(text: string): boolean {
+  const leftover = text
+    .toLowerCase()
+    .replace(/\b(next|this|on|due|the|of|a|an|and)\b/g, ' ')
+    .replace(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/g, ' ')
+    .replace(/\b(today|tomorrow|yesterday|tonight)\b/g, ' ')
+    .replace(
+      /\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec)\b/g,
+      ' ',
+    )
+    .replace(/\b\d{1,2}(?:st|nd|rd|th)?\b/g, ' ')
+    .replace(/[^a-z]+/g, ' ')
+    .trim();
+  return !leftover;
+}
+
+/**
+ * When stored copy is only a date, or names a different day than the date fields,
+ * the line to show is the stored calendar day ("23 September").
+ * Real extra facts return null so the caller can keep the sentence.
+ */
+export function canonicalDateDetail(
+  prose: string | null | undefined,
+  canonical: string | null | undefined,
+): string | null {
+  const text = (prose || '').replace(/\s+/g, ' ').trim().replace(/[.]+$/, '');
+  const label = specificCalendarLabel(canonical);
+  if (!text || !label) return null;
+  const named = proseMonthDay(text);
+  const date = parseEventDate(canonical);
+  const conflicts =
+    !!named && !!date && (named.day !== date.getDate() || named.month !== date.getMonth());
+  if (conflicts || isCalendarOnlyPhrase(text)) return label;
+  return null;
+}
+
 /** Calendar date for Radar watch copy: "15 October". */
 export function calendarDateLabel(eventDate: string | null | undefined, today = new Date()): string | null {
   const date = resolvePlanDate(eventDate, today);

@@ -267,4 +267,37 @@ const authorisedMail = parseEmailIntake(
 );
 expect('authorised email stores no occurrence', authorisedMail.items, []);
 
+const temuMailSource =
+  "Sender: temu@orders.temu.com\nSubject: Your Temu order's return has been requested\nBody: We've accepted the return request you submitted on Sep 23, 2026, 7:43 pm BST. Please print your return label, attach it to your package, and drop it off. Your package needs to be dropped off within 14 days.";
+const temuMail = parseEmailIntake(
+  JSON.stringify({
+    capture: 'keep',
+    category: 'returns',
+    action_required: true,
+    date: '2026-09-23',
+    nudge_title: "We've accepted the return request you submitted",
+    items: [
+      {
+        title: "We've accepted the return request you submitted",
+        kind: 'occurrence',
+        occurs_at: '2026-09-23T19:43:00',
+        actionable: 'no',
+        confidence: 'high',
+        evidence: 'accepted the return request you submitted on Sep 23, 2026, 7:43 pm BST',
+      },
+      {
+        title: 'Print Temu return label',
+        kind: 'obligation',
+        due_at: '2026-09-23T19:43:00',
+        actionable: 'yes',
+        confidence: 'high',
+        evidence: 'Please print your return label',
+      },
+    ],
+  }),
+  temuMailSource,
+);
+expect('Temu email parent is not an occurrence', temuMail.items[0]?.kind, 'obligation');
+expect('Temu email parent has no clock', temuMail.items[0]?.occurs_at, null);
+
 if (!process.exitCode) console.log('email-ingest self-test passed');

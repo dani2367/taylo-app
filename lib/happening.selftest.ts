@@ -49,6 +49,21 @@ const fuzzy = item({
 expect('coffee is happening today', isHappeningToday(coffee, today), true);
 expect('inset note is happening today', isHappeningToday(inset, today), true);
 expect('later note is not today', isHappeningToday(laterNote, today), false);
+expect(
+  'event_date without occurs_at still counts as today',
+  isHappeningToday(
+    item({
+      id: 'delivery',
+      title: 'Medical supplies delivery',
+      kind: 'context_only',
+      occurs_at: null,
+      event_date: '2026-09-15',
+      confidence: 'high',
+    }),
+    today,
+  ),
+  true,
+);
 expect('medium-confidence note stays off today', isHappeningToday(fuzzy, today), false);
 expect('inset time label is Note', happenTimeLabel(inset, '10am'), 'Note');
 expect('coffee keeps clock', happenTimeLabel(coffee, '10am'), '10am');

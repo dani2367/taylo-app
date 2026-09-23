@@ -62,7 +62,7 @@ export function intakeContractRules(source: IntakeSource): string {
 - A named thing that already happens that day (spa day, parents evening, haircut, pre-op, sports day) is the event. Showing up is not an obligation. "Book the eye test" is still the chore. Standups, 1:1s, and generic diary filler are not family events.
 - A confirmation that admin is done ("authorisation is in place", "we have received the form", "RSVP noted") is not an occurrence. capture nothing_here when there is no new action. Do not mark existing work done — the parent completes it in the app.
 - context_only MAY set occurs_at only for a stated fact that is not an event they attend (e.g. "nursery is closed on the 19th") AND confidence is high.
-- Never for inferred, hedged, or estimated dates ("might", "sometime next week", "Tuesday-ish", a weekday with no this/next week). "Wednesday next week" is a real day — keep it. Code will strip occurs_at unless that bar is met.`;
+- Never for inferred, hedged, or estimated dates ("might", "sometime next week", "Tuesday-ish", a weekday with no this/next). "Wednesday next week", "this Friday", "tomorrow", and "today" are real days — keep them. A bare "Friday" or "next week" alone is not. Code will strip occurs_at unless that bar is met.`;
 
   return `Intake contract — every item you return must fill these fields. ${INTAKE_ITEM_JSON}
 
@@ -220,8 +220,8 @@ export function namedPossessiveLifeEvent(text: string): string | null {
   return isSpecificAttendableEventTitle(title) ? title : null;
 }
 
-/** 23rd October / October 23 → YYYY-MM-DD. Year omitted means the next that day. */
-export function parseUkCalendarDay(text: string, today = new Date()): string | null {
+/** 23rd October / October 23 / 24/09/2026. No weekday or tomorrow. */
+function explicitCalendarDay(text: string, today = new Date()): string | null {
   const t = text.replace(/\s+/g, ' ');
   const dayMonth = t.match(new RegExp(`\\b(${ORDINAL_DAY})\\s+(?:of\\s+)?(${MONTH_NAME})(?:\\s+(20\\d{2}))?\\b`, 'i'));
   const monthDay = dayMonth
@@ -250,7 +250,52 @@ export function parseUkCalendarDay(text: string, today = new Date()): string | n
       return `${y}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     }
   }
-  return parseWeekdayRelativeDay(t, today);
+  const slash = t.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/);
+  if (slash) {
+    const slashDay = Number.parseInt(slash[1], 10);
+    const slashMonth = Number.parseInt(slash[2], 10);
+    let slashYear = Number.parseInt(slash[3], 10);
+    if (slashYear < 100) slashYear += 2000;
+    const slashDt = new Date(Date.UTC(slashYear, slashMonth - 1, slashDay));
+    if (
+      slashMonth >= 1 &&
+      slashMonth <= 12 &&
+      slashDt.getUTCMonth() === slashMonth - 1 &&
+      slashDt.getUTCDate() === slashDay
+    ) {
+      return `${slashYear}-${String(slashMonth).padStart(2, '0')}-${String(slashDay).padStart(2, '0')}`;
+    }
+  }
+  return null;
+}
+
+/** 23rd October / October 23 / 24/09/2026 / this Friday / tomorrow → YYYY-MM-DD. */
+export function parseUkCalendarDay(text: string, today = new Date()): string | null {
+  const t = text.replace(/\s+/g, ' ');
+  return explicitCalendarDay(t, today) || parseWeekdayRelativeDay(t, today) || parseTodayTomorrow(t, today);
+}
+
+/** "tomorrow" / "tonight" / "today" — only when no calendar day was named. */
+function parseTodayTomorrow(text: string, today = new Date()): string | null {
+  const t = text.replace(/\s+/g, ' ');
+  const start = utcYmd(today);
+  if (/\btomorrow\b/i.test(t)) {
+    return formatUtcYmd(new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate() + 1)));
+  }
+  if (/\b(?:today|tonight)\b/i.test(t)) return formatUtcYmd(start);
+  return null;
+}
+
+function mentionsDayNumber(text: string, ymd: string): boolean {
+  const day = Number(ymd.slice(8, 10));
+  if (!day) return false;
+  const suffix =
+    (day % 10 === 1 && day !== 11) ? 'st' :
+    (day % 10 === 2 && day !== 12) ? 'nd' :
+    (day % 10 === 3 && day !== 13) ? 'rd' : 'th';
+  const t = text.replace(/\s+/g, ' ');
+  if (new RegExp(`\\b${day}${suffix}\\b`, 'i').test(t)) return true;
+  return new RegExp(`\\b(?:on|the)\\s+${day}\\b`, 'i').test(t);
 }
 
 function isSpecificAttendableEventTitle(title: string): boolean {
@@ -259,12 +304,21 @@ function isSpecificAttendableEventTitle(title: string): boolean {
   return !BARE_EVENT_NOUN_RE.test(t);
 }
 
+/** A person's name is not an event. "for Teddy" must not split a card into the event. */
+function isNamedEventTarget(title: string): boolean {
+  if (!isSpecificAttendableEventTitle(title)) return false;
+  if (/^[A-Za-z]+$/.test(title) && !/\b(wedding|party|birthday|gala|operation|surgery|haircut|appointment)\b/i.test(title)) {
+    return false;
+  }
+  return true;
+}
+
 export function isCollapsedWorkForEvent(title: string): boolean {
   const t = title.replace(/\s+/g, ' ').trim();
   const dash = t.split(/\s+[—–-]\s+/);
   if (dash.length >= 2 && isSpecificAttendableEventTitle(dash[0])) return true;
   const forEvent = t.match(/^(.+?)\s+for\s+(.+)$/i);
-  return !!forEvent && isSpecificAttendableEventTitle(forEvent[2]);
+  return !!forEvent && isNamedEventTarget(forEvent[2]);
 }
 
 /**
@@ -275,6 +329,7 @@ export function isCollapsedWorkForEvent(title: string): boolean {
 export function isNamedDatedLifeEventCapture(title: string, sourceText: string): boolean {
   if (hasSoftOrInferredDateLanguage(sourceText)) return false;
   if (!hasUnambiguousStatedDate(sourceText)) return false;
+  if (isTransactionalConfirmation(title, sourceText)) return false;
   if (isCollapsedWorkForEvent(title)) return true;
   if (ADMIN_TASK_TITLE_RE.test(title.trim())) return false;
   if (isSpecificAttendableEventTitle(title)) return true;
@@ -333,9 +388,9 @@ const WEEKDAY_NUM: Record<string, number> = {
   saturday: 6,
 };
 
-/** "Wednesday next week" / "next week on Wednesday" / "next Wednesday" — not "Friday" or "next week" alone. */
+/** "Wednesday next week" / "next Wednesday" / "this Friday" — not "Friday" or "next week" alone. */
 function weekdayRelativePattern(): string {
-  return `(?:${WEEKDAY})\\s+(?:this|next)\\s+week|(?:this|next)\\s+week(?:\\s+on)?\\s+(?:${WEEKDAY})|next\\s+(?:${WEEKDAY})`;
+  return `(?:${WEEKDAY})\\s+(?:this|next)\\s+week|(?:this|next)\\s+week(?:\\s+on)?\\s+(?:${WEEKDAY})|next\\s+(?:${WEEKDAY})|this\\s+(?:${WEEKDAY})`;
 }
 
 export function hasWeekdayRelativeDate(text: string): boolean {
@@ -387,6 +442,13 @@ export function parseWeekdayRelativeDay(text: string, today = new Date()): strin
     return ymdOnWeekday(monday, weekday);
   }
 
+  const thisWeekday = t.match(new RegExp(`\\bthis\\s+(${WEEKDAY})\\b`, 'i'));
+  if (thisWeekday) {
+    const weekday = WEEKDAY_NUM[thisWeekday[1].toLowerCase()];
+    if (weekday == null) return null;
+    return ymdOnWeekday(mondayOfContainingWeek(utcYmd(today), 0), weekday);
+  }
+
   const nextWeekday = t.match(new RegExp(`\\bnext\\s+(${WEEKDAY})\\b`, 'i'));
   if (nextWeekday) {
     const weekday = WEEKDAY_NUM[nextWeekday[1].toLowerCase()];
@@ -402,22 +464,68 @@ export function parseWeekdayRelativeDay(text: string, today = new Date()): strin
   return null;
 }
 
-/** "by 7:30" / "at 7:30am" → HH:MM. Do not treat "by the 19th" as a clock. */
-export function parseStatedClock(text: string): string | null {
-  const t = text.replace(/\s+/g, ' ');
-  const colon =
-    t.match(/\b(?:arrive\s+)?(?:by|at|before)\s+(\d{1,2}):(\d{2})\s*(am|pm)?\b/i) ||
-    t.match(/\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/i);
-  const meridiem = colon ? null : t.match(/\b(?:arrive\s+)?(?:by|at|before)\s+(\d{1,2})\s*(am|pm)\b/i);
-  const match = colon || meridiem;
-  if (!match) return null;
-  let hour = Number.parseInt(match[1], 10);
-  const minute = colon ? Number.parseInt(match[2], 10) : 0;
-  const suff = ((colon ? match[3] : match[2]) || '').toLowerCase();
+const CLOCK_COLON_RE = /\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/i;
+const CLOCK_MERIDIEM_RE = /\b(\d{1,2})\s*(am|pm)\b/i;
+const APPOINTMENT_CLOCK_RE =
+  /\b(?:arrive\s+)?(?:by|at|before)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i;
+const APPOINTMENT_CONTEXT_RE =
+  /\b(arrive|appointment|meeting|operation|surgery|dentist|hospital|nursery|interview|parents\s+evening|drop[- ]off)\b/i;
+const TRANSACTIONAL_CONFIRMATION_RE =
+  /\b(we(?:['’]ve| have)\s+(?:accepted|received|processed|confirmed)|(?:your\s+)?(?:return|order|request|booking)\s+(?:has been|was|have been)\s+(?:accepted|received|processed|requested|submitted|placed|confirmed)|(?:return|order|request)\s+you\s+submitted|submitted\s+on|placed\s+on|accepted\s+on|order was placed)\b/i;
+
+/** Order/return/request confirmations — dated admin, not something you attend. */
+export function isTransactionalConfirmation(title?: string | null, sourceText?: string | null): boolean {
+  const blob = `${title || ''} ${sourceText || ''}`.replace(/\s+/g, ' ').trim();
+  if (!blob) return false;
+  return TRANSACTIONAL_CONFIRMATION_RE.test(blob);
+}
+
+function clockFromMatch(
+  hourRaw: string,
+  minuteRaw: string | undefined,
+  suffixRaw: string | undefined,
+): string | null {
+  let hour = Number.parseInt(hourRaw, 10);
+  const minute = minuteRaw ? Number.parseInt(minuteRaw, 10) : 0;
+  const suff = (suffixRaw || '').toLowerCase();
   if (Number.isNaN(hour) || hour > 23 || Number.isNaN(minute) || minute > 59) return null;
   if (suff === 'pm' && hour < 12) hour += 12;
   if (suff === 'am' && hour === 12) hour = 0;
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function sentenceAround(text: string, index: number): string {
+  const start = Math.max(0, text.lastIndexOf('.', index) + 1);
+  const end = text.indexOf('.', index);
+  return text.slice(start, end < 0 ? text.length : end);
+}
+
+/** "Sep 23, 2026, 7:43 pm" / time sitting on "on" — a recorded timestamp, not arrive-at. */
+function isDateTimestampClock(text: string, clockIndex: number): boolean {
+  const before = text.slice(Math.max(0, clockIndex - 48), clockIndex);
+  if (/\bon\s+$/i.test(before)) return true;
+  if (/\b20\d{2}\s*,?\s*$/.test(before)) return true;
+  if (new RegExp(`\\b(?:${MONTH_NAME})\\s+${ORDINAL_DAY}(?:\\s*,?\\s*20\\d{2})?\\s*,?\\s*$`, 'i').test(before)) {
+    return true;
+  }
+  return false;
+}
+
+/** "by 7:30" / "at 7:30am" → HH:MM. Do not treat "by the 19th" or confirmation timestamps as a clock. */
+export function parseStatedClock(text: string): string | null {
+  const t = text.replace(/\s+/g, ' ');
+  const appointment = t.match(APPOINTMENT_CLOCK_RE);
+  if (appointment && !/\bby\s+the\s+\d/i.test(appointment[0])) {
+    return clockFromMatch(appointment[1], appointment[2], appointment[3]);
+  }
+  const loose = t.match(CLOCK_COLON_RE) || t.match(CLOCK_MERIDIEM_RE);
+  if (!loose || loose.index == null) return null;
+  const around = sentenceAround(t, loose.index);
+  if (TRANSACTIONAL_CONFIRMATION_RE.test(around)) return null;
+  if (isDateTimestampClock(t, loose.index)) return null;
+  if (!APPOINTMENT_CONTEXT_RE.test(t)) return null;
+  const colon = CLOCK_COLON_RE.test(loose[0]);
+  return clockFromMatch(loose[1], colon ? loose[2] : undefined, colon ? loose[3] : loose[2]);
 }
 
 function withStatedClock(ymd: string, text: string): string {
@@ -436,7 +544,9 @@ export function hasUnambiguousStatedDate(text: string): boolean {
   if (new RegExp(`\\b${ORDINAL_DAY}\\s+(?:of\\s+)?(?:${MONTH_NAME})\\b`, 'i').test(t)) return true;
   if (new RegExp(`\\b(?:${MONTH_NAME})\\s+${ORDINAL_DAY}\\b`, 'i').test(t)) return true;
   if (/\b20\d{2}-\d{2}-\d{2}\b/.test(t)) return true;
+  if (/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.test(t)) return true;
   if (hasWeekdayRelativeDate(t)) return true;
+  if (/\b(?:tomorrow|tonight|today)\b/i.test(t)) return true;
   return false;
 }
 
@@ -458,6 +568,7 @@ function isConcreteEventPhrase(title: string): boolean {
   if (!t || t.length < 3 || t.length > 60) return false;
   if (BARE_EVENT_NOUN_RE.test(t)) return false;
   if (isGenericDiaryTitle(t) || isChoreLikeTitle(t)) return false;
+  if (isTransactionalConfirmation(t)) return false;
   if (/^(form|email|call|reminder|deadline|flights?|tickets?|shoes?)$/i.test(t)) return false;
   return true;
 }
@@ -475,6 +586,7 @@ function titlesAlign(a: string, b: string): boolean {
 export function statedEventFromOffload(text: string): string | null {
   if (hasSoftOrInferredDateLanguage(text)) return null;
   if (!hasUnambiguousStatedDate(text)) return null;
+  if (isTransactionalConfirmation(null, text)) return null;
 
   const possessive = namedPossessiveLifeEvent(text);
   if (possessive) return possessive;
@@ -509,6 +621,7 @@ function eventTitleFromClause(clause: string, datePat: string): string | null {
   if (!on) return null;
   const title = cleanEventPhrase(on[1]);
   if (!title || ADMIN_TASK_TITLE_RE.test(title) || !isConcreteEventPhrase(title)) return null;
+  if (isTransactionalConfirmation(title, c)) return null;
   return titleCaseLabel(title);
 }
 
@@ -566,11 +679,21 @@ function statedCalendarDay(params: {
   candidate: string | null;
 }): string | null {
   if (hasSoftOrInferredDateLanguage(params.sourceText)) return null;
+  const explicit = explicitCalendarDay(params.sourceText);
+  const weekday = parseWeekdayRelativeDay(params.sourceText);
+  const candidate = dateOnly(params.candidate);
+  if (weekday) return withStatedClock(weekday, params.sourceText);
+  if (explicit) {
+    if (candidate && explicit.slice(5) === candidate.slice(5)) return withStatedClock(candidate, params.sourceText);
+    return withStatedClock(explicit, params.sourceText);
+  }
+  if (candidate && mentionsDayNumber(params.sourceText, candidate)) {
+    return withStatedClock(candidate, params.sourceText);
+  }
+  const relative = parseTodayTomorrow(params.sourceText);
+  if (relative) return withStatedClock(relative, params.sourceText);
   if (!hasUnambiguousStatedDate(params.sourceText)) return null;
-  const fromWeekday = parseWeekdayRelativeDay(params.sourceText);
-  if (fromWeekday) return withStatedClock(fromWeekday, params.sourceText);
-  const date = dateOnly(params.candidate) || parseUkCalendarDay(params.sourceText);
-  return date ? withStatedClock(date, params.sourceText) : null;
+  return candidate ? withStatedClock(candidate, params.sourceText) : null;
 }
 
 export function hasPersistableKind(items: IntakeItem[]): boolean {
@@ -732,11 +855,8 @@ export function normalizeIntakeItem(
       });
       if (day && isNamedDatedLifeEventCapture(title, opts.sourceText)) {
         occurs_at = day;
-      } else if (day && confidence === 'high') {
-        occurs_at = day;
-        kind = 'occurrence';
       } else {
-        kind = due_at ? 'obligation' : 'context_only';
+        kind = due_at || isTransactionalConfirmation(title, opts.sourceText) ? 'obligation' : 'context_only';
       }
     }
     if (occurs_at) due_at = null;
@@ -754,6 +874,9 @@ export function normalizeIntakeItem(
   if (isAdminStatusTitle(title)) return null;
   if (kind === 'obligation' && isEventKitTitle(title)) {
     due_at = null;
+  }
+  if (kind === 'obligation' && due_at && /T\d{2}:\d{2}/.test(due_at) && !parseStatedClock(opts.sourceText)) {
+    due_at = isTransactionalConfirmation(title, opts.sourceText) ? null : dateOnly(due_at);
   }
 
   const item: IntakeItem = {
@@ -997,7 +1120,7 @@ function splitCollapsedEventTitle(title: string, sourceText: string): { eventTit
   }
 
   const forEvent = title.match(/^(.+?)\s+for\s+(.+)$/i);
-  if (forEvent && isSpecificAttendableEventTitle(forEvent[2])) {
+  if (forEvent && isNamedEventTarget(forEvent[2])) {
     return { eventTitle: titleCaseLabel(forEvent[2]), actionTitle: titleCaseLabel(forEvent[1]) };
   }
 
@@ -1033,7 +1156,12 @@ export function expandCollapsedLifeEvent(
     (item) => item.kind === 'obligation' && isNamedDatedLifeEventCapture(item.title, sourceText),
   );
   if (idx < 0 && sourceEvent) {
-    idx = items.findIndex((item) => item.kind === 'obligation');
+    const head = items[0];
+    const headIsEvent =
+      !!head &&
+      head.kind !== 'obligation' &&
+      (titlesAlign(head.title, sourceEvent) || titlesLooselyMatch(head.title, sourceEvent));
+    if (!headIsEvent) idx = items.findIndex((item) => item.kind === 'obligation');
   }
 
   const dateFromSource = (() => {

@@ -2,12 +2,14 @@ import { PlanItemFeed, PlanStackHeader } from '@/components/app/PlanItemFeed';
 import { appStyles as s } from '@/components/app/styles';
 import { colors } from '@/constants/theme';
 import { isActiveCollection } from '@/lib/collections';
+import { specificCalendarLabel } from '@/lib/human-date';
 import { PLAN_ITEM_SELECT, mapPlanItemRow, type PlanItemRow } from '@/lib/plan-item-map';
 import { viewerForUser, visibleItemsSelect } from '@/lib/item-visibility';
 import {
   HOME_OVERFLOW_RANK_BASE,
   HOME_RADAR_LOAD_KINDS,
   HOME_SURFACED_COOLDOWN_MS,
+  homeCardDueDay,
   orderHomeSpotlightQueue,
   type HomeSurfaced,
 } from '@/lib/placement';
@@ -62,8 +64,6 @@ export default function TodaysActionsScreen() {
             .filter((row): row is SpotlightRow & { item_id: string } => !!row.item_id && (row.rank ?? 0) < HOME_OVERFLOW_RANK_BASE)
             .map((row) => ({ id: row.item_id, at: generatedAt }))
         : [];
-    const reasonById = new Map(spotlightRows.map((row) => [row.item_id || '', row.reason_text || '']));
-
     const openItems = (
       (itemData as (PlanItemRow & {
         collections?: { status?: string | null } | { status?: string | null }[] | null;
@@ -71,10 +71,11 @@ export default function TodaysActionsScreen() {
     ).filter((item) => isActiveCollection(item.collections));
 
     const { overflow } = orderHomeSpotlightQueue(openItems, { today, previouslySurfaced });
-    const rows = overflow.map((card) => {
+    const rows = overflow.flatMap((card) => {
+      const dueLabel = specificCalendarLabel(homeCardDueDay(card, today));
+      if (!dueLabel) return [];
       const mapped = mapPlanItemRow(card.item, today);
-      const reason = (reasonById.get(card.item.id) || '').trim();
-      return reason ? { ...mapped, context: reason } : mapped;
+      return [{ ...mapped, context: `Due ${dueLabel}` }];
     });
     setItems(rows);
     setLoading(false);

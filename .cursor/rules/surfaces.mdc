@@ -9,7 +9,7 @@ Do not tune one card. Change placement/ingest so the next email, Offload, and ca
 
 ## Home
 
-Dated **admin** due today, overdue, or within 7 days: form, RSVP, payment, named errand with a deadline. This-week events with open work (gala + form + kit) are **one** Home card. Cap **5**, order **stable by due day**. Visiting Home must not swap two valid cards. See all is the rest of that same pool — not Radar leftovers.
+Dated **admin** due today or within 7 days: form, RSVP, payment, named errand with a deadline. Once that deadline day has passed, the admin ask is dismissed and stays off Home, Radar, and Schedule. Gift/packing leftovers are not that rule — they keep the 30-day Radar window. Today's actions require a real calendar day (`event_date`, else `due_at`, or `occurs_at` on the event card) and show that day. A surface window with no deadline goes to Radar. This-week events with open work (gala + form + kit) are **one** Home card. Cap **5**, order **stable by due day**. Visiting Home must not swap two valid cards. See all is the rest of that same pool — not Radar leftovers.
 
 ## Radar
 

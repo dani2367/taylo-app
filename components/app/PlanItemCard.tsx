@@ -2,10 +2,13 @@ import { BrandIconDisc } from '@/components/app/BrandIcon';
 import { DayTimelineRow } from '@/components/app/DayTimelineCard';
 import { HouseholdShareToggle, SharedHouseCorner } from '@/components/app/HouseholdShareMark';
 import { ItemPrepChecklist, type PrepCheckItem } from '@/components/app/ItemPrepChecklist';
+import { SourceEmailSheet, loadSourceEmails } from '@/components/app/SourceEmailSheet';
 import { appStyles as s } from '@/components/app/styles';
 import { TayloMark } from '@/components/app/TayloMark';
 import { washColor, type PlanIconSpec } from '@/lib/plan-icon';
+import { originalEmailVisible } from '@/lib/source-email';
 import { extraEventContext } from '@/lib/suggestion';
+import { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 
@@ -33,6 +36,10 @@ export type PlanItemCardModel = {
   createdBy?: string | null;
   visibility?: 'private' | 'shared';
   timelineTime?: string | null;
+  /** Provenance. The original-email link is gated on this, never on kind. */
+  source?: string | null;
+  /** `source_emails.item_id` — the parent when this card is a checklist child. */
+  sourceEmailItemId?: string | null;
 };
 
 export function PlanItemCard({
@@ -99,6 +106,26 @@ export function PlanItemCard({
   const showChecklistList = card.listMode || card.hideTitle || nestedItemChecklist || card.checklist.length >= 2;
   const showAddChecklist = !card.listMode && !showChecklistList;
   const expandWrap = hero ? s.homeExpandBlock : timeline ? s.homeDayExpand : null;
+  const sourceEmailItemId = card.sourceEmailItemId || card.id;
+  const [attachedEmails, setAttachedEmails] = useState(0);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const showOriginalEmail = isOpen && originalEmailVisible(card.source, attachedEmails);
+
+  useEffect(() => {
+    if (!isOpen || card.source !== 'calendar') return;
+    let cancelled = false;
+    setAttachedEmails(0);
+    void loadSourceEmails(sourceEmailItemId)
+      .then((rows) => {
+        if (!cancelled) setAttachedEmails(rows.length);
+      })
+      .catch(() => {
+        if (!cancelled) setAttachedEmails(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, card.source, sourceEmailItemId]);
 
   function addChecklist(e: { stopPropagation: () => void }) {
     e.stopPropagation();
@@ -235,6 +262,18 @@ export function PlanItemCard({
                   ) : null}
                 </View>
               )}
+              {showOriginalEmail ? (
+                <Pressable
+                  style={s.itemSourceLink}
+                  accessibilityRole="button"
+                  accessibilityLabel="View original email"
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    setEmailOpen(true);
+                  }}>
+                  <Text style={s.itemActionAddText}>View original email</Text>
+                </Pressable>
+              ) : null}
             </>
           )}
         </View>
@@ -274,31 +313,42 @@ export function PlanItemCard({
     );
   }
 
+  const sheet = (
+    <SourceEmailSheet
+      visible={emailOpen}
+      itemId={sourceEmailItemId}
+      onClose={() => setEmailOpen(false)}
+    />
+  );
+
   return (
-    <Swipeable
-      overshootRight={false}
-      containerStyle={{ width: '100%' }}
-      childrenContainerStyle={{ width: '100%' }}
-      renderRightActions={() => (
-        <Pressable style={s.nudgeSwipeDelete} onPress={onDismiss}>
-          <Text style={s.nudgeSwipeDeleteText}>Delete</Text>
-        </Pressable>
-      )}>
-      <View style={{ width: '100%' }}>
-        <Pressable
-          style={
-            timeline
-              ? isOpen
-                ? s.homeDayRowOpen
-                : undefined
-              : hero
-                ? [s.homeHeroRow, isOpen && s.homeHeroRowOpen, last && !isOpen && s.homeHeroRowLast]
-                : s.planCard
-          }
-          onPress={alwaysOpen ? undefined : onToggleExpand}>
-          {body}
-        </Pressable>
-      </View>
-    </Swipeable>
+    <>
+      <Swipeable
+        overshootRight={false}
+        containerStyle={{ width: '100%' }}
+        childrenContainerStyle={{ width: '100%' }}
+        renderRightActions={() => (
+          <Pressable style={s.nudgeSwipeDelete} onPress={onDismiss}>
+            <Text style={s.nudgeSwipeDeleteText}>Delete</Text>
+          </Pressable>
+        )}>
+        <View style={{ width: '100%' }}>
+          <Pressable
+            style={
+              timeline
+                ? isOpen
+                  ? s.homeDayRowOpen
+                  : undefined
+                : hero
+                  ? [s.homeHeroRow, isOpen && s.homeHeroRowOpen, last && !isOpen && s.homeHeroRowLast]
+                  : s.planCard
+            }
+            onPress={alwaysOpen ? undefined : onToggleExpand}>
+            {body}
+          </Pressable>
+        </View>
+      </Swipeable>
+      {sheet}
+    </>
   );
 }

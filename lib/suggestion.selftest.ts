@@ -1,4 +1,4 @@
-import { helpfulSuggestion } from './suggestion';
+import { firstCompleteSentence, helpfulSuggestion } from './suggestion';
 
 function expect(name: string, got: unknown, want: unknown) {
   if (got !== want) {
@@ -34,6 +34,18 @@ expect(
   'does not invent a passport template',
   helpfulSuggestion({ title: 'Renew passport', body: 'Expires in March', detail: 'The current passport expires in March.', suggestion: null }),
   null,
+);
+
+expect(
+  'does not stop a sentence at Dr.',
+  firstCompleteSentence('Dr. El Halabi is rescheduling to video. Need DOB or hospital number.'),
+  'Dr. El Halabi is rescheduling to video.',
+);
+
+expect(
+  'still stops at a real full stop',
+  firstCompleteSentence('Bring the form tomorrow. Pack a bottle too.'),
+  'Bring the form tomorrow.',
 );
 
 if (!process.exitCode) console.log('suggestion self-test passed');

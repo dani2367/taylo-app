@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { isBarePrepTitle, isEventKitTitle, isExpiredDateBoundAdmin, type PlacementItem } from '@/lib/placement';
 import { classifyStandaloneItem, isListHubTitle } from '@/lib/radar-organize';
 import { looksLikeGroceryProduct, looksLikeShoppingList } from '@/lib/shopping';
 import { narrativeFromSourceEmail } from '@/lib/email-narrative';
@@ -338,7 +339,14 @@ function isHubItem(title: string | null): boolean {
   return isListHubTitle(title);
 }
 
-/** Prep lines stay open after the parent event is dismissed — they must not return to Home. */
+/** List rows and gift/packing leftovers stay open when a parent closes. Other children do not. */
+function childSurvivesParentClose(row: { kind?: string | null; title?: string | null }): boolean {
+  if (row.kind === 'list_item') return true;
+  if (isBarePrepTitle(row.title) || isEventKitTitle(row.title)) return true;
+  return /\b(gifts?|presents?|packing)\b/i.test(row.title || '');
+}
+
+/** Prep lines that are not gift/packing stay off Home after the parent is dismissed. */
 async function closeChildrenOfClosedParents(userId: string): Promise<void> {
   const { data: closedParents, error } = await supabase
     .from('items')
@@ -351,17 +359,56 @@ async function closeChildrenOfClosedParents(userId: string): Promise<void> {
   }
   const parentIds = ((closedParents as { id: string }[] | null) ?? []).map((row) => row.id);
   if (!parentIds.length) return;
-  const { error: childError } = await supabase
+  const { data: children, error: loadError } = await supabase
     .from('items')
-    .update({ status: 'dismissed' })
+    .select('id, title, kind')
     .eq('user_id', userId)
     .eq('status', 'open')
     .in('parent_id', parentIds);
+  if (loadError) {
+    console.error('Failed to load leftover children:', loadError.message);
+    return;
+  }
+  const ids = ((children as { id: string; title: string | null; kind: string | null }[] | null) ?? [])
+    .filter((row) => !childSurvivesParentClose(row))
+    .map((row) => row.id);
+  if (!ids.length) return;
+  const { error: childError } = await supabase.from('items').update({ status: 'dismissed' }).in('id', ids);
   if (childError) console.error('Failed to close leftover children:', childError.message);
+}
+
+/** Dismiss date-bound admin whose own deadline day has passed. Does not touch gift/packing leftovers. */
+export async function closeExpiredDateBoundAdmin(userId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from('items')
+    .select(
+      'id, title, kind, occurs_at, event_date, due_at, confidence, surface_from, surface_until, status, parent_id, collection_id, parent:items!parent_id(title, kind, status, collection_id, occurs_at, event_date, due_at)',
+    )
+    .eq('user_id', userId)
+    .eq('status', 'open')
+    .eq('kind', 'obligation');
+  if (error) {
+    console.error('Failed to load expired admin:', error.message);
+    return 0;
+  }
+  const today = new Date();
+  const ids = ((data as PlacementItem[] | null) ?? [])
+    .filter((row) => isExpiredDateBoundAdmin(row, today))
+    .map((row) => row.id);
+  if (!ids.length) return 0;
+  const { error: updateError } = await supabase.from('items').update({ status: 'dismissed' }).in('id', ids);
+  if (updateError) {
+    console.error('Failed to close expired admin:', updateError.message);
+    return 0;
+  }
+  const { error: spotlightError } = await supabase.from('home_spotlight').delete().in('item_id', ids);
+  if (spotlightError) console.error('Failed to drop expired admin from spotlight:', spotlightError.message);
+  return ids.length;
 }
 
 /** Put loose to-dos and nested checklists onto list collections. */
 export async function organizeStandaloneItems(userId: string): Promise<void> {
+  await closeExpiredDateBoundAdmin(userId);
   await closeChildrenOfClosedParents(userId);
 
   const { data, error } = await supabase

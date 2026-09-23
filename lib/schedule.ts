@@ -121,9 +121,13 @@ export function weekCellInitial(d: Date): string {
   return DAY_INITIAL[d.getDay()];
 }
 
+function agendaWhen(row: ScheduleSourceItem): string | null {
+  return row.occurs_at || row.event_date || null;
+}
+
 export function isScheduleItem(row: ScheduleSourceItem, today = new Date()): boolean {
   if (!isOccurrenceRecord({ ...row, occurs_at: row.occurs_at || null })) return false;
-  return resolvePlanDate(row.occurs_at, today) != null;
+  return resolvePlanDate(agendaWhen(row), today) != null;
 }
 
 function formatClock(hour: number, minute: number): string {
@@ -179,13 +183,14 @@ function scheduleSub(title: string, who: string | null, body: string | null): st
 
 export function mapAgendaRow(row: ScheduleSourceItem, today = new Date()): AgendaRow | null {
   if (!isScheduleItem(row, today)) return null;
-  const date = resolvePlanDate(row.occurs_at, today);
+  const when = agendaWhen(row);
+  const date = resolvePlanDate(when, today);
   if (!date) return null;
   const title = (row.title || 'Untitled').trim() || 'Untitled';
   const informational = (row.kind || '').toLowerCase() === 'context_only';
   const time = informational
     ? { minutes: null as number | null, label: null as string | null }
-    : extractEventTime(row.occurs_at, `${row.title || ''} ${row.body || ''}`);
+    : extractEventTime(when, `${row.title || ''} ${row.body || ''}`);
   return {
     id: row.id,
     title,

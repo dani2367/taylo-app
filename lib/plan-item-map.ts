@@ -1,4 +1,5 @@
 import { planContextLine, thingsToSortLabel } from './human-date';
+import { sourceEmailLookupId } from './source-email';
 import {
   displayItemTitle,
   isPastParentPackingLeftover,
@@ -42,6 +43,7 @@ export type PlanItemRow = {
   urgency_level: string | null;
   source_label: string | null;
   source_email_subject: string | null;
+  source?: string | null;
   created_by?: string | null;
   visibility?: string | null;
   parent?: PlacementParent | PlacementParent[] | null;
@@ -89,6 +91,8 @@ export function mapPlanItemRow(row: PlanItemRow, today = new Date()): PlanItemCa
     createdBy: row.created_by ?? null,
     visibility: row.visibility === 'shared' ? 'shared' : 'private',
     pastParentLeftover: isPastParentPackingLeftover(row, today),
+    source: row.source ?? null,
+    sourceEmailItemId: sourceEmailLookupId(row),
   };
 }
 
@@ -138,6 +142,6 @@ export const PREP_CHILDREN_EMBED = 'prep_children:items!parent_id(id, title, sta
 export const PARENT_EMBED = 'parent:items!parent_id(id, title, kind, status, collection_id, occurs_at, event_date, due_at)';
 
 export const PLAN_ITEM_SELECT =
-  `id, title, body, detail, suggestion, category, icon, action_description, event_date, due_at, occurs_at, kind, confidence, surface_from, surface_until, parent_id, status, urgency_level, source_label, source_email_subject, created_by, visibility, ${PARENT_EMBED}, ${PREP_CHILDREN_EMBED}`;
+  `id, title, body, detail, suggestion, category, icon, action_description, event_date, due_at, occurs_at, kind, confidence, surface_from, surface_until, parent_id, status, urgency_level, source, source_label, source_email_subject, created_by, visibility, ${PARENT_EMBED}, ${PREP_CHILDREN_EMBED}`;
 
 export const ITEM_COUNT_SELECT = `id, title, collection_id, ${PREP_CHILDREN_EMBED}`;

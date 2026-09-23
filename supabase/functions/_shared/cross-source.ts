@@ -9,6 +9,50 @@ export const TITLE_HIGH = 0.68;
 export const TITLE_MEDIUM = 0.5;
 
 const STOP = new Set(['the', 'a', 'an', 'of', 'on', 'at', 'for', 'to', 'and', 'in', 'with', 'from', 'by']);
+/** Timing / channel words that pad a title without naming the event. */
+const TITLE_FILLER = new Set([
+  ...STOP,
+  'virtual',
+  'online',
+  'video',
+  'zoom',
+  'teams',
+  'remote',
+  'session',
+  'invite',
+  'invitation',
+  'confirmation',
+  'confirmed',
+  'today',
+  'tomorrow',
+  'tonight',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+  'sunday',
+  'mon',
+  'tue',
+  'tues',
+  'wed',
+  'thu',
+  'thur',
+  'thurs',
+  'fri',
+  'sat',
+  'sun',
+  'am',
+  'pm',
+  '1st',
+  'first',
+  '2nd',
+  'second',
+  '3rd',
+  'third',
+  'stage',
+]);
 const SYN_GROUPS = [
   ['birthday', 'bday', 'party'],
   ['wedding', 'marriage'],
@@ -17,7 +61,7 @@ const SYN_GROUPS = [
 ];
 
 export const CROSS_SOURCE_SELECT =
-  'id, title, kind, source, who_it_affects, occurs_at, due_at, event_date, parent_id, collection_id, status, evidence, body, detail, suggestion, action_description, source_email_subject, source_email_sender, category, user_id, created_by, household_id, visibility';
+  'id, title, kind, source, who_it_affects, occurs_at, due_at, event_date, parent_id, collection_id, status, evidence, body, detail, suggestion, action_description, source_email_subject, source_email_sender, conversation_id, category, user_id, created_by, household_id, visibility, created_at';
 
 export type LinkableItem = {
   id?: string | null;
@@ -38,7 +82,9 @@ export type LinkableItem = {
   action_description?: string | null;
   source_email_subject?: string | null;
   source_email_sender?: string | null;
+  conversation_id?: string | null;
   category?: string | null;
+  created_at?: string | null;
   user_id?: string | null;
   created_by?: string | null;
   household_id?: string | null;
@@ -99,16 +145,39 @@ export function subjectsShareThread(a?: string | null, b?: string | null): boole
   return left === right;
 }
 
+/** Outlook Graph conversationId. Empty values never match. */
+export function emailsShareConversation(a?: string | null, b?: string | null): boolean {
+  const left = (a || '').trim();
+  const right = (b || '').trim();
+  if (!left || !right) return false;
+  return left === right;
+}
+
+function findConversationItem(incoming: LinkableItem, existing: LinkableItem[]): LinkableItem | undefined {
+  const id = (incoming.conversation_id || '').trim();
+  if (!id) return undefined;
+  const matches = existing.filter(
+    (row) =>
+      !!row.id &&
+      !row.parent_id &&
+      (row.status || 'open').toLowerCase() === 'open' &&
+      emailsShareConversation(id, row.conversation_id) &&
+      whoCompatible(incoming.who_it_affects, row.who_it_affects),
+  );
+  matches.sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+  return matches[0];
+}
+
 function sameMedicalHappening(a?: string | null, b?: string | null): boolean {
   const medicalEvent = /\b(operation|surgery|admission)\b/i;
   return medicalEvent.test(a || '') && medicalEvent.test(b || '');
 }
 
 export function titleSimilarity(a: string, b: string): number {
-  const ta = expandTokens(tokensOf(a));
-  const tb = expandTokens(tokensOf(b));
-  const jac = jaccard(ta, tb);
-  const dice = bigramDice(compact(a), compact(b));
+  const ta = expandTokens(contentTokens(a));
+  const tb = expandTokens(contentTokens(b));
+  const jac = jaccard(ta, tb, fuzzyTokenHits(ta, tb));
+  const dice = bigramDice(compactTitle(a), compactTitle(b));
   const contain = containment(ta, tb);
   return Math.max(jac, dice, contain);
 }
@@ -152,9 +221,9 @@ export function scoreCrossSourceMatch(incoming: LinkableItem, existing: Linkable
   }
 
   const named = titleNamesAttendableEvent(incoming.title || '') && titleNamesAttendableEvent(existing.title || '');
-  const tokensA = expandTokens(tokensOf(incoming.title || ''));
-  const tokensB = expandTokens(tokensOf(existing.title || ''));
-  const shared = intersectSize(tokensA, tokensB);
+  const tokensA = expandTokens(contentTokens(incoming.title || ''));
+  const tokensB = expandTokens(contentTokens(existing.title || ''));
+  const shared = intersectSize(tokensA, tokensB) + fuzzyTokenHits(tokensA, tokensB);
   const distinctive = shared >= 2 || (shared >= 1 && titleScore >= TITLE_HIGH);
 
   if (!distinctive) return { confidence: 'none', titleScore, dateDeltaDays };
@@ -173,6 +242,13 @@ export function scoreCrossSourceMatch(incoming: LinkableItem, existing: Linkable
 export function planCrossSourceLink(incoming: LinkableItem, existing: LinkableItem[]): CrossSourcePlan {
   const statusText = incoming.sourceText || incoming.detail || incoming.body || incoming.evidence || '';
   if (isIgnorableStatusUpdate({ sourceText: statusText, title: incoming.title })) {
+    return { action: 'create', confidence: 'none' };
+  }
+
+  const conversation = findConversationItem(incoming, existing);
+  if (conversation?.id) return mergePlan(incoming, conversation);
+
+  if (!isLinkableParent({ ...incoming, status: incoming.status || 'open' })) {
     return { action: 'create', confidence: 'none' };
   }
 
@@ -276,17 +352,51 @@ export async function loadLinkCandidates(
   return ((data ?? []) as LinkableItem[]).filter((row) => isLinkableParent(row));
 }
 
+async function loadOpenConversationItems(
+  supabase: ItemsClient,
+  userId: string,
+  conversationId: string,
+): Promise<LinkableItem[]> {
+  const id = conversationId.trim();
+  if (!id) return [];
+  const { data, error } = await supabase
+    .from('items')
+    .select(CROSS_SOURCE_SELECT)
+    .eq('user_id', userId)
+    .eq('conversation_id', id)
+    .eq('status', 'open')
+    .is('parent_id', null)
+    .order('created_at', { ascending: true });
+  if (error) {
+    console.error('Failed to load conversation items:', error.message);
+    return [];
+  }
+  return (data ?? []) as LinkableItem[];
+}
+
 /** Email/chat parent not yet inserted. Merge into an existing calendar (or other) row when high-confidence. */
 export async function linkIncomingItem(
   supabase: ItemsClient,
   userId: string,
   incoming: LinkableItem,
 ): Promise<{ merged: boolean; canonicalId: string | null }> {
-  if (!isLinkableParent({ ...incoming, status: incoming.status || 'open' })) {
+  const conversationId = (incoming.conversation_id || '').trim();
+  const incomingLinkable = isLinkableParent({ ...incoming, status: incoming.status || 'open' });
+  if (!incomingLinkable && !conversationId) {
     return { merged: false, canonicalId: null };
   }
-  const candidates = await loadLinkCandidates(supabase, userId);
-  const plan = planCrossSourceLink(incoming, candidates);
+  const candidates = incomingLinkable ? await loadLinkCandidates(supabase, userId) : [];
+  const threaded = conversationId
+    ? await loadOpenConversationItems(supabase, userId, conversationId)
+    : [];
+  const seen = new Set<string>();
+  const pool: LinkableItem[] = [];
+  for (const row of [...threaded, ...candidates]) {
+    if (!row.id || seen.has(row.id)) continue;
+    seen.add(row.id);
+    pool.push(row);
+  }
+  const plan = planCrossSourceLink(incoming, pool);
   if (plan.action !== 'merge') return { merged: false, canonicalId: null };
   await applyCrossSourcePlan(supabase, userId, plan);
   return { merged: true, canonicalId: plan.canonicalId };
@@ -402,6 +512,9 @@ function foldPatch(canonical: LinkableItem, extra: LinkableItem): Record<string,
   if (!canonical.source_email_sender && extra.source_email_sender) {
     patch.source_email_sender = extra.source_email_sender;
   }
+  if (!canonical.conversation_id && extra.conversation_id) {
+    patch.conversation_id = extra.conversation_id;
+  }
   if (!canonical.category && extra.category) patch.category = extra.category;
   if (provenance(canonical) !== 'calendar') {
     if ((canonical.kind || '') !== 'occurrence' && extra.kind === 'occurrence') {
@@ -425,23 +538,72 @@ function foldText(a?: string | null, b?: string | null): string | null {
   return `${x}\n\n${y}`.slice(0, 2000);
 }
 
-function tokensOf(title: string): string[] {
-  return normalizeTitle(title)
-    .split(' ')
-    .filter((token) => token.length > 1 && !STOP.has(token));
+function foldAccents(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
 function normalizeTitle(title: string): string {
-  return title
+  return foldAccents(title)
     .toLowerCase()
     .replace(/['’]s\b/g, ' ')
+    .replace(/\b\d{1,2}(?::\d{2})?\s*(am|pm)?\b/g, ' ')
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-function compact(title: string): string {
-  return normalizeTitle(title).replace(/\s+/g, '');
+/** Event-naming tokens only — drop weekday, clock, "virtual", "with". */
+export function contentTokens(title: string): string[] {
+  return normalizeTitle(title)
+    .split(' ')
+    .filter((token) => token.length > 1 && !TITLE_FILLER.has(token) && !/^\d+$/.test(token));
+}
+
+function compactTitle(title: string): string {
+  return contentTokens(title).join('');
+}
+
+/** Unmatched leftover names that are close (Nespresso / Nestle), not exact equals. */
+function fuzzyTokenHits(a: Set<string>, b: Set<string>): number {
+  const left = [...a].filter((token) => !b.has(token));
+  const right = [...b].filter((token) => !a.has(token));
+  const used = new Set<number>();
+  let hits = 0;
+  for (const token of left) {
+    let best = -1;
+    let bestScore = 0;
+    right.forEach((other, index) => {
+      if (used.has(index)) return;
+      const score = properNounLikeness(token, other);
+      if (score > bestScore) {
+        best = index;
+        bestScore = score;
+      }
+    });
+    if (best >= 0 && bestScore >= 0.5) {
+      used.add(best);
+      hits += 1;
+    }
+  }
+  return hits;
+}
+
+function properNounLikeness(a: string, b: string): number {
+  if (a.length < 4 || b.length < 4) return 0;
+  if (a === b) return 1;
+  if (a.includes(b) || b.includes(a)) return 0.85;
+  const dice = bigramDice(a, b);
+  const prefixLen = sharedPrefixLength(a, b);
+  if (prefixLen >= 4) return Math.max(dice, 0.55);
+  if (prefixLen >= 3 && dice >= 0.3) return Math.max(dice, 0.5);
+  return dice;
+}
+
+function sharedPrefixLength(a: string, b: string): number {
+  const n = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < n && a[i] === b[i]) i += 1;
+  return i;
 }
 
 function expandTokens(tokens: string[]): Set<string> {
@@ -454,11 +616,13 @@ function expandTokens(tokens: string[]): Set<string> {
   return out;
 }
 
-function jaccard(a: Set<string>, b: Set<string>): number {
+function jaccard(a: Set<string>, b: Set<string>, extraHits = 0): number {
   if (!a.size || !b.size) return 0;
   let inter = 0;
   for (const token of a) if (b.has(token)) inter += 1;
-  return inter / (a.size + b.size - inter);
+  inter += extraHits;
+  const union = a.size + b.size - inter;
+  return union <= 0 ? 1 : inter / union;
 }
 
 function containment(a: Set<string>, b: Set<string>): number {

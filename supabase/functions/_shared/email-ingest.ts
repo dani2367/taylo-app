@@ -102,10 +102,12 @@ ${intakeContractRules('email')}${facts}
 
 Date rules:
 - Today is ${params.today} (Europe/London).
+- Resolve relative days into YYYY-MM-DD: "tomorrow", "today", "tonight", "this Friday", "next Wednesday", "Wednesday next week". A bare "Friday" or "next week" with no this/next day stays null.
 - If the email gives a day and month with no year, use this year or the next occurrence — never last year just because the weekday matches.
 - A school trip on "9 September" extracted in September ${params.today.slice(0, 4)} is ${params.today.slice(0, 4)}-09-09, not last year.
+- Numeric dates are day/month/year (24/09/2026).
 - Put action deadlines on due_at / the "date" field.
-- occurs_at stays null except the context_only stated-fact exception in the intake contract.
+- Put the day something happens on occurs_at for an occurrence, and on occurs_at for a high-confidence stated fact (context_only). Do not leave a known day only on the "date" field.
 
 Who you are talking to:
 ${params.voiceBlock}`;

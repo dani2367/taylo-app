@@ -48,6 +48,7 @@ const RECENT_READ_HOURS = 48;
 
 type GraphEmail = {
   id?: string;
+  conversationId?: string;
   inferenceClassification?: string;
   internetMessageHeaders?: { name?: string; value?: string }[];
   sender?: { emailAddress?: { address?: string; name?: string } };
@@ -369,6 +370,7 @@ async function processEmail(
     suggestion: distinctSuggestion(extracted.suggestion, extracted.detail, extracted.body, incomingTitle),
     source_email_subject: subject,
     source_email_sender: sender,
+    conversation_id: email.conversationId?.trim() || null,
     category: extracted.category,
     user_id: userId,
     created_by: userId,
@@ -406,6 +408,7 @@ async function processEmail(
       source: 'email',
       source_email_subject: subject,
       source_email_sender: sender,
+      conversation_id: email.conversationId?.trim() || null,
       status: 'open',
       ...(intakeRowFields(parent)),
     })
@@ -432,16 +435,21 @@ async function ensureSourceEmail(
   nudgeId: string,
   email: GraphEmail,
 ): Promise<void> {
-  const { data: existing, error: lookupError } = await supabase
-    .from('source_emails')
-    .select('id')
-    .eq('item_id', nudgeId)
-    .limit(1);
+  const messageId = emailMessageId(email);
+  const conversationId = email.conversationId?.trim() || null;
 
-  if (lookupError) {
-    throw new Error(`Source email lookup failed: ${lookupError.message}`);
+  if (messageId) {
+    const { data: sameMessage, error: lookupError } = await supabase
+      .from('source_emails')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('message_id', messageId)
+      .limit(1);
+    if (lookupError) {
+      throw new Error(`Source email lookup failed: ${lookupError.message}`);
+    }
+    if (sameMessage && sameMessage.length > 0) return;
   }
-  if (existing && existing.length > 0) return;
 
   const { error: insertError } = await supabase.from('source_emails').insert({
     user_id: userId,
@@ -450,10 +458,21 @@ async function ensureSourceEmail(
     sender: email.sender?.emailAddress?.address ?? '',
     body_text: trimEmailBody(email),
     received_at: email.receivedDateTime ?? null,
+    conversation_id: conversationId,
+    message_id: messageId,
   });
 
   if (insertError) {
     throw new Error(`Failed to insert source email: ${insertError.message}`);
+  }
+
+  if (conversationId) {
+    const { error: stampError } = await supabase
+      .from('items')
+      .update({ conversation_id: conversationId })
+      .eq('id', nudgeId)
+      .is('conversation_id', null);
+    if (stampError) console.error('Failed to stamp conversation id:', stampError.message);
   }
 }
 
@@ -517,7 +536,7 @@ async function setInitialSyncDone(
 }
 
 const GRAPH_MESSAGE_SELECT =
-  'id,sender,subject,bodyPreview,body,receivedDateTime,parentFolderId,inferenceClassification';
+  'id,conversationId,sender,subject,bodyPreview,body,receivedDateTime,parentFolderId,inferenceClassification';
 
 function mergeEmails(...lists: GraphEmail[][]): GraphEmail[] {
   const seen = new Set<string>();

@@ -56,6 +56,20 @@ expect('occurrence is on schedule', mapAgendaRow({
   status: 'open',
 }, today)?.title, 'Nursery');
 
+expect('context_only with event_date and no occurs_at is on that day', mapAgendaRow({
+  id: 'meet',
+  title: 'Nursery meeting',
+  occurs_at: null,
+  event_date: '2026-09-29',
+  body: 'Marie will be there.',
+  category: null,
+  icon: null,
+  who_it_affects: 'Taya',
+  kind: 'context_only',
+  status: 'open',
+  confidence: 'high',
+}, today)?.ymd, '2026-09-29');
+
 expect('obligation with firm due_at stays off schedule', mapAgendaRow({
   id: 'e',
   title: 'Return the trip form',

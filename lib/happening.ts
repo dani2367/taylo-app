@@ -2,6 +2,7 @@ import { daysUntil } from './human-date.ts';
 import {
   isInformationalOnSchedule,
   isScheduleItem,
+  scheduleAnchor,
   type PlacementItem,
 } from '../supabase/functions/_shared/placement.ts';
 import type { PlanIconSpec } from './plan-icon.ts';
@@ -18,7 +19,7 @@ export type HappenItem = {
 /** Whether this row belongs on Home's Today card for this calendar day. */
 export function isHappeningToday(item: PlacementItem, today = new Date()): boolean {
   if (!isScheduleItem(item)) return false;
-  return daysUntil(item.occurs_at, today) === 0;
+  return daysUntil(scheduleAnchor(item), today) === 0;
 }
 
 export function happenTimeLabel(item: PlacementItem, clock: string | null): string {

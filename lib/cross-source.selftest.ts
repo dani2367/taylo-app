@@ -115,6 +115,65 @@ const assembly: LinkableItem = {
 };
 expect('same person same day different events stay separate', planCrossSourceLink(dentist, [assembly]).action, 'create');
 
+const nespresso: LinkableItem = {
+  id: 'email-nespresso',
+  title: 'Interview with Nespresso Friday 3pm',
+  kind: 'context_only',
+  source: 'email',
+  who_it_affects: 'you',
+  occurs_at: '2026-09-18T15:00:00',
+  event_date: '2026-09-18',
+  parent_id: null,
+  status: 'open',
+};
+const nestle: LinkableItem = {
+  id: 'email-nestle',
+  title: 'Virtual interview with Nestlé',
+  kind: 'context_only',
+  source: 'email',
+  who_it_affects: 'you',
+  occurs_at: '2026-09-18',
+  event_date: '2026-09-18',
+  parent_id: null,
+  status: 'open',
+};
+expect(
+  'noisy interview titles still auto-merge',
+  planCrossSourceLink(nestle, [nespresso]).action,
+  'merge',
+);
+expect(
+  'nespresso / nestle titles score in the auto-merge band',
+  titleSimilarity(nespresso.title!, nestle.title!) >= 0.68,
+  true,
+);
+
+const nurseryClosed: LinkableItem = {
+  id: 'closed',
+  title: 'Nursery closed',
+  kind: 'context_only',
+  source: 'email',
+  who_it_affects: 'Taya',
+  occurs_at: '2026-09-29',
+  parent_id: null,
+  status: 'open',
+};
+const nurseryMeeting: LinkableItem = {
+  id: 'meeting',
+  title: 'Nursery meeting',
+  kind: 'context_only',
+  source: 'email',
+  who_it_affects: 'Taya',
+  occurs_at: '2026-09-29',
+  parent_id: null,
+  status: 'open',
+};
+expect(
+  'nursery closed and nursery meeting stay separate',
+  planCrossSourceLink(nurseryClosed, [nurseryMeeting]).action,
+  'create',
+);
+
 const medium = scoreCrossSourceMatch(
   { ...calendarParty, title: 'Team catch-up', who_it_affects: null },
   {
@@ -276,6 +335,53 @@ expect(
   'replies share a thread after stripping Re',
   subjectsShareThread('Re: 23/09 MRN 3560625 T S D', '23/09 MRN 3560625 T S D'),
   true,
+);
+
+const thursdayAsk: LinkableItem = {
+  id: 'provide-details',
+  title: "Taya's appointment—provide details",
+  kind: 'obligation',
+  source: 'email',
+  who_it_affects: 'Taya',
+  status: 'open',
+  parent_id: null,
+  source_email_subject: 'Re: Thursday appointment',
+  conversation_id: 'AAQk-thursday-appointment',
+  created_at: '2026-09-23T08:00:00.000Z',
+};
+const videoFollowUp: LinkableItem = {
+  title: "Taya's appointment is now video",
+  kind: 'context_only',
+  source: 'email',
+  who_it_affects: 'Taya',
+  status: 'open',
+  parent_id: null,
+  source_email_subject: 'Taya Sadie Dennison / 3560625',
+  conversation_id: 'AAQk-thursday-appointment',
+  created_at: '2026-09-23T09:00:00.000Z',
+  sourceText:
+    'Sender: DrSuri.Private@gosh.nhs.uk\nSubject: Taya Sadie Dennison / 3560625\nBody: I have changed the appointment to a video consultation via MyGOSH.',
+};
+const laterOpenCard: LinkableItem = {
+  ...videoFollowUp,
+  id: 'now-video',
+  created_at: '2026-09-23T09:00:00.000Z',
+};
+const conversationLink = planCrossSourceLink(videoFollowUp, [laterOpenCard, thursdayAsk]);
+expect('same conversationId links when the subject changes', conversationLink.action, 'merge');
+if (conversationLink.action === 'merge') {
+  expect('oldest open item in the conversation stays the card', conversationLink.canonicalId, 'provide-details');
+  expect('linked follow-up is not closed', conversationLink.dismissId, null);
+}
+expect(
+  'a changed subject without conversationId stays a separate item',
+  planCrossSourceLink({ ...videoFollowUp, conversation_id: null }, [thursdayAsk]).action,
+  'create',
+);
+expect(
+  'a different conversationId does not link',
+  planCrossSourceLink({ ...videoFollowUp, conversation_id: 'AAQk-other-thread' }, [thursdayAsk]).action,
+  'create',
 );
 
 if (!process.exitCode) console.log('cross-source self-test passed');

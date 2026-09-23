@@ -8,6 +8,8 @@ import {
   isBarePrepTitle,
   isChildOfClosedParent,
   isFamilyVisible,
+  homeCardDueDay,
+  isExpiredDateBoundAdmin,
   isHomeEligible,
   isHomeSpotlightItem,
   isInformationalOnSchedule,
@@ -641,7 +643,7 @@ const emailCard = item({
 const emailHome = selectHomeActions([emailParty, emailCard], { today, limit: 4 });
 expect('this-week email party is the home card', emailHome.map((card) => card.item.id), ['email-party']);
 expect('email child folds under the party', emailHome[0]?.children.map((row) => row.id), ['email-card']);
-expect('email party without occurs_at is not schedule', isScheduleItem(emailParty), false);
+expect('dated context_only with event_date is on schedule', isScheduleItem(emailParty), true);
 
 const nurseryNote = item({
   id: 'nursery-closed',
@@ -779,8 +781,60 @@ expect(
   false,
 );
 expect('aged admin leftover stays off radar watch', isRadarWatchItem(agedForm, today), false);
-expect('aged admin leftover still escalates to home', isHomeEligible(agedForm, today), true);
-expect('aged admin leftover is still a home spotlight item', isHomeSpotlightItem(agedForm, today), true);
+expect('passed admin deadline is not home', isHomeEligible(agedForm, today), false);
+expect('passed admin deadline is not a home spotlight item', isHomeSpotlightItem(agedForm, today), false);
+expect('passed admin deadline is an expired date-bound admin', isExpiredDateBoundAdmin(agedForm, today), true);
+expect('passed admin deadline is not on schedule', isScheduleItem(agedForm), false);
+expect('passed admin deadline is not family-visible', isFamilyVisible(agedForm, today), false);
+expect(
+  'passed admin deadline is not in today actions',
+  selectHomeActions([agedParty, agedForm], { today }).length,
+  0,
+);
+const datedGift = item({
+  id: 'dated-gift',
+  title: 'Buy a gift',
+  kind: 'obligation',
+  due_at: '2026-08-01',
+  confidence: 'medium',
+  parent_id: 'aged-party',
+  parent: { title: agedParty.title, kind: 'occurrence', occurs_at: agedParty.occurs_at, event_date: null },
+});
+expect('dated gift leftover is not closed as expired admin', isExpiredDateBoundAdmin(datedGift, today), false);
+const yesterdayConfirm = item({
+  id: 'slot-yesterday',
+  title: 'Confirm your Little Raccoons slot',
+  kind: 'obligation',
+  due_at: '2026-09-06',
+  event_date: '2026-09-06',
+  confidence: 'medium',
+});
+expect('confirm whose deadline was yesterday is expired', isExpiredDateBoundAdmin(yesterdayConfirm, today), true);
+expect('confirm whose deadline was yesterday is not home', isHomeEligible(yesterdayConfirm, today), false);
+expect('confirm whose deadline was yesterday is not radar', isRadarWatchItem(yesterdayConfirm, today), false);
+const dueTodayConfirm = item({
+  id: 'slot-today',
+  title: 'Confirm your Little Raccoons slot',
+  kind: 'obligation',
+  due_at: '2026-09-07',
+  event_date: '2026-09-07',
+  confidence: 'medium',
+});
+expect('confirm due today is still home', isHomeEligible(dueTodayConfirm, today), true);
+expect('confirm due today shows that calendar day', homeCardDueDay({ item: dueTodayConfirm }, today), '2026-09-07');
+const undatedAdmin = item({
+  id: 'sign-undated',
+  title: 'Sign client agreement',
+  kind: 'obligation',
+  due_at: null,
+  event_date: null,
+  confidence: 'high',
+  surface_from: '2026-09-01',
+  surface_until: '2026-09-30',
+});
+expect('surface window without a deadline is not a today action', selectHomeActions([undatedAdmin], { today }).length, 0);
+expect('surface window without a deadline waits on radar', isRadarWatchItem(undatedAdmin, today), true);
+expect('surface window without a deadline has no home due day', homeCardDueDay({ item: undatedAdmin }, today), null);
 expect('radar leftover keep window is 30 days', RADAR_PAST_PARENT_KEEP_DAYS, 30);
 
 const keepParty = item({
@@ -1295,6 +1349,10 @@ const watch = [hold, buyCardPending, item({
   kind: 'hold',
   created_at: '2026-08-01T00:00:00Z',
 })].sort(compareRadarWatch);
-expect('radar watch sorts newest created first', watch.map((row) => row.id), ['hold', 'card-later', 'older-hold']);
+expect(
+  'radar watch sorts soonest date first, undated by newest capture',
+  watch.map((row) => row.id),
+  ['card-later', 'hold', 'older-hold'],
+);
 
 if (!process.exitCode) console.log('placement self-test passed');

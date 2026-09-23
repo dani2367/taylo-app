@@ -17,6 +17,7 @@ import {
   parseUkCalendarDay,
   statedEventFromOffload,
   informationalScheduleOccursAt,
+  isTransactionalConfirmation,
   normalizeIntakeItem,
   shouldPersistObligation,
   splitParentAndChildren,
@@ -793,6 +794,50 @@ expect(
   false,
 );
 expect(
+  'this Friday from a Wednesday is that Friday',
+  parseUkCalendarDay('would you join this Friday at 3pm', new Date(2026, 8, 16)),
+  '2026-09-18',
+);
+expect(
+  'tomorrow is the next calendar day',
+  parseUkCalendarDay('meet online tomorrow at 10.30', new Date(2026, 8, 22)),
+  '2026-09-23',
+);
+expect('uk numeric date is a stated day', parseUkCalendarDay('Delivery date: 24/09/2026'), '2026-09-24');
+expect(
+  'delivery date is a schedule day',
+  informationalScheduleOccursAt({
+    kind: 'context_only',
+    confidence: 'high',
+    source: 'email',
+    sourceText: 'Delivery date: 24/09/2026',
+    candidate: null,
+  }),
+  '2026-09-24',
+);
+expect(
+  'the 29th uses the candidate day when no month is written',
+  informationalScheduleOccursAt({
+    kind: 'context_only',
+    confidence: 'high',
+    source: 'email',
+    sourceText: 'The 29th is fine, as discussed. Marie can also be present.',
+    candidate: '2026-09-29',
+  }),
+  '2026-09-29',
+);
+expect(
+  'a clock with no day does not become a schedule date',
+  informationalScheduleOccursAt({
+    kind: 'context_only',
+    confidence: 'high',
+    source: 'email',
+    sourceText: 'Just checking you are still OK to meet online at 10.30.',
+    candidate: '2026-09-23',
+  }),
+  null,
+);
+expect(
   'next week alone is still soft',
   hasSoftOrInferredDateLanguage('tays operation next week'),
   true,
@@ -1103,5 +1148,78 @@ expect(
   isNamedDatedLifeEventCapture('Parents evening', 'parents evening is on 4 November'),
   true,
 );
+
+const temuSource =
+  "We've accepted the return request you submitted on Sep 23, 2026, 7:43 pm BST. Please print your return label. Your package needs to be dropped off within 14 days.";
+expect(
+  'Temu confirmation is transactional',
+  isTransactionalConfirmation("We've accepted the return request you submitted", temuSource),
+  true,
+);
+expect(
+  'Temu confirmation is not a named happening',
+  isNamedDatedLifeEventCapture("We've accepted the return request you submitted", temuSource),
+  false,
+);
+expect('Temu confirmation is not an event in the sentence', statedEventFromOffload(temuSource), null);
+const temu = finalizeSourceItems({
+  source: 'email',
+  sourceText: temuSource,
+  fallbackTitle: "We've accepted the return request you submitted",
+  date: '2026-09-23',
+  rawItems: [
+    {
+      title: "We've accepted the return request you submitted",
+      kind: 'occurrence',
+      occurs_at: '2026-09-23T19:43:00',
+      due_at: null,
+      actionable: 'no',
+      prep_implied: 'none',
+      confidence: 'high',
+      evidence: 'accepted the return request you submitted on Sep 23, 2026, 7:43 pm BST',
+    },
+    {
+      title: 'Print Temu return label',
+      kind: 'obligation',
+      occurs_at: null,
+      due_at: '2026-09-23T19:43:00',
+      actionable: 'yes',
+      prep_implied: 'stated',
+      confidence: 'high',
+      evidence: 'Please print your return label',
+    },
+  ],
+});
+expect('Temu parent is an obligation', temu[0]?.kind, 'obligation');
+expect('Temu parent has no occurs_at clock', temu[0]?.occurs_at, null);
+expect(
+  'Temu print-label due_at drops the confirmation clock',
+  temu.find((item) => item.title === 'Print Temu return label')?.due_at,
+  null,
+);
+
+const nurseryMeetSource =
+  'Please come to a nursery meeting with speech and language on Tuesday 29 September at 10:30am.';
+expect('nursery meeting at 10:30 is a clock', parseStatedClock(nurseryMeetSource), '10:30');
+const nurseryMeet = finalizeSourceItems({
+  source: 'email',
+  sourceText: nurseryMeetSource,
+  fallbackTitle: 'Nursery meeting with speech and language',
+  date: '2026-09-29',
+  rawItems: [
+    {
+      title: 'Nursery meeting with speech and language',
+      kind: 'occurrence',
+      occurs_at: '2026-09-29T10:30:00',
+      due_at: null,
+      actionable: 'no',
+      prep_implied: 'none',
+      confidence: 'high',
+      evidence: 'meeting on Tuesday 29 September at 10:30am',
+    },
+  ],
+});
+expect('nursery meeting stays an occurrence', nurseryMeet[0]?.kind, 'occurrence');
+expect('nursery meeting keeps 10:30', nurseryMeet[0]?.occurs_at, '2026-09-29T10:30:00');
 
 if (!process.exitCode) console.log('intake-contract self-test passed');

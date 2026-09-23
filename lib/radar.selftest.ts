@@ -83,7 +83,6 @@ const ordered = [
   item({ id: 'a', title: 'A', event_date: ymd(40) }),
   item({ id: 'c', title: 'C', event_date: null, created_at: '2026-09-04T00:00:00Z' }),
 ].sort((a, b) => compareRadarItems(a, b));
-expect('newer created first', ordered[0].id, 'c');
-expect('older created next', ordered[1].id, 'b');
+expect('dated item before a newer undated capture', ordered.map((row) => row.id).join(','), 'a,c,b');
 
 if (!process.exitCode) console.log('radar self-test passed');

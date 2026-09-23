@@ -26,7 +26,20 @@ export type RadarItem = {
   }[] | null;
 };
 
+function radarSortDay(item: RadarItem): string | null {
+  const own = (item.due_at || item.event_date || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(own)) return own;
+  const parent = unwrapPlacementParent(item.parent);
+  const fromParent = (parent?.occurs_at || parent?.event_date || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(fromParent) ? fromParent : null;
+}
+
 export function compareRadarItems(a: RadarItem, b: RadarItem): number {
+  const da = radarSortDay(a);
+  const db = radarSortDay(b);
+  if (da && db && da !== db) return da < db ? -1 : 1;
+  if (da && !db) return -1;
+  if (!da && db) return 1;
   const ca = a.created_at ? Date.parse(a.created_at) : 0;
   const cb = b.created_at ? Date.parse(b.created_at) : 0;
   if (ca !== cb) return cb - ca;

@@ -102,12 +102,22 @@ export function extraEventContext(
   return text;
 }
 
-/** First finished sentence — never an ellipsis mid-thought. */
+/** Honorifics and similar tokens whose period is not the end of the sentence. */
+const SENTENCE_ABBREV = /\b(?:Dr|Mr|Mrs|Ms|Miss|Prof|Sr|Jr|St|vs|etc)\.$/i;
+
+/** First finished sentence — never an ellipsis mid-thought, and never stop at "Dr." */
 export function firstCompleteSentence(raw: string | null | undefined): string | null {
   const text = (raw || '').replace(/\s+/g, ' ').trim();
   if (!text) return null;
-  const match = text.match(/^.+?[.!?…](?=\s|$)/);
-  if (match) return match[0].trim();
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch !== '.' && ch !== '!' && ch !== '?' && ch !== '…') continue;
+    const boundary = i === text.length - 1 || /\s/.test(text[i + 1] || '');
+    if (!boundary) continue;
+    const soFar = text.slice(0, i + 1);
+    if (ch === '.' && SENTENCE_ABBREV.test(soFar)) continue;
+    return soFar.trim();
+  }
   if (text.length > 140) return null;
   return /[.!?…]$/.test(text) ? text : `${text}.`;
 }

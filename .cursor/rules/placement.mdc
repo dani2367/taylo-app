@@ -10,7 +10,7 @@ Typed fields only. `source` is provenance, never a switch.
 
 ## Home
 
-- `isHomeSpotlightItem`: dated obligation, this week. Cap `HOME_VISIBLE_MAX` (5).
+- `isHomeSpotlightItem`: obligation with its own calendar deadline, due today or within 7 days. A passed deadline is `isExpiredDateBoundAdmin` (dismissed, off every surface). Gift/packing is not that. No deadline day → Radar, never Today's actions. Cap `HOME_VISIBLE_MAX` (5). The card label is that calendar day (`homeCardDueDay`).
 - Rank with `compareHomeActions` only. Do not put See-all ids first because they were off Home last visit (`rankHomeSpotlightCards`).
 - `isAdminActionTitle` (form / RSVP / payment) can be Home. `isEventKitTitle` is packing — not a standalone Home card, even if dated.
 - `asHomeNeededNowCards`: this-week event with a Home-due child, or a Home-due parent with packing, is **one Home card**. Kit folds into that checklist. Do not also Radar-group the same cluster.
